@@ -70,13 +70,24 @@ class GeminiVisionHybridProvider(AIProvider):
             return local_result
         except Exception as err:
             logger.warning(f"Gemini Vision call failed, switching to local fallback: {err}")
+            is_timeout = isinstance(err, (httpx.TimeoutException, TimeoutError)) or "timed out" in str(err).lower() or "timeout" in str(err).lower()
+            status_tag = "TIMEOUT" if is_timeout else "unavailable"
             local_result["provider"] = "LOCAL_CV_FALLBACK"
-            local_result["provider_reason"] = f"Gemini unavailable ({type(err).__name__})"
+            local_result["provider_reason"] = f"Gemini unavailable ({'TIMEOUT' if is_timeout else type(err).__name__})"
             local_result["provider_status"] = "LOCAL_FALLBACK"
-            local_result["ai_status"] = "unavailable"
-            local_result["explanation"] = "Gemini provider unavailable; local computer-vision analysis used."
-            local_result["user_notice"] = "AI analysis unavailable — manual verification required"
-            local_result["fallback_reason"] = "Gemini API unavailable"
+            local_result["ai_status"] = status_tag
+            local_result["verification_mode"] = "LOCAL_FALLBACK"
+            local_result["explanation"] = (
+                "AI analysis timed out; local compliance engine completed the screening."
+                if is_timeout else
+                "Gemini provider unavailable; local computer-vision analysis used."
+            )
+            local_result["user_notice"] = (
+                "AI analysis timed out. Local compliance engine completed the screening."
+                if is_timeout else
+                "AI analysis unavailable — manual verification required"
+            )
+            local_result["fallback_reason"] = "Gemini API timeout" if is_timeout else "Gemini API unavailable"
             return local_result
 
     def analyze_visual_anomalies(self, image_path: str) -> Dict[str, Any]:

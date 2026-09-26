@@ -378,16 +378,19 @@ class ReportPDFService:
         ))
         elements.append(Spacer(1, 15))
 
-        fields = (ocr_data or {}).get("fields", {})
+        fields = (ocr_data or {}).get("fields") or {}
         if hasattr(fields, "__dict__"):
             fields = fields.__dict__
         elif hasattr(fields, "dict"):
             fields = fields.dict()
-        mrz = (ocr_data or {}).get("mrz", {})
+        fields = fields or {}
+
+        mrz = (ocr_data or {}).get("mrz") or {}
         if hasattr(mrz, "__dict__"):
             mrz = mrz.__dict__
         elif hasattr(mrz, "dict"):
             mrz = mrz.dict()
+        mrz = mrz or {}
 
         raw_name = fields.get("full_name") or f"{fields.get('first_name', '')} {fields.get('last_name', '')}".strip() or mrz.get("surname", "")
         raw_doc_num = fields.get("document_number") or mrz.get("document_number", "")

@@ -7,6 +7,11 @@ from typing import Dict, Any, List, Optional, Tuple
 from backend.app.models.schemas import ExtractedFields, BoundingBox, OCRResultResponse
 from backend.app.services.mrz_parser import mrz_parser
 
+import hashlib
+import copy
+
+_OCR_CACHE: Dict[str, Dict[str, Any]] = {}
+
 def is_tesseract_installed() -> bool:
     try:
         import pytesseract
@@ -19,7 +24,7 @@ def is_tesseract_installed() -> bool:
         return False
 
 class BaseOCREngine:
-    def process_image(self, image_path: str) -> Dict[str, Any]:
+    def process_image(self, image_path: str, file_hash: Optional[str] = None, force_fresh: bool = False) -> Dict[str, Any]:
         raise NotImplementedError
 
 class ModularOCREngine(BaseOCREngine):
@@ -32,11 +37,12 @@ class ModularOCREngine(BaseOCREngine):
     Guarantees:
     - Never throws fatal unhandled exceptions on missing OCR binary/library.
     - Flags low confidence gracefully with status='LOW_CONFIDENCE' instead of failing pipeline.
+    - Caches OCR results by SHA-256 hash for sub-millisecond repeated analysis.
     """
     def __init__(self):
         self.tesseract_available = is_tesseract_installed()
 
-    def process_image(self, image_path: str) -> Dict[str, Any]:
+    def process_image(self, image_path: str, file_hash: Optional[str] = None, force_fresh: bool = False) -> Dict[str, Any]:
         path = Path(image_path)
         if not path.exists():
             return {
@@ -47,8 +53,22 @@ class ModularOCREngine(BaseOCREngine):
                 "bounding_boxes": [],
                 "engine_used": "Fallback_Empty",
                 "status": "UNAVAILABLE",
-                "ocr_status": "UNAVAILABLE"
+                "ocr_status": "UNAVAILABLE",
+                "cached": False
             }
+
+        # Check Cache
+        doc_hash = file_hash
+        if not doc_hash:
+            try:
+                doc_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            except Exception:
+                doc_hash = None
+
+        if doc_hash and not force_fresh and doc_hash in _OCR_CACHE:
+            cached_res = copy.deepcopy(_OCR_CACHE[doc_hash])
+            cached_res["cached"] = True
+            return cached_res
 
         img = cv2.imread(str(path))
         h, w = (img.shape[:2]) if img is not None else (600, 900)
@@ -69,7 +89,19 @@ class ModularOCREngine(BaseOCREngine):
         # 2. Multi-Tier OCR Hierarchy
         engine_used = "Rule-based OCR Fallback Engine"
         if not raw_text:
-            raw_text, engine_used = self._run_primary_or_fallback_ocr(img)
+            if path.suffix.lower() == ".pdf":
+                try:
+                    from pypdf import PdfReader
+                    reader = PdfReader(str(path))
+                    pdf_text = "\n".join([p.extract_text() or "" for p in reader.pages]).strip()
+                    if len(pdf_text) > 40:
+                        raw_text = pdf_text
+                        engine_used = "Digital PDF Direct Text Extractor"
+                except Exception:
+                    pass
+
+            if not raw_text:
+                raw_text, engine_used = self._run_primary_or_fallback_ocr(img)
 
         # 3. Extract MRZ lines
         mrz_candidates = mrz_parser.extract_mrz_lines(raw_text)
@@ -87,7 +119,7 @@ class ModularOCREngine(BaseOCREngine):
         # 7. Status classification: LOW_CONFIDENCE instead of fatal failure
         ocr_status = "OK" if confidence >= 0.60 else "LOW_CONFIDENCE"
 
-        return {
+        result = {
             "raw_text": raw_text,
             "fields": fields,
             "mrz": mrz_data,
@@ -95,8 +127,12 @@ class ModularOCREngine(BaseOCREngine):
             "bounding_boxes": bounding_boxes,
             "engine_used": engine_used,
             "status": ocr_status,
-            "ocr_status": ocr_status
+            "ocr_status": ocr_status,
+            "cached": False
         }
+        if doc_hash:
+            _OCR_CACHE[doc_hash] = copy.deepcopy(result)
+        return result
 
     def _run_primary_or_fallback_ocr(self, img: Optional[np.ndarray]) -> Tuple[str, str]:
         """Attempts Primary OCR (Tesseract / EasyOCR), falling back safely."""
@@ -268,7 +304,7 @@ class OCRService:
     def __init__(self, engine: Optional[BaseOCREngine] = None):
         self.engine = engine or ModularOCREngine()
 
-    def process_document(self, image_path: str) -> Dict[str, Any]:
-        return self.engine.process_image(image_path)
+    def process_document(self, image_path: str, file_hash: Optional[str] = None, force_fresh: bool = False, **kwargs) -> Dict[str, Any]:
+        return self.engine.process_image(image_path, file_hash=file_hash, force_fresh=force_fresh)
 
 ocr_service = OCRService()

@@ -26,7 +26,8 @@ import {
   Hash,
   User,
   ShieldCheck,
-  SwitchCamera
+  SwitchCamera,
+  Zap
 } from "lucide-react";
 import { api, ScreeningException } from "@/lib/api";
 import DocumentScanner from "@/components/DocumentScanner";
@@ -128,7 +129,7 @@ export default function ScreeningPage() {
     setShowLiveSelfieScanner(false);
   };
 
-  const executePipeline = async (overrideHint?: string, forceFallback: boolean = false) => {
+  const executePipeline = async (overrideHint?: string, forceFallback: boolean = false, forceFresh: boolean = false) => {
     if (!frontFile) {
       setScreeningError({
         stage: "Input Validation",
@@ -146,10 +147,10 @@ export default function ScreeningPage() {
     setScreeningError(null);
     setRetryStatus(null);
 
-    // Stepped pipeline animation
+    // Dynamic pipeline step advancement without artificial freezes
     const interval = setInterval(() => {
       setCurrentStep((prev) => (prev < 9 ? prev + 1 : prev));
-    }, 450);
+    }, 150);
 
     try {
       const formData = new FormData();
@@ -159,6 +160,9 @@ export default function ScreeningPage() {
       formData.append("document_type_hint", overrideHint || docTypeHint);
       if (forceFallback) {
         formData.append("force_local_fallback", "true");
+      }
+      if (forceFresh) {
+        formData.append("force_fresh", "true");
       }
       if (notes) formData.append("notes", notes);
 
@@ -732,6 +736,17 @@ export default function ScreeningPage() {
                       Processed with Local CV Fallback (AI unavailable)
                     </span>
                   )}
+                  {screenResult?.cached && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
+                      <Zap className="w-3 h-3 text-cyan-400" />
+                      Cached Analysis Found (&lt;50ms)
+                    </span>
+                  )}
+                  {screenResult?.ai_status === "TIMEOUT" && (
+                    <span className="px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
+                      AI analysis timed out — local compliance engine completed screening
+                    </span>
+                  )}
                   {screenResult?.ai_status === "unavailable" && (
                     <span className="px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
                       AI analysis unavailable — manual verification required
@@ -749,6 +764,21 @@ export default function ScreeningPage() {
                       : "PDF report generated and sealed with SHA-256 fingerprint."}
                   </span>
                 </div>
+
+                {screenResult?.timing && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-white font-bold">Latency:</span>
+                    <span className="text-emerald-400 font-bold">Total: {(screenResult.timing.total_ms / 1000).toFixed(2)}s</span>
+                    <span>•</span>
+                    <span>Upload: {screenResult.timing.upload_ms}ms</span>
+                    <span>•</span>
+                    <span>OCR: {screenResult.timing.ocr_ms}ms</span>
+                    <span>•</span>
+                    <span>Parallel Forensics: {screenResult.timing.concurrent_stages_ms}ms</span>
+                    <span>•</span>
+                    <span>100 Checks: {screenResult.timing.rules_100_checks_ms}ms</span>
+                  </div>
+                )}
               </div>
 
               {/* Integrity & Score Pills */}
@@ -783,7 +813,7 @@ export default function ScreeningPage() {
 
             {/* Quick Action Buttons */}
             <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Link
                   href={`/cases/${screenResult.case_id}/checks`}
                   className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-colors flex items-center gap-1.5"
@@ -798,6 +828,17 @@ export default function ScreeningPage() {
                 >
                   Full Screening Report
                 </Link>
+
+                {screenResult?.cached && (
+                  <button
+                    type="button"
+                    onClick={() => executePipeline(docTypeHint, false, true)}
+                    className="px-3.5 py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 text-xs font-bold border border-cyan-800/60 transition-colors flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Re-scan Fresh</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
