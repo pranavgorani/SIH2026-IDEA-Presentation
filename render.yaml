@@ -1,0 +1,36 @@
+# ==============================================================================
+# TRUST-ID — Render Infrastructure as Code Blueprint
+# Problem Statement: SIH26188 (Ministry of Home Affairs)
+# ==============================================================================
+
+services:
+  - type: web
+    name: trustid-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile.backend
+    plan: standard
+    region: singapore
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: HOST
+        value: 0.0.0.0
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: AI_PROVIDER
+        value: LOCAL_CV_FALLBACK
+      - key: VERIFICATION_MODE
+        value: MOCK_SIMULATED
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trustid-postgres
+          property: connectionString
+
+databases:
+  - name: trustid-postgres
+    plan: free
+    region: singapore
+    databaseName: trustid_db
+    user: trustid_user

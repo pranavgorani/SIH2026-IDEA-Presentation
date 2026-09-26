@@ -273,7 +273,49 @@ When demonstrating TRUST-ID to the evaluation panel, follow this concise sequenc
 
 ---
 
-## 13. Limitations & Ethical Considerations
+## 14. Vercel & Production Cloud Deployment Guide
+
+### Deploying the Next.js Frontend to Vercel
+
+The frontend is built with **Next.js 15 App Router** and is fully optimized for Vercel:
+
+#### Method A: Via Vercel Web Dashboard (Recommended)
+1. Go to [vercel.com/new](https://vercel.com/new) and log in with your GitHub account.
+2. Select your repository: **`pranavgorani/SIH2026-IDEA-Presentation`**.
+3. In the **Configure Project** screen:
+   - Expand **Root Directory**, click **Edit**, and select `frontend`.
+   - Vercel automatically detects the **Next.js** framework!
+4. Under **Environment Variables**, add:
+   - `NEXT_PUBLIC_API_URL`: Your deployed FastAPI backend URL (e.g., `https://trustid-backend.onrender.com` or `http://127.0.0.1:8000` for local testing).
+5. Click **Deploy**. Your frontend will be live on a global edge CDN in ~60 seconds!
+
+#### Method B: Via Vercel CLI
+```bash
+# Navigate to the frontend directory
+cd frontend
+
+# Deploy using Vercel CLI
+npx vercel
+```
+
+---
+
+### Deploying the FastAPI Backend to Render / Railway / Docker
+
+The backend leverages OpenCV and cryptographic libraries. It can be deployed in 1 click using the included [`render.yaml`](file:///c:/Users/Pranav/OneDrive/Documents/SIH2026-IDEA-Presentation/render.yaml) or [`Dockerfile.backend`](file:///c:/Users/Pranav/OneDrive/Documents/SIH2026-IDEA-Presentation/Dockerfile.backend):
+
+1. Go to [render.com](https://render.com) or [railway.app](https://railway.app).
+2. Choose **New Web Service** -> **Deploy from GitHub repo**.
+3. Select `pranavgorani/SIH2026-IDEA-Presentation`.
+4. Choose **Docker** as the environment and specify `Dockerfile.backend`.
+5. Set environment variables:
+   - `JWT_SECRET`: Any random 32-character string.
+   - `CORS_ORIGINS`: Your Vercel frontend URL (e.g., `https://sih2026-idea-presentation.vercel.app`).
+6. Copy the resulting backend URL (e.g., `https://trustid-backend.onrender.com`) and paste it as `NEXT_PUBLIC_API_URL` in your Vercel project settings!
+
+---
+
+## 15. Limitations & Ethical Considerations
 
 1. **Synthetic Verification Provider:** Real production deployment requires authorized integration with national databases (such as C-PRAMS, Passport Seva Project, or ICAO PKD). In compliance with hackathon guidelines, TRUST-ID uses a simulated provider adapter that models real response structures without unauthorized connections.
 2. **Optical Specular Reflection:** High-gloss laminated cards under harsh flash photography can generate high-frequency ELA artifacts resembling digital manipulation. TRUST-ID mitigates this through a dedicated specular glare detector that lowers confidence rather than marking the credential as fraudulent.
@@ -281,7 +323,7 @@ When demonstrating TRUST-ID to the evaluation panel, follow this concise sequenc
 
 ---
 
-## 14. License & Attribution
+## 16. License & Attribution
 
 Developed for the **Smart India Hackathon 2026** under the problem statement **SIH26188: AI-Based Fake Identity & Document Screening System** issued by the **Ministry of Home Affairs (MHA)**.
 All synthetic datasets and demonstration imagery are generated solely for academic and technical evaluation.
