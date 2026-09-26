@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache & build
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Next.js build output
+frontend/.next/
+frontend/out/
+frontend/build/
+*.tsbuildinfo
+
+# Local databases & run-time artifacts
+*.db
+*.sqlite
+*.sqlite3
+backend/trustid.db
+backend/storage/*
+!backend/storage/.gitkeep
+
+# Environment secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

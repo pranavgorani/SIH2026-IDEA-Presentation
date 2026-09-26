@@ -1,0 +1,78 @@
+services:
+  # ============================================================================
+  # TRUST-ID Backend API & Screening Orchestrator
+  # ============================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: trustid-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - DATABASE_URL=postgresql://trustid_user:trustid_password@postgres:5432/trustid_db
+      - JWT_SECRET=trustid_sih2026_tamper_evident_secure_jwt_secret_key
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - AI_PROVIDER=LOCAL_CV_FALLBACK
+      - VERIFICATION_MODE=MOCK_SIMULATED
+      - STORAGE_DIR=/app/backend/storage
+    volumes:
+      - backend-storage:/app/backend/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================================
+  # TRUST-ID Next.js 15 Frontend
+  # ============================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: trustid-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ============================================================================
+  # Relational Database (PostgreSQL 16)
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: trustid-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=trustid_db
+      - POSTGRES_USER=trustid_user
+      - POSTGRES_PASSWORD=trustid_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trustid_user -d trustid_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================================
+  # Async Worker Queue & Cache (Redis 7)
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: trustid-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  backend-storage:
+  postgres-data:
