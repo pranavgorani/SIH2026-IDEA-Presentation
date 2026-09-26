@@ -1,5 +1,6 @@
 import os
 import sys
+import secrets
 from pathlib import Path
 from typing import List, Dict
 from pydantic_settings import BaseSettings
@@ -17,6 +18,23 @@ for _p in [str(_workspace_dir), str(_backend_dir)]:
 
 BASE_DIR = _backend_dir
 IS_VERCEL = bool(os.getenv("VERCEL"))
+ENV = os.getenv("ENVIRONMENT", "development").lower()
+
+def get_jwt_secret() -> str:
+    secret = os.getenv("JWT_SECRET")
+    if secret and secret.strip() and secret.strip() not in ("CHANGE_ME_IN_PRODUCTION", "CHANGE_ME_LOCALLY"):
+        return secret.strip()
+    
+    # In production environments, fail clearly if secret is missing or default
+    if IS_VERCEL or ENV in ("production", "prod"):
+        raise RuntimeError(
+            "CRITICAL SECURITY CONFIGURATION ERROR: JWT_SECRET environment variable is missing or using default. "
+            "Please generate and set a cryptographically secure key: "
+            "python -c 'import secrets; print(secrets.token_urlsafe(48))'"
+        )
+    
+    # In local development: generate a transient cryptographically secure secret
+    return secrets.token_urlsafe(48)
 
 def get_default_db_url() -> str:
     if os.getenv("DATABASE_URL"):
@@ -38,13 +56,13 @@ def get_default_storage_dir() -> Path:
 def get_default_cors() -> List[str]:
     env_cors = os.getenv("CORS_ORIGINS")
     if env_cors:
-        return [o.strip() for o in env_cors.split(",") if o.strip()]
+        origins = [o.strip() for o in env_cors.split(",") if o.strip() and o.strip() != "*"]
+        if origins:
+            return origins
+    # Safe default origins for development; in production set CORS_ORIGINS=https://your-domain.vercel.app
     return [
         "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "*"
+        "http://127.0.0.1:3000"
     ]
 
 class Settings(BaseSettings):
@@ -54,8 +72,8 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api"
 
-    # Security
-    SECRET_KEY: str = os.getenv("JWT_SECRET", "trustid-secure-sih2026-production-token-secret-key-mha")
+    # Security: Read securely from environment without hardcoded fallback credentials
+    SECRET_KEY: str = get_jwt_secret()
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
@@ -67,7 +85,7 @@ class Settings(BaseSettings):
     UPLOAD_MAX_SIZE_MB: int = 25
     ALLOWED_EXTENSIONS: List[str] = [".jpg", ".jpeg", ".png", ".webp", ".pdf"]
 
-    # CORS
+    # CORS (Strict origin specification; no wildcard in production)
     CORS_ORIGINS: List[str] = get_default_cors()
 
     # Risk Engine Default Weights (Sum to 1.0)
@@ -86,8 +104,8 @@ class Settings(BaseSettings):
     RISK_THRESHOLD_MEDIUM: float = 60.0  # 31 - 60: Medium Risk
     # > 60: High Risk
 
-    # System Providers
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "LocalModelProvider")
+    # System Providers (LOCAL_CV_FALLBACK or GEMINI_VISION_HYBRID)
+    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "LOCAL_CV_FALLBACK")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
     class Config:

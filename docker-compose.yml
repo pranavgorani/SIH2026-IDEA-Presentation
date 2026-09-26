@@ -12,11 +12,12 @@ services:
     environment:
       - PORT=8000
       - HOST=0.0.0.0
-      - DATABASE_URL=postgresql://trustid_user:trustid_password@postgres:5432/trustid_db
-      - JWT_SECRET=trustid_sih2026_tamper_evident_secure_jwt_secret_key
-      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-      - AI_PROVIDER=LOCAL_CV_FALLBACK
-      - VERIFICATION_MODE=MOCK_SIMULATED
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-trustid_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-trustid_db}
+      - JWT_SECRET=${JWT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - AI_PROVIDER=${AI_PROVIDER:-LOCAL_CV_FALLBACK}
+      - VERIFICATION_MODE=${VERIFICATION_MODE:-MOCK_SIMULATED}
       - STORAGE_DIR=/app/backend/storage
     volumes:
       - backend-storage:/app/backend/storage
@@ -36,7 +37,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - NODE_ENV=production
     depends_on:
       - backend
@@ -51,13 +52,13 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=trustid_db
-      - POSTGRES_USER=trustid_user
-      - POSTGRES_PASSWORD=trustid_password
+      - POSTGRES_DB=${POSTGRES_DB:-trustid_db}
+      - POSTGRES_USER=${POSTGRES_USER:-trustid_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trustid_user -d trustid_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trustid_user} -d ${POSTGRES_DB:-trustid_db}"]
       interval: 5s
       timeout: 5s
       retries: 5

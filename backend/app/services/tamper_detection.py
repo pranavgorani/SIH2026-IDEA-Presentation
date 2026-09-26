@@ -15,7 +15,7 @@ class TamperDetectionService:
     3. Edge/Gradient Discontinuity (Sobel/Laplacian)
     4. Splicing / Copy-Move localization heuristics
     """
-    def analyze_document(self, image_path: str, case_id: str) -> TamperResultResponse:
+    def analyze_document(self, image_path: str, case_id: str = "temp") -> TamperResultResponse:
         path = Path(image_path)
         if not path.exists():
             return TamperResultResponse(

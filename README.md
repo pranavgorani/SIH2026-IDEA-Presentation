@@ -140,7 +140,70 @@ TRUST-ID implements strict zero-trust authentication via JWT:
 
 ---
 
-## 8. Local Installation & Quick Start
+## 8. AI Provider Architecture & Gemini Vision Hybrid
+
+TRUST-ID is designed with a **pluggable, fault-tolerant AI provider interface** (`AIProvider`) that isolates external cloud dependencies from core screening operations:
+
+```
+                          +-------------------------------+
+                          |   TRUST-ID Client (Browser)   |
+                          +---------------+---------------+
+                                          |
+                                          v  REST / HTTPS
+                          +-------------------------------+
+                          |    FastAPI Screening Server   |
+                          +---------------+---------------+
+                                          |
+                        +-----------------+-----------------+
+                        |                                   |
+    [Mode 1: LOCAL_CV_FALLBACK]                 [Mode 2: GEMINI_VISION_HYBRID]
+    ├── OpenCV Error Level Analysis             ├── Server-side Gemini Vision Multimodal
+    ├── 64x64 Noise Variance Grids              ├── Physical & Digital Tamper Assessment
+    ├── Sobel Boundary Edge Continuity          └── AUTOMATIC FALLBACK: If API key missing
+    └── Zero External API Dependencies              or API call fails -> delegates to Local CV
+```
+
+### Supported Provider Modes:
+
+1. **`LOCAL_CV_FALLBACK` (Default / Air-Gapped Mode):**
+   - Deterministic computer vision executed entirely on-premise.
+   - Algorithms: Error Level Analysis (ELA 95%), 64×64 patch noise variance, Sobel gradient edge analysis, and ICAO 9303 MRZ checksum math.
+   - Requires zero external API keys and functions in fully offline or air-gapped border checkpoints.
+
+2. **`GEMINI_VISION_HYBRID` (Optional Multimodal Cloud Layer):**
+   - Leverages server-side Google Gemini Multimodal Vision as an additional analytical signal.
+   - Evaluates microscopic print patterns, typography font micro-alignments, and passport seal consistency.
+   - **Crucial Security Rule:** The `GEMINI_API_KEY` is **strictly server-side**. The browser/client never sees or touches the key.
+   - **Zero-Failure Fallback Guarantee:** If `GEMINI_API_KEY` is not provided, or if the Gemini API encounters rate limits or network dropouts, the system **never crashes**. It automatically defaults to `LOCAL_CV_FALLBACK` with status `LOCAL_FALLBACK` and continues the screening workflow without interruption.
+   - **Non-Punitive AI Safeguard:** Gemini does **not** make identity or punitive decisions. Its visual observations are fed into the Multi-Signal Risk Engine alongside OCR, rules, and biometrics for final human verifier adjudication.
+
+---
+
+## 9. Security Hardening & Zero-Trust Best Practices
+
+### Cryptographic JWT Secret Generation
+Never use default or hardcoded secrets. Generate a cryptographically secure 48+ byte random secret for production:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+### Database Credentials Safeguard
+> **CRITICAL SECURITY RULE:** Never commit a `DATABASE_URL` containing real credentials to version control. All production database credentials must be injected dynamically via environment variables (`${POSTGRES_PASSWORD}`).
+
+### Strict CORS Configuration
+Wildcard CORS (`allow_origins=["*"]`) is strictly disabled in production. Configure permitted domains in `CORS_ORIGINS`:
+```bash
+# In production (.env):
+CORS_ORIGINS=https://sih2026-idea-presentation.vercel.app
+```
+
+### Hardened Container Security
+- **Non-Root Execution:** The backend container ([`Dockerfile.backend`](file:///c:/Users/Pranav/OneDrive/Documents/SIH2026-IDEA-Presentation/Dockerfile.backend)) creates and runs as an unprivileged system user (`appuser:appgroup`).
+- **Comprehensive `.dockerignore`:** Excludes all sensitive environment files (`.env`), git metadata, virtual environments (`.venv`), and local storage archives from container image builds.
+
+---
+
+## 10. Local Installation & Quick Start
 
 ### Prerequisites
 - **Python:** 3.12+ (Python 3.12 recommended for full OpenCV wheel compatibility)

@@ -23,6 +23,7 @@ from backend.app.services.risk_engine import risk_engine
 from backend.app.services.explainability import explainability_service
 from backend.app.services.audit_service import audit_service
 from backend.app.core.security import get_current_user_optional
+from backend.app.providers import get_ai_provider
 
 router = APIRouter(prefix="/screen", tags=["Document Screening Pipeline"])
 
@@ -176,8 +177,19 @@ async def run_screening_pipeline(
         db.add(val_item)
     db.commit()
 
-    # 6. Visual Forensics & Tamper Detection (ELA, Heatmap)
+    # 6. Visual Forensics & AI Provider (Local CV or Gemini Vision Hybrid)
     tamper_res = tamper_detection_service.analyze_document(front_path, case_id=case_id)
+    ai_provider = get_ai_provider()
+    try:
+        ai_assessment = ai_provider.analyze_document(front_path)
+        if ai_assessment.get("gemini_insights"):
+            tamper_res.signals["gemini_insights"] = ai_assessment["gemini_insights"]
+        tamper_res.signals["ai_provider"] = ai_assessment.get("provider", ai_provider.provider_name)
+        tamper_res.signals["ai_provider_status"] = ai_assessment.get("status", ai_assessment.get("provider_status", "ACTIVE"))
+    except Exception:
+        tamper_res.signals["ai_provider"] = "LOCAL_CV_FALLBACK"
+        tamper_res.signals["ai_provider_status"] = "LOCAL_FALLBACK"
+
     tamper_record = TamperResult(
         id=generate_uuid(),
         case_id=case_id,
@@ -194,7 +206,11 @@ async def run_screening_pipeline(
         db, case_id=case_id,
         actor_id="system_forensics",
         action="VISUAL_FORENSICS_COMPLETE",
-        details={"tampering_detected": tamper_res.tampering_detected, "flagged_regions": len(tamper_res.regions)}
+        details={
+            "tampering_detected": tamper_res.tampering_detected,
+            "flagged_regions": len(tamper_res.regions),
+            "ai_provider": tamper_res.signals.get("ai_provider", "LOCAL_CV_FALLBACK")
+        }
     )
 
     # 7. Identity & Biometric Face Verification
