@@ -140,16 +140,16 @@ TRUST-ID implements strict zero-trust authentication via JWT:
 
 ---
 
-## 8. AI Provider Architecture & Gemini Vision Hybrid
+## 8. AI Provider Architecture
 
-TRUST-ID is designed with a **pluggable, fault-tolerant AI provider interface** (`AIProvider`) that isolates external cloud dependencies from core screening operations:
+TRUST-ID is built with a pluggable, modular **AI Provider Architecture** (`AIProvider`) allowing institutions to choose between local air-gapped processing and cloud-augmented visual intelligence:
 
 ```
                           +-------------------------------+
                           |   TRUST-ID Client (Browser)   |
                           +---------------+---------------+
                                           |
-                                          v  REST / HTTPS
+                                          v  REST / HTTPS (FastAPI)
                           +-------------------------------+
                           |    FastAPI Screening Server   |
                           +---------------+---------------+
@@ -157,25 +157,31 @@ TRUST-ID is designed with a **pluggable, fault-tolerant AI provider interface** 
                         +-----------------+-----------------+
                         |                                   |
     [Mode 1: LOCAL_CV_FALLBACK]                 [Mode 2: GEMINI_VISION_HYBRID]
-    ├── OpenCV Error Level Analysis             ├── Server-side Gemini Vision Multimodal
-    ├── 64x64 Noise Variance Grids              ├── Physical & Digital Tamper Assessment
-    ├── Sobel Boundary Edge Continuity          └── AUTOMATIC FALLBACK: If API key missing
+    ├── OpenCV Error Level Analysis (ELA)       ├── Server-Side Gemini Vision Multimodal
+    ├── 64x64 Noise Grid Variance               ├── Supplemental Physical/Digital Tamper Analysis
+    ├── Image Quality & Heuristic Validation    └── ZERO-CRASH FALLBACK: If API key missing
     └── Zero External API Dependencies              or API call fails -> delegates to Local CV
 ```
 
 ### Supported Provider Modes:
 
-1. **`LOCAL_CV_FALLBACK` (Default / Air-Gapped Mode):**
-   - Deterministic computer vision executed entirely on-premise.
-   - Algorithms: Error Level Analysis (ELA 95%), 64×64 patch noise variance, Sobel gradient edge analysis, and ICAO 9303 MRZ checksum math.
-   - Requires zero external API keys and functions in fully offline or air-gapped border checkpoints.
+#### 1. `LOCAL_CV_FALLBACK`
+Default air-gapped and local-first analysis mode. Uses:
+- **OpenCV** (computer vision, morphological filtering, Sobel edge gradients)
+- **OCR** (multi-layer Optical Character Recognition and ICAO Doc 9303 MRZ parsing)
+- **Image quality analysis** (sharpness, brightness, glare, resolution)
+- **Forensic heuristics** (Error Level Analysis at 95% JPEG quality factor, $64 \times 64$ noise variance grid)
+- **Rule-based validation** (chronological consistency, expiry status, check digit mathematical validation)
 
-2. **`GEMINI_VISION_HYBRID` (Optional Multimodal Cloud Layer):**
-   - Leverages server-side Google Gemini Multimodal Vision as an additional analytical signal.
-   - Evaluates microscopic print patterns, typography font micro-alignments, and passport seal consistency.
-   - **Crucial Security Rule:** The `GEMINI_API_KEY` is **strictly server-side**. The browser/client never sees or touches the key.
-   - **Zero-Failure Fallback Guarantee:** If `GEMINI_API_KEY` is not provided, or if the Gemini API encounters rate limits or network dropouts, the system **never crashes**. It automatically defaults to `LOCAL_CV_FALLBACK` with status `LOCAL_FALLBACK` and continues the screening workflow without interruption.
-   - **Non-Punitive AI Safeguard:** Gemini does **not** make identity or punitive decisions. Its visual observations are fed into the Multi-Signal Risk Engine alongside OCR, rules, and biometrics for final human verifier adjudication.
+#### 2. `GEMINI_VISION_HYBRID`
+Uses Google Gemini as an additional AI analysis layer for supported document and image analysis.
+- **Decision Authority:** Gemini does **NOT** make the final identity or security decision.
+- **Unified Multi-Layer Pipeline:** The final screening decision is produced through the collective evaluation of:
+  $$\text{OCR} + \text{Document Validation} + \text{Visual Forensics} + \text{Identity Verification} + \text{Record Verification} + \text{Risk Engine} + \text{Human Review}$$
+- **Server-Side Only:** The Gemini API key is managed strictly on the server-side (`GEMINI_API_KEY`). The browser/client never directly receives or calls the Gemini API key.
+- **Source Control Security:** No API key is stored, committed, or hardcoded in source control.
+- **Optional & Resilient:** Gemini is completely optional. A local fallback exists (`LOCAL_CV_FALLBACK`). If the API key is missing or an API call fails or times out, the system automatically uses local computer-vision analysis with status `LOCAL_FALLBACK`.
+- **Privacy & Sensitive Data Handling:** Sensitive document processing strictly follows deployment and privacy requirements. In air-gapped, sovereign, or classified defense deployments, `LOCAL_CV_FALLBACK` ensures zero external data egress.
 
 ---
 
