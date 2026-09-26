@@ -26,6 +26,7 @@ from backend.app.api.documents import router as documents_router
 from backend.app.api.audit import router as audit_router
 from backend.app.api.analytics import router as analytics_router
 from backend.app.api.settings import router as settings_router
+from backend.app.api.reports import router as reports_router
 from backend.app.services.synthetic_generator import synthetic_generator
 
 @asynccontextmanager
@@ -91,32 +92,61 @@ for route_prefix in ["/api", "/api/backend"]:
     app.include_router(audit_router, prefix=route_prefix)
     app.include_router(analytics_router, prefix=route_prefix)
     app.include_router(settings_router, prefix=route_prefix)
+    app.include_router(reports_router, prefix=route_prefix)
+
+from backend.app.providers.gemini_provider import gemini_provider
+from sqlalchemy import text
 
 # Standard Health Endpoints
 @app.get("/health", tags=["Health"])
-def health():
-    return {
-        "status": "healthy",
-        "service": "trust-id-backend"
-    }
-
 @app.get("/api/health", tags=["Health"])
-def api_health():
-    return {
-        "status": "ONLINE",
-        "service": settings.PROJECT_NAME,
-        "title": settings.PROJECT_TITLE,
-        "version": settings.VERSION,
-        "tagline": settings.TAGLINE
-    }
-
 @app.get("/api/backend/health", tags=["Health"])
-def api_backend_health():
+def health():
+    # Database check
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        db_status = "online"
+    except Exception:
+        db_status = "offline"
+
+    # OpenCV check
+    try:
+        import cv2
+        opencv_status = "online"
+    except Exception:
+        opencv_status = "offline"
+
+    # Gemini check
+    gemini_status = "configured" if gemini_provider.is_configured else "unconfigured"
+
+    # Storage check
+    storage_status = "online" if settings.STORAGE_DIR.exists() else "offline"
+
     return {
         "status": "healthy",
-        "service": "trust-id-backend",
-        "version": settings.VERSION,
-        "tagline": settings.TAGLINE
+        "service": settings.PROJECT_NAME,
+        "services": {
+            "database": db_status,
+            "ocr": "online",
+            "opencv": opencv_status,
+            "gemini": gemini_status,
+            "storage": storage_status
+        }
+    }
+
+@app.get("/api/health/ai", tags=["Health"])
+@app.get("/api/backend/health/ai", tags=["Health"])
+def health_ai():
+    gemini_conf = gemini_provider.is_configured
+    return {
+        "gemini": {
+            "configured": gemini_conf,
+            "available": gemini_conf
+        },
+        "local_cv": {
+            "available": True
+        }
     }
 
 # Vercel Services Swagger & Documentation Endpoints

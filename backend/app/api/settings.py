@@ -50,7 +50,8 @@ def update_system_settings(
 @router.get("/health", summary="Probe health status of all sub-engines and verification providers")
 def get_system_health():
     active_provider = get_ai_provider()
-    provider_configured = getattr(active_provider, "is_configured", lambda: True)()
+    is_conf = getattr(active_provider, "is_configured", True)
+    provider_configured = is_conf() if callable(is_conf) else bool(is_conf)
     provider_status = "ONLINE" if provider_configured else "LOCAL_FALLBACK"
 
     return {

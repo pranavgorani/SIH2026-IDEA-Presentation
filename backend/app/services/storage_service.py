@@ -1,9 +1,11 @@
 import os
+import io
+import re
 import shutil
 import hashlib
 from pathlib import Path
-from typing import Tuple
-from PIL import Image
+from typing import Tuple, Optional
+from PIL import Image, ImageOps
 from backend.app.core.config import settings
 
 class StorageService:
@@ -16,30 +18,84 @@ class StorageService:
     def save_upload(self, case_id: str, filename: str, content: bytes) -> Tuple[str, str, int, int, int]:
         """
         Saves uploaded file securely under case-specific directory.
-        Returns (relative_file_path, sha256_hash, file_size_bytes, width, height)
+        Normalizes image formats (PNG, JPG, JPEG, WEBP), handles EXIF orientation,
+        and converts transparent/alpha channels to standard RGB for OpenCV compatibility.
+        Detects PDF files and returns a clean explanation if PDF engine is not active.
+        
+        Returns:
+            (saved_file_path, sha256_hash, file_size_bytes, width, height)
         """
+        if not content:
+            raise ValueError("Uploaded file is empty.")
+
+        # Check for file size limit (25MB)
+        if len(content) > 25 * 1024 * 1024:
+            raise ValueError("Uploaded file exceeds the maximum allowed size of 25MB.")
+
+        # Check for PDF magic bytes (%PDF)
+        if content.startswith(b"%PDF") or filename.lower().endswith(".pdf"):
+            raise ValueError("PDF processing is not enabled in this deployment.")
+
         case_dir = self.base_dir / case_id
         case_dir.mkdir(parents=True, exist_ok=True)
 
-        # Sanitize filename
-        safe_name = "".join(c for c in filename if c.isalnum() or c in "._-")
-        if not safe_name:
-            safe_name = "document.png"
+        # 1. Sanitize filename safely without evaluating code or directory traversal
+        base_name = Path(filename).name
+        clean_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', base_name)
+        if not clean_name:
+            clean_name = "document.png"
+        
+        # Ensure standard image extension
+        ext = Path(clean_name).suffix.lower()
+        if ext not in (".png", ".jpg", ".jpeg", ".webp"):
+            ext = ".png"
+        stem = Path(clean_name).stem
+        safe_name = f"{stem}{ext}"
 
         target_path = case_dir / safe_name
-        with open(target_path, "wb") as f:
-            f.write(content)
-
-        file_size = len(content)
         sha256_hash = hashlib.sha256(content).hexdigest()
 
-        # Extract dimensions if image
-        width, height = 0, 0
+        # 2. Image verification and normalization (Pillow -> RGB -> EXIF -> Safe Save)
         try:
-            with Image.open(target_path) as img:
-                width, height = img.size
-        except Exception:
-            pass
+            pil_img = Image.open(io.BytesIO(content))
+            # Correct orientation from EXIF metadata (e.g. mobile camera captures)
+            pil_img = ImageOps.exif_transpose(pil_img) or pil_img
+
+            # Check minimum resolution
+            if pil_img.width < 250 or pil_img.height < 180:
+                raise ValueError(
+                    f"Image resolution is too low ({pil_img.width}x{pil_img.height}). "
+                    f"Minimum resolution of 250x180 pixels is required for document screening."
+                )
+
+            # Normalize color channels: convert RGBA/Palette/Grayscale to RGB with clean white background
+            if pil_img.mode in ("RGBA", "LA") or ("transparency" in pil_img.info):
+                bg = Image.new("RGB", pil_img.size, (255, 255, 255))
+                rgba_img = pil_img.convert("RGBA")
+                bg.paste(rgba_img, mask=rgba_img.split()[3])
+                pil_img = bg
+            elif pil_img.mode != "RGB":
+                pil_img = pil_img.convert("RGB")
+
+            # Downsample if image is excessively massive (e.g., > 3840px in any dimension)
+            max_dim = 3840
+            if pil_img.width > max_dim or pil_img.height > max_dim:
+                pil_img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+
+            width, height = pil_img.size
+
+            # Save normalized image
+            save_format = "PNG" if ext == ".png" else ("WEBP" if ext == ".webp" else "JPEG")
+            pil_img.save(target_path, format=save_format, quality=95)
+            file_size = target_path.stat().st_size
+
+        except ValueError:
+            raise
+        except Exception as e:
+            err_str = str(e)
+            if "cannot identify image file" in err_str:
+                raise ValueError("The uploaded image file is invalid, unsupported, or corrupted.")
+            raise ValueError(f"The uploaded document could not be decoded or normalized: {err_str}")
 
         return str(target_path), sha256_hash, file_size, width, height
 

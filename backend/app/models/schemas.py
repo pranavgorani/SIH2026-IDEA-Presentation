@@ -87,6 +87,8 @@ class OCRResultResponse(BaseModel):
     confidence: float
     bounding_boxes: List[BoundingBox] = []
     engine_used: str
+    status: Optional[str] = "OK"
+    ocr_status: Optional[str] = "OK"
 
 # Validation
 class ValidationCheck(BaseModel):
@@ -128,8 +130,9 @@ class FaceVerificationResponse(BaseModel):
     document_face_quality: float
     live_face_quality: float
     similarity: float
-    status: str # MATCH_CONFIRMED, MATCH_REVIEW, MISMATCH_DETECTED, UNAVAILABLE
+    status: str # MATCH_CONFIRMED, MATCH_REVIEW, MISMATCH_DETECTED, UNAVAILABLE, NOT_PROVIDED
     explanation: str
+    message: Optional[str] = None
 
 # Record Verification (Simulated)
 class RecordVerificationResponse(BaseModel):
@@ -152,6 +155,7 @@ class RiskAssessmentResponse(BaseModel):
     positive_signals: List[str]
     explanation: str
     weights_used: Optional[Dict[str, float]] = None
+    unavailable_checks: Optional[List[str]] = []
 
 # Human Review Decision
 class ReviewDecisionRequest(BaseModel):
@@ -239,3 +243,63 @@ class SystemSettingsModel(BaseModel):
     threshold_medium: float
     ai_provider: str
     verification_mode: str
+
+# 100-Point Document Checks Schemas
+class DocumentCheckItem(BaseModel):
+    check_id: str
+    category: str
+    name: str
+    description: Optional[str] = None
+    status: str # PASS, FAIL, WARNING, NOT_CHECKED, NOT_APPLICABLE, UNAVAILABLE
+    severity: str # INFO, LOW, MEDIUM, HIGH, CRITICAL
+    confidence: float
+    evidence: Optional[str] = None
+    value: Optional[str] = None
+    expected_value: Optional[str] = None
+    message: str
+
+class DocumentChecksSummaryResponse(BaseModel):
+    case_id: str
+    total_checks: int
+    passed: int
+    failed: int
+    warnings: int
+    not_checked: int
+    not_applicable: int
+    unavailable: int
+    integrity_score: float
+    risk_score: float
+    categories: Dict[str, Dict[str, int]]
+    checks: List[DocumentCheckItem]
+
+# Report Schemas
+class ReportResponse(BaseModel):
+    id: str
+    case_id: str
+    case_number: Optional[str] = None
+    document_type: Optional[str] = None
+    report_hash: str
+    pdf_url: Optional[str] = None
+    csv_url: Optional[str] = None
+    docx_url: Optional[str] = None
+    integrity_score: float
+    risk_score: float
+    risk_level: Optional[str] = None
+    total_checks: int
+    passed_checks: int
+    failed_checks: int
+    warning_checks: int
+    created_at: datetime
+
+# Investigation Note Schemas
+class InvestigationNoteCreate(BaseModel):
+    note: str
+
+class InvestigationNoteResponse(BaseModel):
+    id: str
+    case_id: str
+    author_id: str
+    author_name: str
+    author_role: str
+    note: str
+    created_at: datetime

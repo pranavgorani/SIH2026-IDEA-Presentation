@@ -54,25 +54,77 @@ export default function Sidebar() {
     router.push("/login");
   };
 
-  const navGroups = [
-    {
-      title: "OPERATIONAL SCREENING",
-      items: [
-        { label: "Command Dashboard", href: "/dashboard", icon: LayoutDashboard },
-        { label: "Document Screening", href: "/screen", icon: ScanLine },
-        { label: "Case Investigation", href: "/cases", icon: FolderGit2 },
-        { label: "Guided Demo Benchmark", href: "/demo", icon: Sparkles, badge: "SIH 2026" },
-      ],
-    },
-    {
-      title: "SYSTEM & AUDIT",
-      items: [
-        { label: "System Architecture", href: "/architecture", icon: Layers },
-        { label: "Risk Weights & Rules", href: "/admin/settings", icon: Sliders },
-        { label: "Engine Telemetry", href: "/admin/system", icon: Activity },
-      ],
-    },
-  ];
+  const role = (user?.role || "VERIFIER").toUpperCase();
+
+  const getNavGroups = () => {
+    if (role === "ADMIN") {
+      return [
+        {
+          title: "ADMIN COMMAND CONSOLE",
+          items: [
+            { label: "Admin Dashboard", href: "/dashboard", icon: LayoutDashboard },
+            { label: "Cases & Reviews", href: "/cases", icon: FolderGit2 },
+            { label: "Reports Download Center", href: "/reports", icon: Sparkles, badge: "NEW" },
+            { label: "Guided Demo Benchmark", href: "/demo", icon: Cpu, badge: "SIH 2026" },
+          ],
+        },
+        {
+          title: "SYSTEM & AI CONFIGURATION",
+          items: [
+            { label: "Risk Configuration", href: "/admin/settings", icon: Sliders },
+            { label: "AI & Verification Providers", href: "/admin/settings", icon: Cpu },
+            { label: "System Health & Telemetry", href: "/admin/system", icon: Activity },
+            { label: "Security & Architecture", href: "/architecture", icon: Layers },
+          ],
+        },
+      ];
+    }
+
+    if (role === "INSPECTOR") {
+      return [
+        {
+          title: "FORENSIC INSPECTION WING",
+          items: [
+            { label: "Inspection Dashboard", href: "/dashboard", icon: LayoutDashboard },
+            { label: "Inspection Queue", href: "/cases", icon: FolderGit2, badge: "Active" },
+            { label: "Forensic Evidence & Notes", href: "/cases", icon: Fingerprint },
+            { label: "Reports & Audit Exports", href: "/reports", icon: Sparkles, badge: "100-Checks" },
+          ],
+        },
+        {
+          title: "AUDIT & INVESTIGATION",
+          items: [
+            { label: "Investigation Timeline", href: "/cases", icon: Activity },
+            { label: "Cryptographic Ledger", href: "/architecture", icon: Lock },
+            { label: "Guided Demo Benchmark", href: "/demo", icon: Cpu, badge: "SIH 2026" },
+          ],
+        },
+      ];
+    }
+
+    // Default: VERIFIER
+    return [
+      {
+        title: "OPERATIONAL SCREENING",
+        items: [
+          { label: "Command Dashboard", href: "/dashboard", icon: LayoutDashboard },
+          { label: "Screen Document", href: "/screen", icon: ScanLine, badge: "Scanner" },
+          { label: "Review Queue & Cases", href: "/cases", icon: FolderGit2 },
+          { label: "Reports Download Center", href: "/reports", icon: Sparkles, badge: "100-Checks" },
+          { label: "Guided Demo Benchmark", href: "/demo", icon: Cpu, badge: "SIH 2026" },
+        ],
+      },
+      {
+        title: "VERIFICATION INTEGRITY",
+        items: [
+          { label: "System Architecture", href: "/architecture", icon: Layers },
+          { label: "Tamper-Evident Ledger", href: "/admin/system", icon: Activity },
+        ],
+      },
+    ];
+  };
+
+  const navGroups = getNavGroups();
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-[#070d1e] border-r border-[#24365d] text-slate-200">

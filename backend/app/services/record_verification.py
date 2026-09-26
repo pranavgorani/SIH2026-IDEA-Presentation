@@ -16,15 +16,26 @@ class RecordVerificationService:
         document_type: str = "PASSPORT",
         candidate_name: Optional[str] = None
     ) -> RecordVerificationResponse:
-        res = self.provider.verify(document_number, document_type, candidate_name)
-        return RecordVerificationResponse(
-            record_found=res.get("record_found", False),
-            status=res.get("status", "NOT_FOUND"),
-            document_number=res.get("document_number", document_number),
-            source=res.get("source", "MOCK_CENTRAL_REGISTRY (SIMULATED)"),
-            match_details=res.get("match_details"),
-            checked_at=datetime.now(timezone.utc),
-            disclaimer=res.get("disclaimer", "SIMULATED / DEMONSTRATION DATA")
-        )
+        try:
+            res = self.provider.verify(document_number, document_type, candidate_name)
+            return RecordVerificationResponse(
+                record_found=res.get("record_found", False),
+                status=res.get("status", "NOT_FOUND"),
+                document_number=res.get("document_number", document_number),
+                source=res.get("source", "MOCK_CENTRAL_REGISTRY (SIMULATED)"),
+                match_details=res.get("match_details"),
+                checked_at=datetime.now(timezone.utc),
+                disclaimer=res.get("disclaimer", "SIMULATED / DEMONSTRATION DATA")
+            )
+        except Exception:
+            return RecordVerificationResponse(
+                record_found=False,
+                status="UNAVAILABLE",
+                document_number=document_number,
+                source="MOCK_REGISTRY_FALLBACK",
+                match_details={"status": "UNAVAILABLE", "reason": "External verification unavailable"},
+                checked_at=datetime.now(timezone.utc),
+                disclaimer="SIMULATED / DEMONSTRATION DATA"
+            )
 
 record_verification_service = RecordVerificationService()

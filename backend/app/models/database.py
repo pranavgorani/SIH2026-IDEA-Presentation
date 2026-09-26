@@ -55,6 +55,9 @@ class Case(Base):
     risk_assessment = relationship("RiskAssessment", back_populates="case", uselist=False, cascade="all, delete-orphan")
     review_decision = relationship("ReviewDecision", back_populates="case", uselist=False, cascade="all, delete-orphan")
     audit_events = relationship("AuditEvent", back_populates="case", cascade="all, delete-orphan")
+    document_checks = relationship("DocumentCheck", back_populates="case", cascade="all, delete-orphan")
+    reports = relationship("Report", back_populates="case", cascade="all, delete-orphan")
+    investigation_notes = relationship("InvestigationNote", back_populates="case", cascade="all, delete-orphan")
 
 # 3. Documents
 class Document(Base):
@@ -202,6 +205,60 @@ class SystemSetting(Base):
     value = Column(JSON, nullable=False)
     description = Column(String(255), nullable=True)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+# 13. Document Checks (100-Point Inspection Engine)
+class DocumentCheck(Base):
+    __tablename__ = "document_checks"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    case_id = Column(String(36), ForeignKey("cases.id"), nullable=False, index=True)
+    check_id = Column(String(20), nullable=False, index=True) # CHK-001 ... CHK-100
+    category = Column(String(50), nullable=False, index=True)
+    name = Column(String(150), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(30), nullable=False) # PASS, FAIL, WARNING, NOT_CHECKED, NOT_APPLICABLE, UNAVAILABLE
+    severity = Column(String(20), nullable=False, default="INFO") # INFO, LOW, MEDIUM, HIGH, CRITICAL
+    confidence = Column(Float, nullable=False, default=1.0)
+    evidence = Column(Text, nullable=True)
+    value = Column(String(255), nullable=True)
+    expected_value = Column(String(255), nullable=True)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utc_now)
+
+    case = relationship("Case", back_populates="document_checks")
+
+# 14. Analysis Reports (PDF, CSV, DOCX exports)
+class Report(Base):
+    __tablename__ = "reports"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    case_id = Column(String(36), ForeignKey("cases.id"), nullable=False, index=True)
+    report_hash = Column(String(64), nullable=False, index=True)
+    pdf_path = Column(String(512), nullable=True)
+    csv_path = Column(String(512), nullable=True)
+    docx_path = Column(String(512), nullable=True)
+    integrity_score = Column(Float, nullable=False, default=100.0)
+    risk_score = Column(Float, nullable=False, default=0.0)
+    total_checks = Column(Integer, default=100)
+    passed_checks = Column(Integer, default=0)
+    failed_checks = Column(Integer, default=0)
+    warning_checks = Column(Integer, default=0)
+    unavailable_checks = Column(Integer, default=0)
+    not_applicable_checks = Column(Integer, default=0)
+    created_at = Column(DateTime, default=utc_now, index=True)
+
+    case = relationship("Case", back_populates="reports")
+
+# 15. Investigation Notes (Inspectors / Verifiers)
+class InvestigationNote(Base):
+    __tablename__ = "investigation_notes"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    case_id = Column(String(36), ForeignKey("cases.id"), nullable=False, index=True)
+    author_id = Column(String(36), nullable=False)
+    author_name = Column(String(150), nullable=False)
+    author_role = Column(String(50), nullable=False, default="INSPECTOR")
+    note = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utc_now, index=True)
+
+    case = relationship("Case", back_populates="investigation_notes")
 
 # Database Engine & Session
 engine = create_engine(

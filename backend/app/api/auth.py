@@ -8,7 +8,8 @@ router = APIRouter(prefix="/auth", tags=["Authentication & RBAC"])
 
 DEMO_USERS = {
     "verifier": {"password": "verifier123", "role": "VERIFIER", "name": "Inspector Rajesh Nair (Border Control)"},
-    "investigator": {"password": "investigator123", "role": "INVESTIGATOR", "name": "Senior Forensic Analyst S. Rao"},
+    "inspector": {"password": "inspector123", "role": "INSPECTOR", "name": "Senior Field Inspector S. Rao (Immigration Audit)"},
+    "investigator": {"password": "investigator123", "role": "INSPECTOR", "name": "Senior Forensic Analyst S. Rao"},
     "admin": {"password": "admin123", "role": "ADMIN", "name": "System Administrator (MHA Cyber Command)"}
 }
 

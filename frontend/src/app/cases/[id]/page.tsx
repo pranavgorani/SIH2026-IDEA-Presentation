@@ -178,7 +178,31 @@ export default function CaseInvestigationPage() {
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href={`/cases/${caseId}/checks`}
+            className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>100 Checks Matrix</span>
+          </Link>
+
+          <Link
+            href={`/cases/${caseId}/report`}
+            className="px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Official Report</span>
+          </Link>
+
+          <a
+            href={`/api/cases/${caseId}/report/pdf`}
+            download={`TRUST-ID_Report_${caseData.case_number}.pdf`}
+            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-900/50 flex items-center gap-1.5 transition-all"
+          >
+            <span>PDF</span>
+          </a>
+
           <button
             onClick={fetchCase}
             title="Reload Case"
@@ -703,7 +727,7 @@ export default function CaseInvestigationPage() {
             </div>
             <div className="flex justify-between py-1.5">
               <span className="text-slate-400">Checked At:</span>
-              <span className="text-slate-300">{new Date(record_verification?.checked_at || Date.now()).toLocaleString()}</span>
+              <span className="text-slate-300">{record_verification?.checked_at ? new Date(record_verification.checked_at).toLocaleString() : "Recently Verified"}</span>
             </div>
           </div>
         </div>

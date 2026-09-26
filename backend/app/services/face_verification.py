@@ -59,10 +59,11 @@ class FaceVerificationService:
                 live_face_quality=0.0,
                 similarity=0.0,
                 status="UNAVAILABLE",
-                explanation="No clear facial portrait detected on document. Manual visual inspection required."
+                explanation="No clear facial portrait detected on document. Manual visual inspection required.",
+                message="Document portrait face not detected."
             )
 
-        # 2. If no live person image was provided
+        # 2. If no live person image was provided (Optional presenter check)
         if not live_person_image_path or not Path(live_person_image_path).exists():
             return FaceVerificationResponse(
                 document_face_detected=True,
@@ -70,8 +71,9 @@ class FaceVerificationService:
                 document_face_quality=doc_quality,
                 live_face_quality=0.0,
                 similarity=0.0,
-                status="UNAVAILABLE",
-                explanation="Identity verification unavailable — no presented-person live image provided for 1:1 biometric comparison."
+                status="NOT_PROVIDED",
+                explanation="Presenter live portrait was not provided (optional check).",
+                message="Presenter image was not provided."
             )
 
         # 3. Detect Live Person Face

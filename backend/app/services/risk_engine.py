@@ -27,9 +27,14 @@ class RiskEngine:
         signal_scores: Dict[str, float] = {}
         risk_factors: List[str] = []
         positive_signals: List[str] = []
+        unavailable_checks: List[str] = []
 
         # 1. Visual Forensics Signal (0 = clean, 100 = high suspicion)
-        if tampering.tampering_detected:
+        if tampering.signals.get("status") == "UNAVAILABLE":
+            signal_scores["visual_forensics"] = 15.0
+            unavailable_checks.append("VISUAL_FORENSICS")
+            risk_factors.append("Visual forensics model unavailable (standard scrutiny applied)")
+        elif tampering.tampering_detected:
             # Score proportional to confidence and region count
             r_count = len(tampering.regions)
             f_score = min(100.0, 50.0 + tampering.confidence * 40.0 + r_count * 5.0)
@@ -49,10 +54,14 @@ class RiskEngine:
         elif face.status == "MISMATCH_DETECTED":
             signal_scores["identity_verification"] = 88.0
             risk_factors.append(f"Biometric mismatch alert: Presenter face does not correspond to document photo ({face.similarity*100:.0f}%)")
+        elif face.status == "NOT_PROVIDED":
+            signal_scores["identity_verification"] = 20.0
+            unavailable_checks.append("FACE_VERIFICATION")
+            risk_factors.append("Presenter live portrait was not provided (biometric matching optional)")
         else: # UNAVAILABLE
-            # If no live face provided, default to moderate baseline risk factor
             signal_scores["identity_verification"] = 25.0
-            risk_factors.append("Biometric face verification unavailable (no live selfie submitted)")
+            unavailable_checks.append("FACE_VERIFICATION")
+            risk_factors.append("Biometric face verification unavailable")
 
         # 3. Record Verification Signal
         if record.status == "VALID":
@@ -64,6 +73,10 @@ class RiskEngine:
         elif record.status == "REVOKED":
             signal_scores["record_verification"] = 95.0
             risk_factors.append("Issuer Record Check: Document status has been REVOKED or reported lost/stolen")
+        elif record.status == "UNAVAILABLE":
+            signal_scores["record_verification"] = 20.0
+            unavailable_checks.append("EXTERNAL_RECORD_VERIFICATION")
+            risk_factors.append("External record verification unavailable (proceeding with baseline)")
         else:
             signal_scores["record_verification"] = 40.0
             risk_factors.append(f"Issuer Record Check: Document number not found in simulated database ({record.status})")
@@ -167,7 +180,8 @@ class RiskEngine:
             risk_factors=risk_factors,
             positive_signals=positive_signals,
             explanation=explanation,
-            weights_used=self.weights
+            weights_used=self.weights,
+            unavailable_checks=unavailable_checks
         )
 
     def _build_explanation(self, score: float, level: str, risks: List[str], positives: List[str]) -> str:

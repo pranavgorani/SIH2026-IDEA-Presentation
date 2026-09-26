@@ -4,6 +4,10 @@ from typing import List, Dict, Any, Optional
 from backend.app.models.schemas import ExtractedFields, MRZData, ValidationCheck, ValidationSummary
 
 class ValidationService:
+    """
+    Validation engine ensuring syntactic, chronological, and cross-field integrity.
+    Never throws 500 exceptions on missing fields; records informative UNAVAILABLE / INFO checks.
+    """
     def validate_document_data(
         self,
         fields: ExtractedFields,
@@ -13,58 +17,67 @@ class ValidationService:
         checks: List[ValidationCheck] = []
         today = date.today()
 
-        # 1. Required Fields Check
-        missing_fields = []
-        if not fields.name: missing_fields.append("Full Name")
-        if not fields.document_number: missing_fields.append("Document Number")
-        if not fields.date_of_birth: missing_fields.append("Date of Birth")
-        if not fields.date_of_expiry: missing_fields.append("Date of Expiry")
-
-        if missing_fields:
-            checks.append(ValidationCheck(
-                name="Required Fields Check",
-                status="FAIL",
-                severity="HIGH",
-                message=f"Missing mandatory document field(s): {', '.join(missing_fields)}",
-                evidence={"missing": missing_fields}
-            ))
-        else:
-            checks.append(ValidationCheck(
-                name="Required Fields Check",
-                status="PASS",
-                severity="LOW",
-                message="All mandatory credential fields successfully extracted."
-            ))
-
-        # Helper to parse dates
+        # Helper to parse dates safely
         def parse_date(date_str: Optional[str]) -> Optional[date]:
             if not date_str:
                 return None
             for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d %b %Y", "%Y/%m/%d"):
                 try:
                     return datetime.strptime(date_str.strip(), fmt).date()
-                except ValueError:
+                except (ValueError, TypeError):
                     continue
             return None
+
+        # 1. Field-by-Field Presence & Extraction Status
+        for field_key, field_label, field_val in [
+            ("name", "Full Name", fields.name),
+            ("document_number", "Document Number", fields.document_number),
+            ("date_of_birth", "Date of Birth", fields.date_of_birth),
+            ("date_of_expiry", "Validity Period", fields.date_of_expiry),
+        ]:
+            if not field_val or not str(field_val).strip():
+                checks.append(ValidationCheck(
+                    name=f"Field Extraction Check: {field_label}",
+                    status="UNAVAILABLE",
+                    severity="INFO",
+                    message=f"{field_label} was not extracted or unavailable on document face.",
+                    evidence={"field": field_key, "status": "UNAVAILABLE", "severity": "INFO"}
+                ))
+            else:
+                checks.append(ValidationCheck(
+                    name=f"Field Extraction Check: {field_label}",
+                    status="PASS",
+                    severity="LOW",
+                    message=f"{field_label} successfully parsed."
+                ))
 
         parsed_dob = parse_date(fields.date_of_birth)
         parsed_expiry = parse_date(fields.date_of_expiry)
         parsed_issue = parse_date(fields.date_of_issue)
 
-        # 2. Date Format & Calendar Validity Check
-        if fields.date_of_birth and not parsed_dob:
-            checks.append(ValidationCheck(
-                name="Date of Birth Format Check",
-                status="FAIL",
-                severity="HIGH",
-                message=f"Date of birth '{fields.date_of_birth}' is invalid or impossible calendar date."
-            ))
+        # 2. Date of Birth Format & Sanity
+        if fields.date_of_birth and str(fields.date_of_birth).strip():
+            if not parsed_dob:
+                checks.append(ValidationCheck(
+                    name="Date of Birth Format Check",
+                    status="FAIL",
+                    severity="HIGH",
+                    message=f"Date of birth '{fields.date_of_birth}' is invalid or impossible calendar date."
+                ))
+            else:
+                checks.append(ValidationCheck(
+                    name="Date of Birth Format Check",
+                    status="PASS",
+                    severity="LOW",
+                    message="Date of birth adheres to valid calendar representation."
+                ))
         else:
             checks.append(ValidationCheck(
                 name="Date of Birth Format Check",
-                status="PASS",
-                severity="LOW",
-                message="Date of birth adheres to valid calendar representation."
+                status="UNAVAILABLE",
+                severity="INFO",
+                message="Date of birth format check skipped — field unavailable.",
+                evidence={"field": "date_of_birth", "status": "UNAVAILABLE", "severity": "INFO"}
             ))
 
         # 3. Expiry Check
@@ -84,12 +97,20 @@ class ValidationService:
                     severity="LOW",
                     message=f"Document is active and valid until {parsed_expiry.isoformat()}."
                 ))
-        elif fields.date_of_expiry:
+        elif fields.date_of_expiry and str(fields.date_of_expiry).strip():
             checks.append(ValidationCheck(
                 name="Document Expiry Check",
                 status="WARNING",
                 severity="MEDIUM",
                 message=f"Expiry date '{fields.date_of_expiry}' could not be parsed into a verifiable date."
+            ))
+        else:
+            checks.append(ValidationCheck(
+                name="Document Expiry Check",
+                status="UNAVAILABLE",
+                severity="INFO",
+                message="Document expiry check skipped — field unavailable.",
+                evidence={"field": "date_of_expiry", "status": "UNAVAILABLE", "severity": "INFO"}
             ))
 
         # 4. Chronological Integrity Check (DOB vs Issue vs Expiry)
@@ -117,25 +138,32 @@ class ValidationService:
                 message="Document issue date is greater than or equal to expiry date.",
                 evidence={"issue": parsed_issue.isoformat(), "expiry": parsed_expiry.isoformat()}
             ))
-        else:
+        elif parsed_dob or parsed_expiry or parsed_issue:
             checks.append(ValidationCheck(
                 name="Chronological Sanity Check",
                 status="PASS",
                 severity="LOW",
                 message="Temporal chronology (Birth -> Issue -> Expiration) is internally consistent."
             ))
+        else:
+            checks.append(ValidationCheck(
+                name="Chronological Sanity Check",
+                status="UNAVAILABLE",
+                severity="INFO",
+                message="Chronological validation skipped — dates unavailable."
+            ))
 
         # 5. Document Number Format Validation
         doc_num = (fields.document_number or "").strip()
         if doc_num:
-            if len(doc_num) < 6 or len(doc_num) > 16:
+            if len(doc_num) < 5 or len(doc_num) > 20:
                 checks.append(ValidationCheck(
                     name="Document Number Format",
                     status="WARNING",
                     severity="MEDIUM",
-                    message=f"Document number '{doc_num}' length ({len(doc_num)}) deviates from standard standard pattern (6-16 characters)."
+                    message=f"Document number '{doc_num}' length ({len(doc_num)}) deviates from standard standard pattern (5-20 characters)."
                 ))
-            elif not re.match(r'^[A-Z0-9]+$', doc_num, re.I):
+            elif not re.match(r'^[A-Z0-9\-_]+$', doc_num, re.I):
                 checks.append(ValidationCheck(
                     name="Document Number Format",
                     status="FAIL",
@@ -149,12 +177,18 @@ class ValidationService:
                     severity="LOW",
                     message="Document identifier conforms to alphanumeric standard formatting."
                 ))
+        else:
+            checks.append(ValidationCheck(
+                name="Document Number Format",
+                status="UNAVAILABLE",
+                severity="INFO",
+                message="Document number check skipped — identifier unavailable."
+            ))
 
         # 6. MRZ vs Visual Cross-Check Consistency
-        if mrz_data:
+        if mrz_data and hasattr(mrz_data, "valid"):
             mrz_mismatches = []
             if mrz_data.passport_number and doc_num:
-                # Compare without spaces/fillers
                 mrz_doc = mrz_data.passport_number.replace('<', '').strip()
                 if mrz_doc != doc_num and mrz_doc not in doc_num and doc_num not in mrz_doc:
                     mrz_mismatches.append(f"Document Number mismatch (Visual: {doc_num} vs MRZ: {mrz_doc})")
@@ -169,8 +203,7 @@ class ValidationService:
                 if mrz_exp and parsed_expiry and mrz_exp != parsed_expiry:
                     mrz_mismatches.append(f"Expiry mismatch (Visual: {parsed_expiry.isoformat()} vs MRZ: {mrz_exp.isoformat()})")
 
-            # MRZ Checksum check
-            if not mrz_data.checksum_overall:
+            if not getattr(mrz_data, "checksum_overall", True):
                 checks.append(ValidationCheck(
                     name="MRZ Checksum Validation",
                     status="FAIL",
@@ -202,13 +235,12 @@ class ValidationService:
                     message="Visual fields match MRZ parsed values with 100% correlation."
                 ))
         else:
-            if document_type in ("PASSPORT", "NATIONAL_ID"):
-                checks.append(ValidationCheck(
-                    name="MRZ Verification",
-                    status="WARNING",
-                    severity="LOW",
-                    message="MRZ not detected or not applicable for this credential side."
-                ))
+            checks.append(ValidationCheck(
+                name="MRZ Verification",
+                status="UNAVAILABLE" if document_type in ("PASSPORT", "NATIONAL_ID") else "PASS",
+                severity="INFO" if document_type in ("PASSPORT", "NATIONAL_ID") else "LOW",
+                message="MRZ not present or not applicable for this credential format."
+            ))
 
         # Calculate Summary
         passed = sum(1 for c in checks if c.status == "PASS")
