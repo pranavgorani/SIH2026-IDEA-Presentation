@@ -1,9 +1,51 @@
 import os
+import sys
 from pathlib import Path
 from typing import List, Dict
 from pydantic_settings import BaseSettings
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+# Determine project roots and ensure sys.path includes workspace and backend
+_current_file = Path(__file__).resolve()
+_core_dir = _current_file.parent
+_app_dir = _core_dir.parent
+_backend_dir = _app_dir.parent
+_workspace_dir = _backend_dir.parent
+
+for _p in [str(_workspace_dir), str(_backend_dir)]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+BASE_DIR = _backend_dir
+IS_VERCEL = bool(os.getenv("VERCEL"))
+
+def get_default_db_url() -> str:
+    if os.getenv("DATABASE_URL"):
+        return os.getenv("DATABASE_URL")
+    if IS_VERCEL:
+        return "sqlite:////tmp/trustid.db"
+    # Ensure local data directory exists
+    data_dir = BASE_DIR / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{data_dir / 'trustid.db'}"
+
+def get_default_storage_dir() -> Path:
+    if os.getenv("STORAGE_DIR"):
+        return Path(os.getenv("STORAGE_DIR"))
+    if IS_VERCEL:
+        return Path("/tmp/trustid_storage")
+    return BASE_DIR / "storage"
+
+def get_default_cors() -> List[str]:
+    env_cors = os.getenv("CORS_ORIGINS")
+    if env_cors:
+        return [o.strip() for o in env_cors.split(",") if o.strip()]
+    return [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "*"
+    ]
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "TRUST-ID"
@@ -17,22 +59,16 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
-    # Database: Default to sqlite file in backend/data for zero-config local run, or PostgreSQL via env
-    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'data' / 'trustid.db'}")
+    # Database
+    DATABASE_URL: str = get_default_db_url()
 
     # Storage
-    STORAGE_DIR: Path = BASE_DIR / "storage"
+    STORAGE_DIR: Path = get_default_storage_dir()
     UPLOAD_MAX_SIZE_MB: int = 25
     ALLOWED_EXTENSIONS: List[str] = [".jpg", ".jpeg", ".png", ".webp", ".pdf"]
 
     # CORS
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "*"
-    ]
+    CORS_ORIGINS: List[str] = get_default_cors()
 
     # Risk Engine Default Weights (Sum to 1.0)
     DEFAULT_WEIGHTS: Dict[str, float] = {
@@ -59,7 +95,3 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 settings = Settings()
-
-# Ensure directories exist
-settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-(BASE_DIR / "data").mkdir(parents=True, exist_ok=True)

@@ -130,9 +130,9 @@ export default function CaseInvestigationPage() {
       ? "#F59E0B"
       : "#10B981";
 
-  const frontDocUrl = `${API_BASE}/api/documents/${caseId}/front`;
-  const heatmapUrl = `${API_BASE}/api/documents/${caseId}/heatmap`;
-  const liveDocUrl = `${API_BASE}/api/documents/${caseId}/live`;
+  const frontDocUrl = `${API_BASE}/api/backend/documents/${caseId}/front`;
+  const heatmapUrl = `${API_BASE}/api/backend/documents/${caseId}/heatmap`;
+  const liveDocUrl = `${API_BASE}/api/backend/documents/${caseId}/live`;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">

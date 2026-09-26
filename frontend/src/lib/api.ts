@@ -1,4 +1,5 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+// Base URL for API calls. In Vercel Services production, relative /api/backend is used.
+export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 function getAuthHeader(): Record<string, string> {
   if (typeof window !== "undefined") {
@@ -11,7 +12,9 @@ function getAuthHeader(): Record<string, string> {
 }
 
 export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = `${API_BASE}${endpoint}`;
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const url = API_BASE ? `${API_BASE}${cleanEndpoint}` : cleanEndpoint;
+
   const headers = {
     "Content-Type": "application/json",
     ...getAuthHeader(),
@@ -35,7 +38,7 @@ export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): 
 export const api = {
   // Auth
   login: async (username: string, password: string) => {
-    const data = await apiFetch<any>("/api/auth/login", {
+    const data = await apiFetch<any>("/api/backend/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
@@ -54,12 +57,17 @@ export const api = {
   },
 
   getCurrentUser: async () => {
-    return apiFetch<any>("/api/auth/me");
+    return apiFetch<any>("/api/backend/auth/me");
+  },
+
+  // Health
+  getHealth: async () => {
+    return apiFetch<any>("/api/backend/health");
   },
 
   // Dashboard
   getDashboardStats: async () => {
-    return apiFetch<any>("/api/dashboard/stats");
+    return apiFetch<any>("/api/backend/dashboard/stats");
   },
 
   // Cases
@@ -69,29 +77,30 @@ export const api = {
     if (filters.document_type) params.append("document_type", filters.document_type);
     if (filters.status) params.append("status", filters.status);
     const qs = params.toString() ? `?${params.toString()}` : "";
-    return apiFetch<any[]>(`/api/cases${qs}`);
+    return apiFetch<any[]>(`/api/backend/cases${qs}`);
   },
 
   getCaseDetails: async (caseId: string) => {
-    return apiFetch<any>(`/api/cases/${caseId}`);
+    return apiFetch<any>(`/api/backend/cases/${caseId}`);
   },
 
   submitReview: async (caseId: string, decision: string, reason: string) => {
-    return apiFetch<any>(`/api/cases/${caseId}/review`, {
+    return apiFetch<any>(`/api/backend/cases/${caseId}/review`, {
       method: "POST",
       body: JSON.stringify({ decision, reason }),
     });
   },
 
   runDemoPreset: async (presetId: string) => {
-    return apiFetch<any>(`/api/cases/demo/${presetId}`, {
+    return apiFetch<any>(`/api/backend/cases/demo/${presetId}`, {
       method: "POST",
     });
   },
 
   // Screening
   screenDocument: async (formData: FormData) => {
-    const url = `${API_BASE}/api/screen`;
+    const endpoint = "/api/backend/screen";
+    const url = API_BASE ? `${API_BASE}${endpoint}` : endpoint;
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -112,27 +121,27 @@ export const api = {
 
   // Audit
   getAuditLog: async (caseId: string) => {
-    return apiFetch<any[]>(`/api/audit/${caseId}`);
+    return apiFetch<any[]>(`/api/backend/audit/${caseId}`);
   },
 
   verifyAuditIntegrity: async (caseId: string) => {
-    return apiFetch<any>(`/api/audit/${caseId}/verify`);
+    return apiFetch<any>(`/api/backend/audit/${caseId}/verify`);
   },
 
   // Admin & System
   getSettings: async () => {
-    return apiFetch<any>("/api/settings");
+    return apiFetch<any>("/api/backend/settings");
   },
 
   updateSettings: async (settings: any) => {
-    return apiFetch<any>("/api/settings", {
+    return apiFetch<any>("/api/backend/settings", {
       method: "PUT",
       body: JSON.stringify(settings),
     });
   },
 
   getSystemHealth: async () => {
-    return apiFetch<any>("/api/settings/health");
+    return apiFetch<any>("/api/backend/settings/health");
   },
 };
 

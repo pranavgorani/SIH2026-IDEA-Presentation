@@ -1,9 +1,21 @@
 import os
+import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
+
+# Configure Python search path for both monorepo root and backend root
+_current_file = Path(__file__).resolve()
+_app_dir = _current_file.parent
+_backend_dir = _app_dir.parent
+_workspace_dir = _backend_dir.parent
+
+for _p in [str(_workspace_dir), str(_backend_dir)]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 
 from backend.app.core.config import settings
 from backend.app.models.database import init_db, SessionLocal
@@ -18,13 +30,16 @@ from backend.app.services.synthetic_generator import synthetic_generator
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: initialize database tables
-    init_db()
-    db = SessionLocal()
+    # Startup: initialize database tables & demo seed data
     try:
-        seed_demo_users_if_needed(db)
-    finally:
-        db.close()
+        init_db()
+        db = SessionLocal()
+        try:
+            seed_demo_users_if_needed(db)
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"Notice: Database initialization: {e}")
 
     # Pre-render synthetic demonstration cases so demo mode works out of the box
     try:
@@ -35,6 +50,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown logic if needed
 
+# FastAPI Application Instance
 app = FastAPI(
     title=settings.PROJECT_TITLE,
     description="""
@@ -66,17 +82,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Routers under /api
-app.include_router(auth_router, prefix=settings.API_V1_STR)
-app.include_router(screening_router, prefix=settings.API_V1_STR)
-app.include_router(cases_router, prefix=settings.API_V1_STR)
-app.include_router(documents_router, prefix=settings.API_V1_STR)
-app.include_router(audit_router, prefix=settings.API_V1_STR)
-app.include_router(analytics_router, prefix=settings.API_V1_STR)
-app.include_router(settings_router, prefix=settings.API_V1_STR)
+# Mount Routers under both /api and /api/backend for Vercel Services compatibility
+for route_prefix in ["/api", "/api/backend"]:
+    app.include_router(auth_router, prefix=route_prefix)
+    app.include_router(screening_router, prefix=route_prefix)
+    app.include_router(cases_router, prefix=route_prefix)
+    app.include_router(documents_router, prefix=route_prefix)
+    app.include_router(audit_router, prefix=route_prefix)
+    app.include_router(analytics_router, prefix=route_prefix)
+    app.include_router(settings_router, prefix=route_prefix)
+
+# Standard Health Endpoints
+@app.get("/health", tags=["Health"])
+def health():
+    return {
+        "status": "healthy",
+        "service": "trust-id-backend"
+    }
 
 @app.get("/api/health", tags=["Health"])
-def health_check():
+def api_health():
     return {
         "status": "ONLINE",
         "service": settings.PROJECT_NAME,
@@ -84,6 +109,34 @@ def health_check():
         "version": settings.VERSION,
         "tagline": settings.TAGLINE
     }
+
+@app.get("/api/backend/health", tags=["Health"])
+def api_backend_health():
+    return {
+        "status": "healthy",
+        "service": "trust-id-backend",
+        "version": settings.VERSION,
+        "tagline": settings.TAGLINE
+    }
+
+# Vercel Services Swagger & Documentation Endpoints
+@app.get("/api/backend/docs", include_in_schema=False)
+async def backend_swagger_ui():
+    return get_swagger_ui_html(
+        openapi_url="/api/backend/openapi.json",
+        title=f"{settings.PROJECT_TITLE} - API Docs"
+    )
+
+@app.get("/api/backend/redoc", include_in_schema=False)
+async def backend_redoc_ui():
+    return get_redoc_html(
+        openapi_url="/api/backend/openapi.json",
+        title=f"{settings.PROJECT_TITLE} - ReDoc"
+    )
+
+@app.get("/api/backend/openapi.json", include_in_schema=False)
+async def backend_openapi_spec():
+    return app.openapi()
 
 if __name__ == "__main__":
     import uvicorn
