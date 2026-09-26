@@ -219,3 +219,108 @@ def test_get_global_reports():
     assert "total_reports" in data
     assert "analytics" in data
     assert "reports" in data
+
+
+# =========================================================================
+# 5. RBAC PERMISSIONS & AUDIT HASH INTEGRITY TESTS
+# =========================================================================
+
+def test_verifier_cannot_modify_admin_settings():
+    """Verify that VERIFIER role receives 403 Forbidden when attempting to modify admin security settings."""
+    login_res = client.post("/api/auth/login", json={"username": "verifier", "password": "verifier123"})
+    token = login_res.json()["access_token"]
+    
+    res = client.put(
+        "/api/settings",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "weights": {"OCR_DATA": 0.25, "VISUAL_FORENSICS": 0.25, "IDENTITY_VERIFICATION": 0.25, "RECORD_VERIFICATION": 0.25},
+            "threshold_low": 20.0,
+            "threshold_medium": 50.0,
+            "ai_provider": "LOCAL_FALLBACK",
+            "verification_mode": "MOCK_SIMULATED"
+        }
+    )
+    assert res.status_code == 403
+    assert "ADMIN privileges" in res.json()["detail"]
+
+
+def test_inspector_cannot_modify_admin_settings():
+    """Verify that INSPECTOR role receives 403 Forbidden when attempting to modify admin security settings."""
+    login_res = client.post("/api/auth/login", json={"username": "inspector", "password": "inspector123"})
+    token = login_res.json()["access_token"]
+    
+    res = client.put(
+        "/api/settings",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "weights": {"OCR_DATA": 0.25, "VISUAL_FORENSICS": 0.25, "IDENTITY_VERIFICATION": 0.25, "RECORD_VERIFICATION": 0.25},
+            "threshold_low": 20.0,
+            "threshold_medium": 50.0,
+            "ai_provider": "LOCAL_FALLBACK",
+            "verification_mode": "MOCK_SIMULATED"
+        }
+    )
+    assert res.status_code == 403
+
+
+def test_admin_can_modify_settings():
+    """Verify that ADMIN role can successfully update system settings."""
+    login_res = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    token = login_res.json()["access_token"]
+    
+    res = client.put(
+        "/api/settings",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "weights": {"OCR_DATA": 0.25, "VISUAL_FORENSICS": 0.25, "IDENTITY_VERIFICATION": 0.25, "RECORD_VERIFICATION": 0.25},
+            "threshold_low": 25.0,
+            "threshold_medium": 55.0,
+            "ai_provider": "LOCAL_FALLBACK",
+            "verification_mode": "MOCK_SIMULATED"
+        }
+    )
+    assert res.status_code == 200
+    assert "updated successfully" in res.json()["message"]
+
+
+def test_report_hash_and_audit_integrity():
+    """Verify report SHA-256 hash generation and tamper-evident audit ledger."""
+    from backend.app.models.database import SessionLocal, Case, AuditEvent, generate_uuid, utc_now
+    from backend.app.services.audit_service import audit_service
+    
+    db = SessionLocal()
+    try:
+        case_id = generate_uuid()
+        test_case = Case(
+            id=case_id,
+            case_number=f"AUDIT-TEST-{case_id[:6].upper()}",
+            document_type="PASSPORT",
+            status="COMPLETED",
+            risk_level="LOW",
+            risk_score=12.0
+        )
+        db.add(test_case)
+        db.commit()
+
+        # Add audit event using record_event
+        ev1 = audit_service.record_event(
+            db=db,
+            case_id=case_id,
+            actor_id="verifier:test",
+            action="Executed 100-point inspection",
+            details={"checks": 100, "integrity": 95.0}
+        )
+        db.commit()
+        assert ev1.event_hash
+        assert ev1.previous_hash
+
+        # Verify hash calculation
+        rep_res = client.get(f"/api/cases/{case_id}/report")
+        assert rep_res.status_code == 200
+        data = rep_res.json()
+        assert "report_hash" in data
+        assert len(data["report_hash"]) == 64
+        assert data["checks_summary"]["total_checks"] == 100
+    finally:
+        db.close()

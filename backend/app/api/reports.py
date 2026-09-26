@@ -232,7 +232,7 @@ def get_case_report_summary(case_id: str, db: Session = Depends(get_db)):
         "case_number": case.case_number,
         "document_type": case.document_type,
         "screening_date": case.created_at.isoformat() if case.created_at else utc_now().isoformat(),
-        "overall_status": case.decision or "APPROVED",
+        "overall_status": getattr(case, "decision", None) or getattr(case, "status", "APPROVED"),
         "risk_score": case.risk_score or 15.0,
         "risk_level": case.risk_level or "LOW",
         "document_integrity_score": checks_data["document_integrity_score"],
