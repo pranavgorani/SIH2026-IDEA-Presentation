@@ -21,6 +21,10 @@ class LocalCVProvider(AIProvider):
         return {
             "provider": self.provider_name,
             "status": self.provider_status,
+            "ai_status": "fallback",
+            "provider_status": "LOCAL_FALLBACK",
+            "provider_reason": "Processed with Local CV Fallback (AI unavailable)",
+            "user_notice": "Processed with Local CV Fallback (AI unavailable)",
             "quality_score": quality.quality_score,
             "quality_issues": quality.issues,
             "tampering_detected": forensics.tampering_detected,

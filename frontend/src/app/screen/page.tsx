@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -50,6 +50,9 @@ interface ScreeningErrorInfo {
   code: string;
   recoverable: boolean;
   failedStepId: number;
+  requestId?: string;
+  userAction?: string;
+  debugDetails?: any;
 }
 
 export default function ScreeningPage() {
@@ -76,6 +79,22 @@ export default function ScreeningPage() {
 
   // Security mask toggle for document number in UI
   const [showDocNumber, setShowDocNumber] = useState(false);
+
+  // User and diagnostics state
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+  const [retryStatus, setRetryStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("trustid_user");
+      if (stored) {
+        try {
+          setCurrentUser(JSON.parse(stored));
+        } catch {}
+      }
+    }
+  }, []);
 
   const handleFrontSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -109,14 +128,15 @@ export default function ScreeningPage() {
     setShowLiveSelfieScanner(false);
   };
 
-  const executePipeline = async (overrideHint?: string) => {
+  const executePipeline = async (overrideHint?: string, forceFallback: boolean = false) => {
     if (!frontFile) {
       setScreeningError({
         stage: "Input Validation",
         reason: "Please capture or upload the primary document front image before executing screening.",
         code: "MISSING_FRONT_FILE",
         recoverable: true,
-        failedStepId: 1
+        failedStepId: 1,
+        userAction: "Select or capture a credential image to proceed."
       });
       return;
     }
@@ -124,6 +144,7 @@ export default function ScreeningPage() {
     setIsProcessing(true);
     setCurrentStep(1);
     setScreeningError(null);
+    setRetryStatus(null);
 
     // Stepped pipeline animation
     const interval = setInterval(() => {
@@ -136,13 +157,21 @@ export default function ScreeningPage() {
       if (backFile) formData.append("back_file", backFile);
       if (liveFile) formData.append("live_person_file", liveFile);
       formData.append("document_type_hint", overrideHint || docTypeHint);
+      if (forceFallback) {
+        formData.append("force_local_fallback", "true");
+      }
       if (notes) formData.append("notes", notes);
 
-      const res = await api.screenDocument(formData);
+      const res = await api.screenDocument(formData, {
+        onRetryAttempt: (attempt, maxAttempts) => {
+          setRetryStatus(`Auto-retrying transient error (${attempt}/${maxAttempts})...`);
+        }
+      });
       clearInterval(interval);
       setCurrentStep(10);
       setScreenResult(res);
       setIsProcessing(false);
+      setRetryStatus(null);
 
       // Automatic PDF download as required by Spec 12 & 39
       if (res.report_pdf_url) {
@@ -163,7 +192,7 @@ export default function ScreeningPage() {
 
       const stageKey = err.stage || "OCR";
       const matchedStep = PIPELINE_STEPS.find((s) => s.key === stageKey);
-      const failedStepId = matchedStep ? matchedStep.id : 4;
+      const failedStepId = matchedStep ? matchedStep.id : (stageKey === "GATEWAY" ? 1 : 4);
       const stageName = matchedStep ? matchedStep.label : stageKey;
 
       setScreeningError({
@@ -171,10 +200,14 @@ export default function ScreeningPage() {
         reason: err.message || "Screening could not be completed.",
         code: err.code || "SCREENING_ERROR",
         recoverable: err.recoverable ?? true,
-        failedStepId
+        failedStepId,
+        requestId: err.requestId,
+        userAction: err.userAction,
+        debugDetails: err.debugDetails
       });
       setCurrentStep(failedStepId);
       setIsProcessing(false);
+      setRetryStatus(null);
     }
   };
 
@@ -188,7 +221,7 @@ export default function ScreeningPage() {
   };
 
   const handleLocalFallback = () => {
-    executePipeline("AUTO_DETECT");
+    executePipeline(docTypeHint, true);
   };
 
   const handleReset = () => {
@@ -234,18 +267,34 @@ export default function ScreeningPage() {
       {/* Structured Error UI Banner */}
       {screeningError && (
         <div className="p-6 rounded-2xl bg-red-950/40 border border-red-800/80 shadow-2xl space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-600/20 text-red-400 border border-red-500/40 flex items-center justify-center flex-shrink-0">
-              <XCircle className="w-6 h-6" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-600/20 text-red-400 border border-red-500/40 flex items-center justify-center flex-shrink-0">
+                <XCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-red-500/20 text-red-400 border border-red-500/30 uppercase tracking-wider">
+                    SCREENING FAILED
+                  </span>
+                  {screeningError.code && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                      {screeningError.code}
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-base sm:text-lg font-bold text-white mt-1">
+                  Stage: {screeningError.stage}
+                </h3>
+              </div>
             </div>
-            <div>
-              <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-red-500/20 text-red-400 border border-red-500/30 uppercase tracking-wider">
-                SCREENING FAILED
-              </span>
-              <h3 className="text-base sm:text-lg font-bold text-white mt-1">
-                Stage: {screeningError.stage}
-              </h3>
-            </div>
+
+            {screeningError.requestId && (
+              <div className="text-left sm:text-right bg-slate-900/60 p-2 sm:p-0 rounded-lg sm:bg-transparent">
+                <span className="text-[10px] font-mono text-slate-400 block font-semibold">REQUEST ID</span>
+                <span className="text-xs font-mono text-blue-400 select-all font-bold">{screeningError.requestId}</span>
+              </div>
+            )}
           </div>
 
           <div className="p-4 rounded-xl bg-slate-950/60 border border-red-900/40 space-y-2 text-xs">
@@ -256,26 +305,58 @@ export default function ScreeningPage() {
             <div>
               <span className="text-slate-400 font-semibold">Recommended action: </span>
               <span className="text-slate-300">
-                {screeningError.recoverable
+                {screeningError.userAction || (screeningError.recoverable
                   ? "Retry screening or execute with local computer-vision fallback."
-                  : "Please inspect the uploaded document scan and re-upload in a supported format."}
+                  : "Please inspect the uploaded document scan and re-upload in a supported format (PDF, PNG, JPG, WEBP).")}
               </span>
             </div>
+            {retryStatus && (
+              <div className="text-amber-400 font-mono text-[11px] animate-pulse">
+                {retryStatus}
+              </div>
+            )}
           </div>
+
+          {/* Admin-only technical details accordion */}
+          {currentUser?.role === "ADMIN" && screeningError.debugDetails && (
+            <div className="rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-left text-slate-400 hover:text-slate-200 font-mono text-xs font-semibold bg-slate-900/40"
+              >
+                <span>Diagnostic Logs & Technical Details (ADMIN ONLY)</span>
+                <span>{showTechnicalDetails ? "▲ Hide" : "▼ Show"}</span>
+              </button>
+              {showTechnicalDetails && (
+                <div className="p-4 border-t border-slate-800 bg-slate-950 font-mono text-[11px] text-slate-300 space-y-1.5 overflow-x-auto">
+                  <div><span className="text-slate-500">Endpoint:</span> {screeningError.debugDetails.url || "/api/backend/screen"}</div>
+                  <div><span className="text-slate-500">HTTP Status:</span> {screeningError.debugDetails.status} {screeningError.debugDetails.statusText}</div>
+                  {screeningError.debugDetails.rawBody && (
+                    <div className="mt-2 p-2 rounded bg-black/60 text-slate-400 whitespace-pre-wrap font-mono text-[10px] max-h-40 overflow-y-auto">
+                      {screeningError.debugDetails.rawBody}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <button
               onClick={handleRetry}
-              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-md shadow-red-500/25 transition-all flex items-center gap-1.5"
+              disabled={isProcessing}
+              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-red-500/25 transition-all flex items-center gap-1.5"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className={`w-3.5 h-3.5 ${isProcessing ? "animate-spin" : ""}`} />
               <span>Retry Screening</span>
             </button>
 
             {screeningError.recoverable && (
               <button
                 onClick={handleLocalFallback}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/25 transition-all flex items-center gap-1.5"
+                disabled={isProcessing}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-blue-500/25 transition-all flex items-center gap-1.5"
               >
                 <Cpu className="w-3.5 h-3.5" />
                 <span>Use Local Fallback</span>
@@ -646,6 +727,16 @@ export default function ScreeningPage() {
                   <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
                     100 CHECKS EXECUTED
                   </span>
+                  {(screenResult?.ai_status === "fallback" || screenResult?.force_local_fallback) && (
+                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
+                      Processed with Local CV Fallback (AI unavailable)
+                    </span>
+                  )}
+                  {screenResult?.ai_status === "unavailable" && (
+                    <span className="px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
+                      AI analysis unavailable — manual verification required
+                    </span>
+                  )}
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                   100-Point Forensic Document Verification Finished

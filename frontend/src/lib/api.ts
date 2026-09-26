@@ -37,24 +37,31 @@ export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): 
 
 export interface ScreeningErrorPayload {
   success: false;
+  request_id?: string;
   case_id?: string;
   stage: string;
   code: string;
   message: string;
   recoverable?: boolean;
+  user_action?: string;
   error?: {
     code: string;
     message: string;
     stage: string;
   };
   pipeline?: Array<{ stage: string; status: string; code?: string; message?: string }>;
+  stages?: any[];
+  debug_details?: any;
 }
 
 export class ScreeningException extends Error {
   stage: string;
   code: string;
   recoverable: boolean;
+  requestId?: string;
+  userAction?: string;
   pipeline?: any[];
+  debugDetails?: any;
 
   constructor(payload: Partial<ScreeningErrorPayload> | string) {
     if (typeof payload === "string") {
@@ -62,13 +69,17 @@ export class ScreeningException extends Error {
       this.stage = "SYSTEM";
       this.code = "NETWORK_ERROR";
       this.recoverable = true;
+      this.userAction = "Retry screening or execute with local computer-vision fallback.";
     } else {
       const reason = payload.message || payload.error?.message || "Screening could not be completed.";
       super(reason);
       this.stage = payload.stage || payload.error?.stage || "PROCESSING";
       this.code = payload.code || payload.error?.code || "SCREENING_ERROR";
       this.recoverable = payload.recoverable ?? true;
-      this.pipeline = payload.pipeline;
+      this.requestId = payload.request_id;
+      this.userAction = payload.user_action || (this.recoverable ? "Retry screening or execute with local computer-vision fallback." : "Please inspect the uploaded document scan and re-upload in a supported format.");
+      this.pipeline = payload.pipeline || payload.stages;
+      this.debugDetails = payload.debug_details;
     }
   }
 }
@@ -143,56 +154,122 @@ export const api = {
     });
   },
 
-  // Screening
-  screenDocument: async (formData: FormData) => {
+  // Screening with exponential backoff (attempt 1 immediate, 2 at 1s, 3 at 2s)
+  screenDocument: async (
+    formData: FormData,
+    options?: { onRetryAttempt?: (attempt: number, maxAttempts: number) => void }
+  ) => {
     const endpoint = "/api/backend/screen";
     const url = API_BASE ? `${API_BASE}${endpoint}` : endpoint;
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          ...getAuthHeader(),
-        },
-        body: formData,
-      });
-    } catch (netErr: any) {
-      throw new ScreeningException({
-        success: false,
-        stage: "GATEWAY",
-        code: "BACKEND_CONNECTION_FAILED",
-        message: "Unable to connect to TRUST-ID AI screening backend service. Please check connection.",
-        recoverable: true
-      });
-    }
+    const maxAttempts = 3;
+    const delays = [0, 1000, 2000];
 
-    if (!res.ok) {
-      let errPayload: any = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (attempt > 1) {
+        options?.onRetryAttempt?.(attempt, maxAttempts);
+        await new Promise((resolve) => setTimeout(resolve, delays[attempt - 1]));
+      }
+
+      let res: Response;
       try {
-        errPayload = await res.json();
-      } catch {}
-
-      if (errPayload && typeof errPayload === "object") {
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            ...getAuthHeader(),
+          },
+          body: formData,
+        });
+      } catch (netErr: any) {
+        // Transient network failure: retry if attempts remaining
+        if (attempt < maxAttempts) {
+          continue;
+        }
         throw new ScreeningException({
           success: false,
-          case_id: errPayload.case_id,
-          stage: errPayload.stage || errPayload.error?.stage || "PROCESSING",
-          code: errPayload.code || errPayload.error?.code || "HTTP_ERROR",
-          message: errPayload.message || errPayload.error?.message || (typeof errPayload.detail === "string" ? errPayload.detail : `Request failed (${res.status})`),
-          recoverable: errPayload.recoverable ?? (res.status < 500),
-          pipeline: errPayload.pipeline
+          stage: "GATEWAY",
+          code: "BACKEND_CONNECTION_FAILED",
+          message: "Unable to connect to TRUST-ID AI screening backend service. Please check connection.",
+          recoverable: true,
+          user_action: "Retry screening or execute with local computer-vision fallback.",
+          debug_details: { error: netErr?.message }
         });
       }
 
-      throw new ScreeningException({
-        success: false,
-        stage: "GATEWAY",
-        code: `HTTP_${res.status}`,
-        message: `Screening service returned HTTP ${res.status} (${res.statusText || "Service Error"})`,
-        recoverable: true
-      });
+      // Check if transient error (502 / 503) that warrants auto-retry
+      if ((res.status === 502 || res.status === 503) && attempt < maxAttempts) {
+        continue;
+      }
+
+      if (!res.ok) {
+        let errPayload: any = null;
+        let rawText = "";
+        try {
+          rawText = await res.text();
+          errPayload = JSON.parse(rawText);
+        } catch {
+          // Response is non-JSON HTML (e.g. Next.js rewrite or nginx 500/502)
+        }
+
+        const isClientError = res.status >= 400 && res.status < 500;
+        const recoverable = errPayload?.recoverable ?? (!isClientError || res.status === 429);
+
+        // Map status codes according to Section 8 of Gateway specification
+        let stage = errPayload?.stage || errPayload?.error?.stage || (res.status >= 500 ? "GATEWAY" : "INPUT_VALIDATION");
+        let code = errPayload?.code || errPayload?.error?.code || `HTTP_${res.status}`;
+        let message = errPayload?.message || errPayload?.error?.message;
+
+        if (!message) {
+          if (res.status === 400) {
+            code = code === `HTTP_${res.status}` ? "INVALID_DOCUMENT" : code;
+            message = "Document format or payload is invalid. Supported: PDF, PNG, JPG, WEBP.";
+          } else if (res.status === 401) {
+            code = "UNAUTHORIZED";
+            message = "Authentication required. Please log in.";
+          } else if (res.status === 403) {
+            code = "FORBIDDEN";
+            message = "Insufficient permissions to execute screening.";
+          } else if (res.status === 404) {
+            code = "NOT_FOUND";
+            message = "Screening endpoint or document not found.";
+          } else if (res.status === 413) {
+            code = "FILE_TOO_LARGE";
+            message = "Uploaded file exceeds maximum allowed size (25MB).";
+          } else if (res.status === 422) {
+            code = "UNPROCESSABLE_ENTITY";
+            message = "Document parameters cannot be processed. Please check document orientation and format.";
+          } else if (res.status === 429) {
+            code = "RATE_LIMITED";
+            message = "Too many requests. Please wait a moment before retrying.";
+          } else if (res.status === 502 || res.status === 503) {
+            code = "SERVICE_UNAVAILABLE";
+            message = "Screening backend service is temporarily unavailable. Please retry.";
+          } else {
+            code = "SERVICE_ERROR";
+            message = `Screening service returned HTTP ${res.status} (${res.statusText || "Service Error"})`;
+          }
+        }
+
+        throw new ScreeningException({
+          success: false,
+          request_id: errPayload?.request_id || res.headers.get("x-request-id") || undefined,
+          case_id: errPayload?.case_id,
+          stage,
+          code,
+          message,
+          recoverable,
+          user_action: errPayload?.user_action,
+          pipeline: errPayload?.pipeline || errPayload?.stages,
+          debug_details: {
+            status: res.status,
+            statusText: res.statusText,
+            url: res.url,
+            rawBody: rawText ? rawText.slice(0, 500) : undefined
+          }
+        });
+      }
+
+      return res.json();
     }
-    return res.json();
   },
 
   // Audit

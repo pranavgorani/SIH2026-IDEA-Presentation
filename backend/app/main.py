@@ -83,7 +83,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Routers under both /api and /api/backend for Vercel Services compatibility
+# Mount Routers under root, /api, and /api/backend for Vercel and direct proxy compatibility
+app.include_router(screening_router)
 for route_prefix in ["/api", "/api/backend"]:
     app.include_router(auth_router, prefix=route_prefix)
     app.include_router(screening_router, prefix=route_prefix)
@@ -95,10 +96,54 @@ for route_prefix in ["/api", "/api/backend"]:
     app.include_router(reports_router, prefix=route_prefix)
 
 from backend.app.providers.gemini_provider import gemini_provider
+from backend.app.models.database import generate_uuid
 from sqlalchemy import text
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import logging
+
+logger = logging.getLogger("trustid.gateway")
+
+# Global Exception Handlers
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request: Request, exc: Exception):
+    req_id = generate_uuid()
+    logger.exception(f"GLOBAL_UNHANDLED_EXCEPTION: request_id={req_id} path={request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "request_id": req_id,
+            "stage": "GATEWAY",
+            "code": "SERVICE_ERROR",
+            "error_code": "SERVICE_ERROR",
+            "message": "Screening service encountered an internal error. Please retry or execute with local computer-vision fallback.",
+            "user_action": "Retry screening or execute with local computer-vision fallback.",
+            "recoverable": True
+        }
+    )
 
 # Standard Health Endpoints
 @app.get("/health", tags=["Health"])
+def health_root():
+    # Database check
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        db_status = True
+    except Exception:
+        db_status = False
+
+    storage_status = settings.STORAGE_DIR.exists()
+    return {
+        "status": "ok",
+        "api": True,
+        "database": db_status,
+        "ocr": True,
+        "ai": True,
+        "storage": storage_status
+    }
+
 @app.get("/api/health", tags=["Health"])
 @app.get("/api/backend/health", tags=["Health"])
 def health():
@@ -126,6 +171,11 @@ def health():
     return {
         "status": "healthy",
         "service": settings.PROJECT_NAME,
+        "api": True,
+        "database": db_status == "online",
+        "ocr": True,
+        "ai": True,
+        "storage": storage_status == "online",
         "services": {
             "database": db_status,
             "ocr": "online",
@@ -133,6 +183,27 @@ def health():
             "gemini": gemini_status,
             "storage": storage_status
         }
+    }
+
+@app.get("/health/screening", tags=["Health"])
+@app.get("/api/health/screening", tags=["Health"])
+@app.get("/api/backend/health/screening", tags=["Health"])
+def health_screening():
+    db_connected = False
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        db_connected = True
+    except Exception:
+        db_connected = False
+
+    ai_prov = "gemini" if gemini_provider.is_configured else "local"
+    return {
+        "status": "ready",
+        "pipeline_stages": 10,
+        "ai_provider": ai_prov,
+        "ocr_engine": settings.OCR_ENGINE_PRIMARY or "auto",
+        "database_connected": db_connected
     }
 
 @app.get("/api/health/ai", tags=["Health"])

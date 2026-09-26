@@ -1,12 +1,15 @@
 import os
 import json
 import base64
+import logging
 import httpx
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from backend.app.core.config import settings
 from backend.app.providers.base_provider import AIProvider
 from backend.app.providers.local_cv_provider import local_cv_provider
+
+logger = logging.getLogger("trustid.gemini")
 
 class GeminiVisionHybridProvider(AIProvider):
     """
@@ -20,18 +23,27 @@ class GeminiVisionHybridProvider(AIProvider):
     4. If Gemini returns 401, 403, 404, 429, 500 or timeout:
        returns provider='LOCAL_CV_FALLBACK', provider_reason='Gemini unavailable'.
     5. Gemini acts as an assistive signal only — human verifiers retain final decision authority.
+    6. When Gemini fails, document is NOT marked compliant; result explicitly flags:
+       'AI analysis unavailable — manual verification required'.
     """
     provider_name: str = "GEMINI_VISION_HYBRID"
     provider_status: str = "ACTIVE"
 
     @property
     def api_key(self) -> str:
-        return os.getenv("GEMINI_API_KEY", "").strip()
+        key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+        return str(key).strip()
 
     @property
     def is_configured(self) -> bool:
         key = self.api_key
         return bool(key and key not in ("YOUR_GEMINI_API_KEY", "YOUR_NEW_ROTATED_GEMINI_KEY", "CHANGE_ME_LOCALLY"))
+
+    @property
+    def model_name(self) -> str:
+        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+        allowed_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]
+        return model if model in allowed_models else "gemini-2.0-flash"
 
     def analyze_document(self, image_path: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         # Step 1: Run deterministic local CV analysis first to guarantee baseline metrics
@@ -40,26 +52,31 @@ class GeminiVisionHybridProvider(AIProvider):
         # Step 2: If Gemini key is not configured, return clean fallback
         if not self.is_configured:
             local_result["provider"] = "LOCAL_CV_FALLBACK"
-            local_result["provider_reason"] = "Gemini unavailable"
+            local_result["provider_reason"] = "Gemini key not configured"
             local_result["provider_status"] = "LOCAL_FALLBACK"
+            local_result["ai_status"] = "unavailable"
             local_result["explanation"] = "Gemini provider unavailable; local computer-vision analysis used."
+            local_result["user_notice"] = "AI analysis unavailable — manual verification required"
             return local_result
 
-        # Step 3: Attempt Gemini Vision API inference with strict timeout
+        # Step 3: Attempt Gemini Vision API inference with strict validation and timeout
         try:
             gemini_analysis = self._call_gemini_vision(image_path)
             local_result["provider"] = self.provider_name
             local_result["provider_status"] = "ACTIVE"
+            local_result["ai_status"] = "available"
             local_result["gemini_insights"] = gemini_analysis
             local_result["explanation"] = f"Hybrid evaluation completed. Local CV + Gemini: {gemini_analysis.get('summary', 'Visual analysis consistent.')}"
             return local_result
         except Exception as err:
-            # Fallback gracefully without crashing
+            logger.warning(f"Gemini Vision call failed, switching to local fallback: {err}")
             local_result["provider"] = "LOCAL_CV_FALLBACK"
-            local_result["provider_reason"] = "Gemini unavailable"
+            local_result["provider_reason"] = f"Gemini unavailable ({type(err).__name__})"
             local_result["provider_status"] = "LOCAL_FALLBACK"
+            local_result["ai_status"] = "unavailable"
             local_result["explanation"] = "Gemini provider unavailable; local computer-vision analysis used."
-            local_result["fallback_reason"] = f"Gemini API unavailable: {str(err)}"
+            local_result["user_notice"] = "AI analysis unavailable — manual verification required"
+            local_result["fallback_reason"] = "Gemini API unavailable"
             return local_result
 
     def analyze_visual_anomalies(self, image_path: str) -> Dict[str, Any]:
@@ -67,12 +84,15 @@ class GeminiVisionHybridProvider(AIProvider):
         if self.is_configured:
             res["provider"] = self.provider_name
             res["provider_status"] = "ACTIVE"
+            res["ai_status"] = "available"
             res["explanation"] = "Visual anomalies analyzed via hybrid pipeline."
         else:
             res["provider"] = "LOCAL_CV_FALLBACK"
             res["provider_reason"] = "Gemini unavailable"
             res["provider_status"] = "LOCAL_FALLBACK"
+            res["ai_status"] = "unavailable"
             res["explanation"] = "Gemini provider unavailable; local computer-vision analysis used."
+            res["user_notice"] = "AI analysis unavailable — manual verification required"
         return res
 
     def generate_explanation(self, risk_score: float, risk_factors: List[str], positive_signals: List[str]) -> str:
@@ -83,7 +103,8 @@ class GeminiVisionHybridProvider(AIProvider):
         try:
             augmented = self._call_gemini_explanation(risk_score, risk_factors, positive_signals)
             return augmented if augmented else base_exp
-        except Exception:
+        except Exception as err:
+            logger.debug(f"Gemini explanation generation fallback: {err}")
             return base_exp
 
     def _call_gemini_vision(self, image_path: str) -> Dict[str, Any]:
@@ -92,9 +113,27 @@ class GeminiVisionHybridProvider(AIProvider):
         if not path.exists():
             raise FileNotFoundError(f"Document scan file not found: {image_path}")
 
-        mime_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        # Validate MIME type
+        ext = path.suffix.lower()
+        mime_map = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".pdf": "application/pdf"
+        }
+        mime_type = mime_map.get(ext, "image/png")
+
+        # Validate file size
+        file_size = path.stat().st_size
+        if file_size == 0:
+            raise ValueError("Document file is empty")
+        if file_size > 20 * 1024 * 1024:
+            raise ValueError("Document exceeds Gemini inline limit (20MB)")
+
         with open(path, "rb") as f:
-            encoded_bytes = base64.b64encode(f.read()).decode("utf-8")
+            file_bytes = f.read()
+            encoded_bytes = base64.b64encode(file_bytes).decode("utf-8")
 
         prompt = (
             "You are a document forensics AI assistant for border security screening. "
@@ -103,7 +142,8 @@ class GeminiVisionHybridProvider(AIProvider):
             '{"anomalies_detected": boolean, "confidence": float, "summary": string}'
         )
 
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        model = self.model_name
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         payload = {
             "contents": [
                 {
@@ -133,10 +173,24 @@ class GeminiVisionHybridProvider(AIProvider):
             resp = client.post(url, json=payload, headers=headers)
             if resp.status_code == 200:
                 data = resp.json()
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
-                return json.loads(text)
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    raise ValueError("Gemini returned empty candidate response")
+                content = candidates[0].get("content", {})
+                parts = content.get("parts", [])
+                if not parts:
+                    raise ValueError("Gemini returned empty parts")
+                text = parts[0].get("text", "").strip()
+                if not text:
+                    raise ValueError("Gemini returned blank response text")
+                
+                # Parse JSON
+                parsed = json.loads(text)
+                if not isinstance(parsed, dict):
+                    raise ValueError("Gemini response is not a valid JSON object")
+                return parsed
             else:
-                raise RuntimeError(f"Gemini API returned status code {resp.status_code}")
+                raise RuntimeError(f"Gemini API returned status code {resp.status_code}: {resp.text[:120]}")
 
     def _call_gemini_explanation(self, risk_score: float, risk_factors: List[str], positive_signals: List[str]) -> str:
         prompt = (
@@ -145,7 +199,8 @@ class GeminiVisionHybridProvider(AIProvider):
             "write a concise 2-sentence objective executive explanation for a human border verifier. "
             "Do not make definitive statements of guilt. Explain observed evidence."
         )
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        model = self.model_name
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.2}
@@ -158,7 +213,11 @@ class GeminiVisionHybridProvider(AIProvider):
             resp = client.post(url, json=payload, headers=headers)
             if resp.status_code == 200:
                 data = resp.json()
-                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "").strip()
             raise RuntimeError(f"Gemini API returned status {resp.status_code}")
 
 gemini_provider = GeminiVisionHybridProvider()

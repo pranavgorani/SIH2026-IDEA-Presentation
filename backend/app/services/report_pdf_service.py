@@ -10,6 +10,7 @@ Final Page: Risk Assessment & Cryptographic Audit Ledger Fingerprint
 
 import os
 import io
+import html
 import hashlib
 import math
 from datetime import datetime, timezone
@@ -420,13 +421,16 @@ class ReportPDFService:
         raw_mrz = mrz.get("raw_mrz")
         if raw_mrz:
             elements.append(Paragraph("MACHINE READABLE ZONE (ICAO 9303 MRZ)", h2_style))
-            mrz_clean = str(raw_mrz).strip()
+            if isinstance(raw_mrz, list):
+                mrz_lines_escaped = "<br/>".join(html.escape(str(line).strip()) for line in raw_mrz)
+            else:
+                mrz_lines_escaped = html.escape(str(raw_mrz).strip()).replace("\n", "<br/>")
             # Mask sensitive passport digits in MRZ display
-            mrz_p = Paragraph(f"<font face='Courier' size=8 color='#0f766e'>{mrz_clean}</font>", ParagraphStyle("MRZBox", backColor=colors.HexColor("#f0fdf4"), borderPadding=8, borderWidth=0.5, borderColor=colors.HexColor("#bbf7d0")))
+            mrz_p = Paragraph(f"<font face='Courier' size=8 color='#0f766e'>{mrz_lines_escaped}</font>", ParagraphStyle("MRZBox", backColor=colors.HexColor("#f0fdf4"), borderPadding=8, borderWidth=0.5, borderColor=colors.HexColor("#bbf7d0")))
             elements.append(mrz_p)
             elements.append(Spacer(1, 8))
             chk_status = "VALID (7-3-1 ICAO Checksum Confirmed)" if mrz.get("valid") else "CHECKSUM WARNING"
-            elements.append(Paragraph(f"<b>MRZ Checksum Status:</b> <font color='#16a34a'>{chk_status}</font>", body_style))
+            elements.append(Paragraph(f"<b>MRZ Checksum Status:</b> <font color='#16a34a'>{html.escape(chk_status)}</font>", body_style))
 
         elements.append(PageBreak())
 
@@ -458,12 +462,16 @@ class ReportPDFService:
             for chk in batch:
                 st = chk.get("status", "PASS")
                 st_color = green_pass if st == "PASS" else (amber_warn if st == "WARNING" else (red_fail if st == "FAIL" else gray_na))
+                safe_name = html.escape(str(chk.get("name", "")))
+                safe_evid = html.escape(str(chk.get("evidence", ""))[:65])
+                safe_sev = html.escape(str(chk.get("severity", "LOW")))
+                safe_cid = html.escape(str(chk.get("check_id", "")))
                 
                 table_rows.append([
-                    Paragraph(f"<font face='Courier'><b>{chk.get('check_id')}</b></font>", body_style),
-                    Paragraph(f"<b>{chk.get('name')}</b><br/><font size=7 color='#64748b'>{chk.get('evidence', '')[:65]}</font>", body_style),
+                    Paragraph(f"<font face='Courier'><b>{safe_cid}</b></font>", body_style),
+                    Paragraph(f"<b>{safe_name}</b><br/><font size=7 color='#64748b'>{safe_evid}</font>", body_style),
                     Paragraph(f"<font color='{st_color.hexval()}'><b>{st}</b></font>", body_style),
-                    Paragraph(chk.get("severity", "LOW"), body_style),
+                    Paragraph(safe_sev, body_style),
                     Paragraph(f"{int(chk.get('confidence', 1.0) * 100)}%", body_style),
                 ])
 

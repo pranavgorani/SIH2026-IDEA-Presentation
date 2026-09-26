@@ -32,6 +32,8 @@ from backend.app.services.document_check_engine import document_check_engine
 from backend.app.services.report_pdf_service import report_pdf_service
 from backend.app.services.report_export_service import ReportExportService
 from backend.app.core.security import get_current_user_optional
+from backend.app.core.exceptions import InvalidDocumentException, FileTooLargeException
+from backend.app.core.config import settings
 from backend.app.providers import get_ai_provider
 
 logger = logging.getLogger("trustid.screening")
@@ -46,6 +48,7 @@ async def run_screening_pipeline(
     live_person_file: Optional[UploadFile] = File(None, description="Optional live portrait of individual"),
     document_type_hint: Optional[str] = Form("AUTO_DETECT"),
     notes: Optional[str] = Form(None),
+    force_local_fallback: Optional[bool] = Form(False),
     db: Session = Depends(get_db),
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
@@ -55,58 +58,85 @@ async def run_screening_pipeline(
     VISUAL_FORENSICS -> FACE_VERIFICATION -> RECORD_VERIFICATION -> RISK_ASSESSMENT ->
     EXPLANATION -> DATABASE_SAVE -> COMPLETED
     """
+    request_id = generate_uuid()
     case_id = generate_uuid()
     case_number = f"CASE-{utc_now().strftime('%Y%m%d')}-{case_id[:6].upper()}"
     current_stage = "UPLOAD"
     pipeline_stages: List[Dict[str, Any]] = []
 
-    def log_stage_completion(stage_name: str, details: Optional[Dict[str, Any]] = None):
+    def log_stage_completion(stage_name: str, details: Optional[Dict[str, Any]] = None, status: str = "COMPLETED", confidence: float = 1.0, findings: Optional[List[Any]] = None, errors: Optional[List[str]] = None):
         pipeline_stages.append({
             "stage": stage_name,
-            "status": "COMPLETED",
+            "status": status,
+            "confidence": confidence,
+            "findings": findings or [],
+            "errors": errors or [],
             "details": details or {}
         })
 
-    def make_error_response(stage: str, code: str, message: str, recoverable: bool = True, http_status: int = 400):
-        logger.error(f"SCREENING_ERROR: case_id={case_id} stage={stage} code={code} message={message}")
+    def make_error_response(stage: str, code: str, message: str, recoverable: bool = True, http_status: int = 400, user_action: Optional[str] = None):
+        logger.error(
+            f"SCREENING_ERROR: request_id={request_id} case_id={case_id} stage={stage} "
+            f"code={code} message={message} http_status={http_status}"
+        )
         pipeline_stages.append({
             "stage": stage,
             "status": "FAILED",
+            "confidence": 0.0,
+            "findings": [],
+            "errors": [message],
             "code": code,
             "message": message
         })
+        default_user_action = (
+            "Retry screening or execute with local computer-vision fallback."
+            if recoverable else
+            "Please inspect the uploaded document scan and re-upload in a supported format (PDF, PNG, JPG, WEBP)."
+        )
         return JSONResponse(
             status_code=http_status,
             content={
                 "success": False,
+                "request_id": request_id,
                 "case_id": case_id,
                 "stage": stage,
                 "code": code,
+                "error_code": code,
                 "message": message,
                 "recoverable": recoverable,
+                "user_action": user_action or default_user_action,
                 "error": {
                     "code": code,
                     "message": message,
                     "stage": stage
                 },
-                "pipeline": pipeline_stages
+                "pipeline": pipeline_stages,
+                "stages": pipeline_stages
             }
         )
 
-    logger.info(f"SCREENING_START: case_id={case_id} hint={document_type_hint}")
+    user_id = (current_user or {}).get("username", "anonymous")
+    primary_file = file or primary_document
+    file_name = primary_file.filename if primary_file else "unknown"
+    content_type = primary_file.content_type if primary_file else "unknown"
+
+    logger.info(
+        f"SCREENING_START: request_id={request_id} case_id={case_id} user_id={user_id} "
+        f"filename={file_name} content_type={content_type} hint={document_type_hint} "
+        f"force_local_fallback={force_local_fallback}"
+    )
 
     # =========================================================================
     # STAGE 1: UPLOAD & NORMALIZATION
     # =========================================================================
     current_stage = "UPLOAD"
     try:
-        primary_file = file or primary_document
         if not primary_file:
             return make_error_response("UPLOAD", "MISSING_FILE", "Front image of credential was not provided.", True, 400)
 
         front_bytes = await primary_file.read()
         if not front_bytes:
-            return make_error_response("UPLOAD", "EMPTY_FILE", "Uploaded document file is empty.")
+            return make_error_response("UPLOAD", "EMPTY_FILE", "Uploaded document file is empty.", False, 400)
 
         front_path, f_hash, f_size, f_w, f_h = storage_service.save_upload(
             case_id, primary_file.filename or "front.png", front_bytes
@@ -121,14 +151,18 @@ async def run_screening_pipeline(
                 )
 
         log_stage_completion("UPLOAD", {"filename": primary_file.filename, "size_bytes": f_size, "dimensions": f"{f_w}x{f_h}"})
+    except InvalidDocumentException as ide:
+        return make_error_response("UPLOAD", ide.code or "INVALID_DOCUMENT", ide.message, recoverable=False, http_status=400)
+    except FileTooLargeException as fle:
+        return make_error_response("UPLOAD", "FILE_TOO_LARGE", fle.message, recoverable=False, http_status=400)
     except ValueError as ve:
         err_msg = str(ve)
         if "PDF processing" in err_msg:
-            return make_error_response("UPLOAD", "PDF_UNSUPPORTED", "PDF processing is not enabled in this deployment.", recoverable=False)
-        return make_error_response("UPLOAD", "IMAGE_NORMALIZATION_FAILED", err_msg)
+            return make_error_response("UPLOAD", "PDF_UNSUPPORTED", "PDF processing is not enabled in this deployment.", recoverable=False, http_status=400)
+        return make_error_response("UPLOAD", "IMAGE_NORMALIZATION_FAILED", err_msg, recoverable=False, http_status=400)
     except Exception as e:
         logger.error(f"Upload error: {e}")
-        return make_error_response("UPLOAD", "STORAGE_ERROR", "Failed to securely save uploaded document.")
+        return make_error_response("UPLOAD", "STORAGE_ERROR", "Failed to securely save uploaded document.", recoverable=True, http_status=500)
 
     # =========================================================================
     # STAGE 2: IMAGE QUALITY
@@ -238,26 +272,41 @@ async def run_screening_pipeline(
     current_stage = "VISUAL_FORENSICS"
     try:
         tamper_res = tamper_detection_service.analyze_document(front_path, case_id=case_id)
-        ai_provider = get_ai_provider()
-        try:
+        if force_local_fallback:
+            ai_provider = get_ai_provider("LOCAL_CV_FALLBACK")
             ai_assessment = ai_provider.analyze_document(front_path)
-            if ai_assessment.get("gemini_insights"):
-                tamper_res.signals["gemini_insights"] = ai_assessment["gemini_insights"]
-            tamper_res.signals["ai_provider"] = ai_assessment.get("provider", "LOCAL_CV_FALLBACK")
-            tamper_res.signals["ai_provider_status"] = ai_assessment.get("provider_status", "ACTIVE")
-            if "provider_reason" in ai_assessment:
-                tamper_res.signals["ai_provider_reason"] = ai_assessment["provider_reason"]
-        except Exception as ai_err:
-            logger.info(f"Gemini fallback to Local CV: {ai_err}")
             tamper_res.signals["ai_provider"] = "LOCAL_CV_FALLBACK"
             tamper_res.signals["ai_provider_status"] = "LOCAL_FALLBACK"
-            tamper_res.signals["ai_provider_reason"] = "Gemini unavailable"
+            tamper_res.signals["ai_status"] = "fallback"
+            tamper_res.signals["ai_provider_reason"] = "Processed with Local CV Fallback (AI unavailable)"
+            tamper_res.signals["user_notice"] = "Processed with Local CV Fallback (AI unavailable)"
+        else:
+            ai_provider = get_ai_provider()
+            try:
+                ai_assessment = ai_provider.analyze_document(front_path)
+                if ai_assessment.get("gemini_insights"):
+                    tamper_res.signals["gemini_insights"] = ai_assessment["gemini_insights"]
+                tamper_res.signals["ai_provider"] = ai_assessment.get("provider", "LOCAL_CV_FALLBACK")
+                tamper_res.signals["ai_provider_status"] = ai_assessment.get("provider_status", "ACTIVE")
+                tamper_res.signals["ai_status"] = ai_assessment.get("ai_status", "available")
+                if "provider_reason" in ai_assessment:
+                    tamper_res.signals["ai_provider_reason"] = ai_assessment["provider_reason"]
+                if "user_notice" in ai_assessment:
+                    tamper_res.signals["user_notice"] = ai_assessment["user_notice"]
+            except Exception as ai_err:
+                logger.info(f"Gemini fallback to Local CV: {ai_err}")
+                tamper_res.signals["ai_provider"] = "LOCAL_CV_FALLBACK"
+                tamper_res.signals["ai_provider_status"] = "LOCAL_FALLBACK"
+                tamper_res.signals["ai_status"] = "unavailable"
+                tamper_res.signals["ai_provider_reason"] = "AI analysis unavailable — manual verification required"
+                tamper_res.signals["user_notice"] = "AI analysis unavailable — manual verification required"
 
         logger.info(f"FORENSICS_COMPLETE: tampering={tamper_res.tampering_detected} regions={len(tamper_res.regions)}")
         log_stage_completion("VISUAL_FORENSICS", {
             "tampering_detected": tamper_res.tampering_detected,
             "confidence": tamper_res.confidence,
-            "provider": tamper_res.signals.get("ai_provider", "LOCAL_CV_FALLBACK")
+            "provider": tamper_res.signals.get("ai_provider", "LOCAL_CV_FALLBACK"),
+            "ai_status": tamper_res.signals.get("ai_status", "available")
         })
     except Exception as e:
         logger.error(f"Forensics model error: {e}")
@@ -301,12 +350,22 @@ async def run_screening_pipeline(
     # =========================================================================
     current_stage = "RECORD_VERIFICATION"
     try:
-        doc_fields = ocr_raw_res["fields"]
-        doc_number = (
-            getattr(doc_fields, "document_number", "")
-            or (ocr_raw_res["mrz"].passport_number if ocr_raw_res.get("mrz") else "")
-        )
-        candidate_name = getattr(doc_fields, "name", None)
+        doc_fields = ocr_raw_res.get("fields")
+        raw_doc_num = getattr(doc_fields, "document_number", "") if hasattr(doc_fields, "document_number") else ""
+        if isinstance(raw_doc_num, str) and raw_doc_num:
+            doc_number = raw_doc_num
+        elif isinstance(doc_fields, dict):
+            doc_number = str(doc_fields.get("document_number") or "")
+        elif ocr_raw_res.get("mrz") and hasattr(ocr_raw_res["mrz"], "passport_number"):
+            doc_number = str(ocr_raw_res["mrz"].passport_number or "")
+        else:
+            doc_number = ""
+
+        candidate_name = None
+        if hasattr(doc_fields, "name") and isinstance(getattr(doc_fields, "name"), str):
+            candidate_name = getattr(doc_fields, "name")
+        elif isinstance(doc_fields, dict):
+            candidate_name = doc_fields.get("name")
 
         record_res = record_verification_service.verify_record(
             document_number=doc_number,
@@ -333,15 +392,19 @@ async def run_screening_pipeline(
     # =========================================================================
     current_stage = "RISK_ASSESSMENT"
     try:
+        fields_input = ocr_raw_res.get("fields")
+        if not isinstance(fields_input, (dict, ExtractedFields)):
+            fields_input = ExtractedFields()
+
         ocr_response_obj = OCRResultResponse(
-            raw_text=ocr_raw_res["raw_text"],
-            fields=ocr_raw_res["fields"],
-            mrz=ocr_raw_res.get("mrz"),
-            confidence=ocr_raw_res["confidence"],
-            bounding_boxes=ocr_raw_res.get("bounding_boxes", []),
-            engine_used=ocr_raw_res.get("engine_used", "TRUST-ID OCR"),
-            status=ocr_raw_res.get("status", "OK"),
-            ocr_status=ocr_raw_res.get("ocr_status", "OK")
+            raw_text=str(ocr_raw_res.get("raw_text", "")),
+            fields=fields_input,
+            mrz=ocr_raw_res.get("mrz") if hasattr(ocr_raw_res.get("mrz"), "passport_number") or isinstance(ocr_raw_res.get("mrz"), dict) else None,
+            confidence=float(ocr_raw_res.get("confidence", 0.0)),
+            bounding_boxes=ocr_raw_res.get("bounding_boxes", []) if isinstance(ocr_raw_res.get("bounding_boxes"), list) else [],
+            engine_used=str(ocr_raw_res.get("engine_used", "TRUST-ID OCR")),
+            status=str(ocr_raw_res.get("status", "OK")),
+            ocr_status=str(ocr_raw_res.get("ocr_status", "OK"))
         )
 
         risk_assessment = risk_engine.evaluate(
@@ -359,8 +422,25 @@ async def run_screening_pipeline(
             "confidence": risk_assessment.confidence
         })
     except Exception as e:
-        logger.error(f"Risk evaluation error: {e}")
-        return make_error_response("RISK_ASSESSMENT", "RISK_ENGINE_ERROR", "Risk engine could not aggregate screening signals.")
+        logger.warning(f"Risk evaluation non-fatal error: {e}")
+        risk_assessment = RiskAssessmentResponse(
+            risk_score=75.0,
+            risk_level="HIGH",
+            confidence=0.5,
+            recommended_action="MANUAL_REVIEW_REQUIRED",
+            signal_scores={"risk_engine": 0.75},
+            risk_factors=[f"Risk engine evaluation encountered degraded input signals ({type(e).__name__}); manual verification required."],
+            positive_signals=[],
+            explanation="Risk evaluation completed in degraded fallback mode.",
+            weights_used={},
+            unavailable_checks=["RISK_ENGINE"]
+        )
+        log_stage_completion("RISK_ASSESSMENT", {
+            "score": risk_assessment.risk_score,
+            "level": risk_assessment.risk_level,
+            "status": "DEGRADED",
+            "error": str(e)
+        })
 
     # =========================================================================
     # STAGE 10: EXPLAINABILITY & NARRATIVE
@@ -384,6 +464,74 @@ async def run_screening_pipeline(
             "human_in_the_loop_mandatory": risk_assessment.risk_level == "HIGH"
         }
         log_stage_completion("EXPLANATION", {"status": "DEGRADED"})
+
+    # =========================================================================
+    # 100-POINT DOCUMENT CHECK ENGINE EXECUTION (PRE-DB)
+    # =========================================================================
+    doc_meta = {
+        "document_type": detected_doc_type,
+        "quality_score": getattr(quality_res, "quality_score", 0.95),
+        "image_available": True
+    }
+
+    forensics_dict = {
+        "ela_tamper_score": getattr(tamper_res, "ela_tamper_score", 0.1),
+        "copy_move_detected": getattr(tamper_res, "copy_move_detected", False),
+        "face_manipulated": getattr(tamper_res, "face_tamper_detected", False),
+        "font_inconsistencies": getattr(tamper_res, "font_anomaly_detected", False),
+        "tampering_detected": getattr(tamper_res, "tampering_detected", False),
+    }
+
+    face_dict = {
+        "document_face_detected": getattr(face_res, "document_face_detected", False),
+        "doc_face_quality": getattr(face_res, "document_face_quality", 0.8),
+        "presenter_face_detected": getattr(face_res, "live_face_detected", False),
+        "presenter_face_quality": getattr(face_res, "live_face_quality", 0.8 if getattr(face_res, "live_face_detected", False) else 0.0),
+        "match_score": getattr(face_res, "similarity", 0.85 if getattr(face_res, "live_face_detected", False) else 0.0),
+        "face_verified": getattr(face_res, "status", "") == "MATCH"
+    }
+
+    record_dict = {
+        "available": getattr(record_res, "source", None) is not None,
+        "found": getattr(record_res, "record_found", False),
+        "status_valid": getattr(record_res, "status", "") == "ACTIVE" if getattr(record_res, "record_found", False) else None,
+        "number_matches": getattr(record_res, "match_details", {}).get("document_number", False),
+        "name_matches": getattr(record_res, "match_details", {}).get("name", False),
+        "dob_matches": getattr(record_res, "match_details", {}).get("dob", False),
+        "external_consistent": getattr(record_res, "record_found", False)
+    }
+
+    risk_dict = {
+        "risk_score": risk_assessment.risk_score,
+        "risk_level": risk_assessment.risk_level,
+        "risk_factors": [{"signal": "RISK", "description": str(f)} for f in risk_assessment.risk_factors],
+        "positive_signals": [str(s) for s in risk_assessment.positive_signals]
+    }
+
+    checks_data = {
+        "case_id": case_id,
+        "total_checks": 100,
+        "passed": 0,
+        "failed": 0,
+        "warnings": 0,
+        "unavailable": 100,
+        "not_applicable": 0,
+        "document_integrity_score": 50.0,
+        "category_breakdown": {},
+        "checks": []
+    }
+    try:
+        checks_data = document_check_engine.run_all_checks(
+            case_id=case_id,
+            doc_metadata=doc_meta,
+            ocr_result=ocr_raw_res,
+            forensics_result=forensics_dict,
+            face_result=face_dict,
+            record_result=record_dict,
+            risk_result=risk_dict
+        )
+    except Exception as ce:
+        logger.error(f"100-Checks engine degraded: {ce}")
 
     # =========================================================================
     # STAGE 11: DATABASE PERSISTENCE (NON-FATAL)
@@ -537,59 +685,6 @@ async def run_screening_pipeline(
         )
         db.add(risk_db)
 
-        # =========================================================================
-        # 100-POINT DOCUMENT CHECK ENGINE EXECUTION
-        # =========================================================================
-        doc_meta = {
-            "document_type": detected_doc_type,
-            "quality_score": getattr(quality_res, "quality_score", 0.95),
-            "image_available": True
-        }
-
-        forensics_dict = {
-            "ela_tamper_score": getattr(tamper_res, "ela_tamper_score", 0.1),
-            "copy_move_detected": getattr(tamper_res, "copy_move_detected", False),
-            "face_manipulated": getattr(tamper_res, "face_tamper_detected", False),
-            "font_inconsistencies": getattr(tamper_res, "font_anomaly_detected", False),
-            "tampering_detected": getattr(tamper_res, "tampering_detected", False),
-        }
-
-        face_dict = {
-            "document_face_detected": getattr(face_res, "document_face_detected", False),
-            "doc_face_quality": getattr(face_res, "document_face_quality", 0.8),
-            "presenter_face_detected": getattr(face_res, "live_face_detected", False),
-            "presenter_face_quality": getattr(face_res, "live_face_quality", 0.8 if getattr(face_res, "live_face_detected", False) else 0.0),
-            "match_score": getattr(face_res, "similarity", 0.85 if getattr(face_res, "live_face_detected", False) else 0.0),
-            "face_verified": getattr(face_res, "status", "") == "MATCH"
-        }
-
-        record_dict = {
-            "available": getattr(record_res, "source", None) is not None,
-            "found": getattr(record_res, "record_found", False),
-            "status_valid": getattr(record_res, "status", "") == "ACTIVE" if getattr(record_res, "record_found", False) else None,
-            "number_matches": getattr(record_res, "match_details", {}).get("document_number", False),
-            "name_matches": getattr(record_res, "match_details", {}).get("name", False),
-            "dob_matches": getattr(record_res, "match_details", {}).get("dob", False),
-            "external_consistent": getattr(record_res, "record_found", False)
-        }
-
-        risk_dict = {
-            "risk_score": risk_assessment.risk_score,
-            "risk_level": risk_assessment.risk_level,
-            "risk_factors": [{"signal": "RISK", "description": str(f)} for f in risk_assessment.risk_factors],
-            "positive_signals": [str(s) for s in risk_assessment.positive_signals]
-        }
-
-        checks_data = document_check_engine.run_all_checks(
-            case_id=case_id,
-            doc_metadata=doc_meta,
-            ocr_result=ocr_raw_res,
-            forensics_result=forensics_dict,
-            face_result=face_dict,
-            record_result=record_dict,
-            risk_result=risk_dict
-        )
-
         for chk in checks_data["checks"]:
             c_rec = DocumentCheck(
                 id=generate_uuid(),
@@ -628,6 +723,10 @@ async def run_screening_pipeline(
         log_stage_completion("DATABASE_SAVE", {"status": "SUCCESS"})
     except Exception as dbe:
         logger.error(f"Database save error (preserving analysis): {dbe}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
         db_save_successful = False
         log_stage_completion("DATABASE_SAVE", {"status": "FAILED", "reason": "Database connection error"})
 
@@ -698,9 +797,11 @@ async def run_screening_pipeline(
     # =========================================================================
     return {
         "success": True,
+        "request_id": request_id,
         "case_id": case_id,
         "case_number": case_number,
         "status": final_status,
+        "database_saved": db_save_successful,
         "document": {
             "type": detected_doc_type,
             "confidence": doc_confidence
@@ -713,6 +814,9 @@ async def run_screening_pipeline(
         "risk": serialize_model(risk_assessment),
         "explanation": narrative_report,
         "pipeline": pipeline_stages,
+        "stages": pipeline_stages,
+        "ai_status": tamper_res.signals.get("ai_status", "available"),
+        "force_local_fallback": bool(force_local_fallback),
 
         # 100 Document Checks & Scores
         "document_integrity_score": checks_data["document_integrity_score"],
@@ -733,6 +837,7 @@ async def run_screening_pipeline(
         "report_docx_url": f"/api/cases/{case_id}/report/docx",
         "report_zip_url": f"/api/cases/{case_id}/report/zip",
         "pdf_report_ready": pdf_generated,
+        "report_generated": pdf_generated,
         "report_hash": report_hash,
 
         # Backward compatibility fields for frontend UI
