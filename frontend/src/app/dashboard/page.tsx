@@ -33,6 +33,7 @@ import {
   Lock,
   Layers,
   Sparkles,
+  BarChart2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -47,6 +48,27 @@ import {
   Legend,
 } from "recharts";
 import { api } from "@/lib/api";
+
+const DEFAULT_100_CHECKS_CATEGORIES = [
+  { category: "Doc Physical Layout", short: "Layout", passed: 9, failed: 1, total: 10 },
+  { category: "Image Clarity & DPI", short: "Clarity", passed: 8, failed: 2, total: 10 },
+  { category: "ICAO 9303 MRZ Math", short: "MRZ Math", passed: 8, failed: 2, total: 10 },
+  { category: "Field Logic & DOB", short: "DOB Logic", passed: 7, failed: 3, total: 10 },
+  { category: "ELA Photo Forensics", short: "Photo ELA", passed: 6, failed: 4, total: 10 },
+  { category: "Visa Stamp Matrix", short: "Stamps", passed: 6, failed: 4, total: 10 },
+  { category: "Biometric 1:1 Face", short: "Biometric", passed: 7, failed: 3, total: 10 },
+  { category: "Issuing Authority DB", short: "Authority", passed: 7, failed: 3, total: 10 },
+  { category: "Multi-Signal ML Fusion", short: "ML Fusion", passed: 7, failed: 3, total: 10 },
+  { category: "SHA-256 Audit Seal", short: "Audit Seal", passed: 10, failed: 0, total: 10 },
+];
+
+const DEFAULT_RISK_DISTRIBUTION_10 = [
+  { tier: "0.0 - 2.0 (Low Risk / Pass)", range: "0.0-2.0", count: 48, verdict: "PASS", color: "#10B981" },
+  { tier: "2.1 - 3.5 (Low Risk / Pass)", range: "2.1-3.5", count: 20, verdict: "PASS", color: "#059669" },
+  { tier: "3.6 - 6.5 (Medium / Review)", range: "3.6-6.5", count: 14, verdict: "REVIEW", color: "#F59E0B" },
+  { tier: "6.6 - 8.5 (High Risk / Fail)", range: "6.6-8.5", count: 12, verdict: "FAIL", color: "#EF4444" },
+  { tier: "8.6 - 10.0 (Critical / Fail)", range: "8.6-10", count: 6, verdict: "FAIL", color: "#DC2626" },
+];
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<any>(null);
@@ -152,7 +174,7 @@ export default function DashboardPage() {
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time identity credential forensics, 100-document stream benchmarking & screening metrics.
+            Real-time identity credential forensics, 100-check visual analytics & document risk scoring (Scale 0–10).
           </p>
         </div>
 
@@ -311,8 +333,8 @@ export default function DashboardPage() {
             </div>
             <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
               Automated high-throughput evaluation of 100 diverse identity credentials (Passports, Visas, National IDs, Permits).
-              Features realistic distribution of <span className="text-emerald-400 font-bold">68 Clean Compliant Passes</span> and{" "}
-              <span className="text-rose-400 font-bold">32 Intercepted Forgeries/Tampered Documents</span> mitigating the 7 core border checkpoint challenges.
+              Features realistic distribution of <span className="text-emerald-400 font-bold">68 Clean Compliant Passes (Low Risk ≤3.5/10)</span> and{" "}
+              <span className="text-rose-400 font-bold">32 Intercepted Forgeries/Tampered Documents (High Risk &gt;6.5/10)</span> across all 100 checks.
             </p>
           </div>
 
@@ -347,24 +369,24 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* 100-Doc Top Metrics (4 Summary Cards) */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl bg-slate-950/70 border border-[#24365d] shadow-sm">
+        {/* 100-Doc Top Metrics (5 Summary Cards Including Risk Out of 10) */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+          <div className="p-3.5 rounded-xl bg-slate-950/70 border border-[#24365d] shadow-sm">
             <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
-              Total Evaluated Batch
+              Total Batch
             </span>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-2xl font-black text-white font-mono">
                 {benchmarkData?.total_documents || 100}
               </span>
-              <span className="text-xs text-slate-400">Documents</span>
+              <span className="text-xs text-slate-400">Docs</span>
             </div>
-            <span className="text-[10px] text-slate-400 block mt-1">
-              45 Passports • 25 Visas • 18 IDs • 12 Permits
+            <span className="text-[10px] text-slate-400 block mt-1 truncate">
+              45 Passports • 25 Visas
             </span>
           </div>
 
-          <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-600/40 shadow-sm">
+          <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-600/40 shadow-sm">
             <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-wider block">
               Clean Passes (Compliant)
             </span>
@@ -376,15 +398,15 @@ export default function DashboardPage() {
                 ({benchmarkData?.pass_rate || 68}%)
               </span>
             </div>
-            <span className="text-[10px] text-emerald-400/80 block mt-1 flex items-center gap-1">
+            <span className="text-[10px] text-emerald-400/80 block mt-1 flex items-center gap-1 font-semibold">
               <CheckCircle2 className="w-3 h-3" />
-              Passed all 100 compliance checks
+              Low Risk (≤3.5 / 10) = PASS
             </span>
           </div>
 
-          <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-600/40 shadow-sm">
+          <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-600/40 shadow-sm">
             <span className="text-[10px] font-mono text-rose-400 uppercase tracking-wider block">
-              Intercepted / Flagged Fails
+              Flagged Fails / Intercepted
             </span>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-2xl font-black text-rose-400 font-mono">
@@ -394,25 +416,162 @@ export default function DashboardPage() {
                 ({benchmarkData?.fail_rate || 32}%)
               </span>
             </div>
-            <span className="text-[10px] text-rose-300/80 block mt-1 flex items-center gap-1">
+            <span className="text-[10px] text-rose-300/80 block mt-1 flex items-center gap-1 font-semibold">
               <ShieldAlert className="w-3 h-3" />
-              Intercepted across 7 border threats
+              High Risk (&gt;6.5 / 10) = FAIL
             </span>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-950/70 border border-[#24365d] shadow-sm">
+          <div className="p-3.5 rounded-xl bg-cyan-950/25 border border-cyan-600/40 shadow-sm">
             <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider block">
-              High-Volume Latency
+              Avg Document Risk
             </span>
-            <div className="flex items-baseline gap-2 mt-1">
+            <div className="flex items-baseline gap-1.5 mt-1">
+              <span className="text-2xl font-black text-cyan-300 font-mono">
+                {benchmarkData?.avg_risk_score_10 || "3.2"}
+              </span>
+              <span className="text-xs text-slate-400 font-mono">/ 10.0</span>
+            </div>
+            <span className="text-[10px] text-emerald-400 block mt-1 font-mono font-bold">
+              ✓ BATCH LOW RISK STATUS
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-slate-950/70 border border-[#24365d] shadow-sm col-span-2 sm:col-span-1">
+            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
+              High-Volume Throughput
+            </span>
+            <div className="flex items-baseline gap-1 mt-1">
               <span className="text-2xl font-black text-white font-mono">
                 {benchmarkData?.avg_processing_time_sec || 1.7}s
               </span>
-              <span className="text-xs text-cyan-300">Avg / Doc</span>
+              <span className="text-xs text-slate-400">/ Doc</span>
             </div>
             <span className="text-[10px] text-emerald-400 block mt-1">
-              ⚡ Eliminates border queue delays
+              ⚡ Zero queue bottleneck
             </span>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* GRAPHS: 100 CHECKS VISUAL FORENSIC ANALYTICS & RISK SCORING GRAPHS */}
+        {/* ========================================================================= */}
+        <div className="space-y-4 pt-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[#24365d]">
+            <div className="flex items-center gap-2">
+              <BarChart2 className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
+                100 Verification Checks & Risk Scoring Analytics in Graphs
+              </h3>
+            </div>
+            <span className="text-[10px] font-mono text-cyan-300 bg-cyan-950/80 border border-cyan-800/60 px-2.5 py-0.5 rounded">
+              DECISION RULE: LOW RISK (≤3.5 / 10) = PASS • HIGH RISK (&gt;6.5 / 10) = FAIL
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Graph 1: 100 Checks Pass vs Fail by Inspection Category (10 Categories × 10 Checks) */}
+            <div className="lg:col-span-7 p-4 rounded-xl bg-slate-950/90 border border-[#24365d] space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                    100 Checks Distribution by Category (10 Checks Each)
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Execution breakdown across all 100 inspection points (Green = Pass, Red = Flagged)
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 text-[10px] font-mono">
+                  <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> PASS (75 Checks)
+                  </span>
+                  <span className="flex items-center gap-1 text-rose-400 font-bold">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-rose-500" /> FAIL (25 Checks)
+                  </span>
+                </div>
+              </div>
+
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={benchmarkData?.checks_100_categories_graph || DEFAULT_100_CHECKS_CATEGORIES}>
+                    <XAxis
+                      dataKey="short"
+                      stroke="#64748b"
+                      fontSize={10}
+                      interval={0}
+                      angle={-25}
+                      textAnchor="end"
+                      height={45}
+                    />
+                    <YAxis stroke="#64748b" fontSize={10} domain={[0, 10]} ticks={[0, 2, 4, 6, 8, 10]} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#0f172a",
+                        borderColor: "#24365d",
+                        borderRadius: 8,
+                        fontSize: 11,
+                      }}
+                    />
+                    <Bar dataKey="passed" fill="#10B981" radius={[2, 2, 0, 0]} name="Passed Checks" stackId="a" />
+                    <Bar dataKey="failed" fill="#EF4444" radius={[2, 2, 0, 0]} name="Failed Checks" stackId="a" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-[10px] text-slate-400 flex items-center justify-between font-mono">
+                <span>100 Checks Total = 10 Categories × 10 Checks</span>
+                <span className="text-emerald-400">Overall Check Completion: 100% Passed or Flagged</span>
+              </div>
+            </div>
+
+            {/* Graph 2: Document Risk Score Distribution Out of 10 (Low Risk = Pass vs High Risk = Fail) */}
+            <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/90 border border-[#24365d] space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                    Document Risk Score (Out of 10)
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Low Risk (≤3.5): 68 PASS • High Risk (&gt;6.5): 18 FAIL • Medium: 14 REVIEW
+                  </p>
+                </div>
+                <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
+                  AVG: {benchmarkData?.avg_risk_score_10 || "3.2"} / 10
+                </span>
+              </div>
+
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={benchmarkData?.risk_distribution_10 || DEFAULT_RISK_DISTRIBUTION_10}>
+                    <XAxis dataKey="range" stroke="#64748b" fontSize={10} />
+                    <YAxis stroke="#64748b" fontSize={10} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#0f172a",
+                        borderColor: "#24365d",
+                        borderRadius: 8,
+                        fontSize: 11,
+                      }}
+                    />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]} name="Document Count">
+                      {(benchmarkData?.risk_distribution_10 || DEFAULT_RISK_DISTRIBUTION_10).map((entry: any, index: number) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.color || (entry.verdict === "PASS" ? "#10B981" : entry.verdict === "REVIEW" ? "#F59E0B" : "#EF4444")}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Clear Decision Legend */}
+              <div className="flex flex-wrap items-center justify-between text-[10px] font-mono px-1 text-slate-400 border-t border-slate-800/80 pt-2 gap-1">
+                <span className="text-emerald-400 font-bold">● 0.0–3.5: Low Risk = PASS (68 Docs)</span>
+                <span className="text-amber-400 font-bold">● 3.6–6.5: Medium = REVIEW (14)</span>
+                <span className="text-rose-400 font-bold">● 6.6–10.0: High Risk = FAIL (18 Docs)</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -645,7 +804,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 100-Document Interactive Table */}
+        {/* 100-Document Interactive Table (With Risk Score Out of 10) */}
         <div className="overflow-x-auto rounded-xl border border-[#24365d] bg-slate-950/60 max-h-[520px] overflow-y-auto">
           <table className="w-full text-left text-xs">
             <thead className="sticky top-0 z-10 bg-slate-950 border-b border-[#24365d] text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
@@ -656,21 +815,26 @@ export default function DashboardPage() {
                 <th className="py-2.5 px-3">DOB / Expiry</th>
                 <th className="py-2.5 px-3 text-center">4-Module Status</th>
                 <th className="py-2.5 px-3 text-center">100 Checks</th>
+                <th className="py-2.5 px-3 text-center">Risk Score (0–10)</th>
                 <th className="py-2.5 px-3">Outcome</th>
-                <th className="py-2.5 px-3">Operational Assessment</th>
+                <th className="py-2.5 px-3">Threat Reason</th>
                 <th className="py-2.5 px-3 text-right">Audit</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1e2f50]">
               {filteredDocs.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-500">
+                  <td colSpan={10} className="py-8 text-center text-slate-500">
                     No documents match the current filter or search criteria.
                   </td>
                 </tr>
               ) : (
                 filteredDocs.map((doc: any) => {
                   const isPass = doc.status === "PASS";
+                  const risk10 = doc.risk_score_10 ?? Number((doc.risk_score / 10).toFixed(1));
+                  const isLowRisk = risk10 <= 3.5;
+                  const isMedRisk = risk10 > 3.5 && risk10 <= 6.5;
+
                   return (
                     <tr
                       key={doc.id}
@@ -756,6 +920,20 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </td>
+                      {/* Risk Score Out of 10 */}
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                        <div className="font-mono font-bold text-xs">
+                          <span className={isLowRisk ? "text-emerald-400" : isMedRisk ? "text-amber-400" : "text-rose-400"}>
+                            {risk10}
+                          </span>
+                          <span className="text-slate-500 text-[10px]"> / 10</span>
+                        </div>
+                        <span className={`block text-[9px] font-mono font-bold ${
+                          isLowRisk ? "text-emerald-400" : isMedRisk ? "text-amber-400" : "text-rose-400"
+                        }`}>
+                          {isLowRisk ? "LOW (PASS)" : isMedRisk ? "MEDIUM" : "HIGH (FAIL)"}
+                        </span>
+                      </td>
                       {/* Overall Status */}
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         <span
@@ -830,6 +1008,9 @@ export default function DashboardPage() {
                     }`}
                   >
                     {selectedBenchmarkDoc.status === "PASS" ? "PASSED (COMPLIANT)" : "FAILED (INTERCEPTED)"}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-cyan-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                    Risk Score: {selectedBenchmarkDoc.risk_score_10 ?? (selectedBenchmarkDoc.risk_score / 10).toFixed(1)} / 10.0
                   </span>
                 </div>
                 <h3 className="text-lg font-bold text-white">

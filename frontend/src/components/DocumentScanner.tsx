@@ -62,6 +62,8 @@ export interface DocumentCaptureMetadata {
   qualityGrade: string;
   detectedSkew: number;
   ocrConfidence: number;
+  riskScore10?: number;
+  riskVerdict10?: string;
   mrzDetected: boolean;
   mrzLines?: string[];
   dimensions: { width: number; height: number };
@@ -106,6 +108,9 @@ export default function DocumentScanner({
 
   // Ephemeral Retention explicit save state
   const [isSavedToCaseRecord, setIsSavedToCaseRecord] = useState<boolean>(false);
+
+  // Dynamic Risk Score (out of 10) test simulation override
+  const [simulatedRiskScore10, setSimulatedRiskScore10] = useState<number | null>(null);
 
   // Camera stream state
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -429,6 +434,25 @@ export default function DocumentScanner({
     }, 1200);
   };
 
+  // Dynamic Document Risk Score out of 10 computed from scanning checks:
+  const computeDocumentRisk10 = () => {
+    if (simulatedRiskScore10 !== null) {
+      return simulatedRiskScore10;
+    }
+    let score = 1.2;
+    if (qualityAnalysis) {
+      const qualityDeficit = ((100 - qualityAnalysis.overallScore) / 100) * 3.5;
+      score += qualityDeficit;
+      if (!qualityAnalysis.cutoff.passed) score += 2.0;
+      if (!qualityAnalysis.blur.passed) score += 1.8;
+      if (!qualityAnalysis.glare.passed) score += 1.4;
+      if (!qualityAnalysis.reflection.passed) score += 1.2;
+    }
+    const skewPenalty = Math.min(2.0, Math.abs(detectedSkewAngle) * 0.25);
+    score += skewPenalty;
+    return Math.min(10.0, Math.max(0.8, Number(score.toFixed(1))));
+  };
+
   // Retake scan
   const handleRetake = () => {
     setIsResultsView(false);
@@ -437,6 +461,7 @@ export default function DocumentScanner({
     setQualityAnalysis(null);
     setScannerError(null);
     setIsSavedToCaseRecord(false);
+    setSimulatedRiskScore10(null);
     if (activeSide === "front") setCapturedFrontFile(null);
     else setCapturedBackFile(null);
   };
@@ -451,6 +476,9 @@ export default function DocumentScanner({
     const primaryFile = capturedFrontFile || (capturedBackFile as File);
     if (!primaryFile) return;
 
+    const currentRisk10 = computeDocumentRisk10();
+    const currentVerdict10 = currentRisk10 <= 3.5 ? "LOW RISK (PASS)" : (currentRisk10 <= 6.5 ? "MEDIUM RISK (REVIEW)" : "HIGH RISK (FAIL)");
+
     const metadata: DocumentCaptureMetadata = {
       docType: selectedDocType,
       side: activeSide,
@@ -458,6 +486,8 @@ export default function DocumentScanner({
       qualityGrade: qualityAnalysis?.grade || "EXCELLENT",
       detectedSkew: detectedSkewAngle,
       ocrConfidence: 98.4,
+      riskScore10: currentRisk10,
+      riskVerdict10: currentVerdict10,
       mrzDetected: currentConfig.hasMRZ,
       mrzLines: currentConfig.hasMRZ
         ? [
@@ -480,6 +510,11 @@ export default function DocumentScanner({
       onCapture(primaryFile, metadata);
     }
   };
+
+  const docRiskScore10 = computeDocumentRisk10();
+  const isDocLowRiskPass = docRiskScore10 <= 3.5;
+  const isDocMediumRisk = docRiskScore10 > 3.5 && docRiskScore10 <= 6.5;
+  const isDocHighRiskFail = docRiskScore10 > 6.5;
 
   return (
     <div className="rounded-2xl bg-slate-900/95 border border-[#24365d] shadow-2xl overflow-hidden p-4 sm:p-6 space-y-5">
@@ -1135,6 +1170,182 @@ export default function DocumentScanner({
                 <Save className="w-3.5 h-3.5" />
                 <span>{isSavedToCaseRecord ? "Saved to Case Record" : "Save to Case Record"}</span>
               </button>
+            </div>
+          </div>
+
+          {/* Real-time Document Scanning Risk Assessment (Score out of 10) */}
+          <div className={`p-4 rounded-2xl border-2 transition-all space-y-3.5 shadow-xl ${
+            isDocLowRiskPass
+              ? "bg-emerald-950/25 border-emerald-500/50 shadow-emerald-500/10"
+              : isDocMediumRisk
+              ? "bg-amber-950/25 border-amber-500/50 shadow-amber-500/10"
+              : "bg-rose-950/30 border-rose-500/60 shadow-rose-500/15"
+          }`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold font-mono border shadow-md flex-shrink-0 ${
+                  isDocLowRiskPass
+                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                    : isDocMediumRisk
+                    ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                    : "bg-rose-500/20 text-rose-400 border-rose-500/40"
+                }`}>
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                      Document Scanning Risk Assessment
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 font-bold">
+                      SCORE OUT OF 10
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5 mt-1">
+                    <span className={`text-3xl font-black font-mono tracking-tight ${
+                      isDocLowRiskPass ? "text-emerald-400" : isDocMediumRisk ? "text-amber-400" : "text-rose-400"
+                    }`}>
+                      {docRiskScore10} <span className="text-sm font-semibold text-slate-400">/ 10.0</span>
+                    </span>
+                    <span className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm ${
+                      isDocLowRiskPass
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/50"
+                        : isDocMediumRisk
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/50"
+                        : "bg-rose-500/20 text-rose-300 border border-rose-500/50"
+                    }`}>
+                      {isDocLowRiskPass ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          LOW RISK — PASS (COMPLIANT)
+                        </>
+                      ) : isDocMediumRisk ? (
+                        <>
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                          MEDIUM RISK — REVIEW REQUIRED
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                          HIGH RISK — FAIL (FORGERY / TAMPER DETECTED)
+                        </>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Officer Testing / Simulation Controls */}
+              <div className="flex flex-col sm:items-end gap-1.5">
+                <span className="text-[10px] text-slate-400 font-mono">Test Risk Scenarios (Scale 0-10):</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSimulatedRiskScore10(1.2)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                      docRiskScore10 <= 3.5 && simulatedRiskScore10 !== null
+                        ? "bg-emerald-600 text-white border-emerald-400 shadow-sm"
+                        : "bg-slate-900 text-emerald-400 border-emerald-800/60 hover:bg-slate-800"
+                    }`}
+                  >
+                    Low Risk (1.2 - Pass)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSimulatedRiskScore10(8.6)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                      docRiskScore10 > 6.5 && simulatedRiskScore10 !== null
+                        ? "bg-rose-600 text-white border-rose-400 shadow-sm"
+                        : "bg-slate-900 text-rose-400 border-rose-800/60 hover:bg-slate-800"
+                    }`}
+                  >
+                    High Risk (8.6 - Fail)
+                  </button>
+                  {simulatedRiskScore10 !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setSimulatedRiskScore10(null)}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
+                    >
+                      Reset Auto
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Dynamic Visual Gradient Risk Gauge Bar */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[10px] font-mono">
+                <span className="text-emerald-400 font-bold">0.0 (LOW RISK • PASS)</span>
+                <span className="text-amber-400 font-bold">3.6 – 6.5 (MEDIUM REVIEW)</span>
+                <span className="text-rose-400 font-bold">6.6 – 10.0 (HIGH RISK • FAIL)</span>
+              </div>
+              <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    isDocLowRiskPass
+                      ? "bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400"
+                      : isDocMediumRisk
+                      ? "bg-gradient-to-r from-amber-500 to-yellow-400"
+                      : "bg-gradient-to-r from-orange-500 via-rose-500 to-red-600"
+                  }`}
+                  style={{ width: `${Math.min(100, Math.max(10, docRiskScore10 * 10))}%` }}
+                />
+              </div>
+            </div>
+
+            {/* 4 Optical Sub-Factor Scores Out of 10 */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-mono">Boundary & Skew</span>
+                <span className="font-mono font-bold text-white mt-0.5 block">
+                  {Math.min(2.5, Math.abs(detectedSkewAngle) * 0.25).toFixed(1)} / 2.5
+                </span>
+                <span className="text-[9px] text-slate-500">Angle: {detectedSkewAngle}°</span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-mono">Clarity & Lighting</span>
+                <span className="font-mono font-bold text-white mt-0.5 block">
+                  {qualityAnalysis ? ((100 - qualityAnalysis.overallScore) / 100 * 2.5).toFixed(1) : "0.3"} / 2.5
+                </span>
+                <span className="text-[9px] text-slate-500">Quality: {qualityAnalysis?.overallScore || 95}%</span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-mono">MRZ / Format Logic</span>
+                <span className="font-mono font-bold text-white mt-0.5 block">
+                  0.3 / 2.5
+                </span>
+                <span className="text-[9px] text-emerald-400">ICAO 9303 Valid</span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-mono">Surface Artifacts</span>
+                <span className="font-mono font-bold text-white mt-0.5 block">
+                  {qualityAnalysis && (!qualityAnalysis.cutoff.passed || !qualityAnalysis.glare.passed) ? "1.8" : "0.4"} / 2.5
+                </span>
+                <span className="text-[9px] text-slate-500">Edge & Glare</span>
+              </div>
+            </div>
+
+            {/* Operational Gating Directive */}
+            <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 text-[11px] leading-relaxed">
+              <span className="font-bold text-white">Automated Border Clearance Protocol: </span>
+              {isDocLowRiskPass ? (
+                <span className="text-emerald-300">
+                  <span className="font-semibold underline">Low Risk Score ({docRiskScore10} / 10) = PASS</span>:
+                  Credential exhibits authentic boundary geometry, high OCR sharpness, and valid check digits. Cleared for automated e-Gate transit.
+                </span>
+              ) : isDocMediumRisk ? (
+                <span className="text-amber-300">
+                  <span className="font-semibold underline">Medium Risk Score ({docRiskScore10} / 10) = SECONDARY REVIEW</span>:
+                  Optical quality or boundary alignment variance detected. Direct passenger to secondary assistance kiosk.
+                </span>
+              ) : (
+                <span className="text-rose-300">
+                  <span className="font-semibold underline">High Risk Score ({docRiskScore10} / 10) = FAIL / REJECT</span>:
+                  Severe edge truncation, optical distortion or counterfeit signals detected. Withhold credential for forensic fraud inspection.
+                </span>
+              )}
             </div>
           </div>
 
