@@ -321,6 +321,18 @@ export const api = {
       body: JSON.stringify(note),
     });
   },
+
+  // 100-Document Benchmark & Border Stream Simulator
+  getBenchmark100: async (seed?: number) => {
+    const q = seed !== undefined ? `?seed=${seed}` : "";
+    return apiFetch<any>(`/api/backend/dashboard/benchmark-100${q}`);
+  },
+
+  runBenchmark100: async () => {
+    return apiFetch<any>("/api/backend/dashboard/benchmark-100/run", {
+      method: "POST",
+    });
+  },
 };
 
 // Standalone named exports for convenient importing

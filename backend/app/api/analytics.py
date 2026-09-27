@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -110,3 +111,18 @@ def get_dashboard_statistics(db: Session = Depends(get_db)):
             {"day": "Sun", "screened": max(3, total // 12), "flagged": 0}
         ]
     )
+
+
+@router.get("/benchmark-100", summary="Get 100-document border inspection benchmark with realistic PASS/FAIL distribution")
+def get_benchmark_100_documents(seed: Optional[int] = None):
+    from backend.app.services.benchmark_service import benchmark_service
+    return benchmark_service.generate_100_document_benchmark(random_seed=seed)
+
+
+@router.post("/benchmark-100/run", summary="Execute randomized 100-document inspection simulation across 4 AI modules")
+def run_benchmark_100_documents():
+    import random
+    from backend.app.services.benchmark_service import benchmark_service
+    random_seed = random.randint(100, 999999)
+    return benchmark_service.generate_100_document_benchmark(random_seed=random_seed)
+

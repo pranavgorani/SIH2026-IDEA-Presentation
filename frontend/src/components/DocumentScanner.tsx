@@ -534,6 +534,65 @@ export default function DocumentScanner({
             </span>
           )}
         </div>
+
+        {/* Border Checkpoint Threat Mitigation HUD */}
+        <div className="rounded-xl border border-blue-900/60 bg-gradient-to-r from-slate-950 via-blue-950/30 to-slate-950 p-3 space-y-2 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="text-xs font-bold text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldAlert className="w-3.5 h-3.5 text-blue-400" />
+                Common Challenges Faced at Border Checkpoints
+              </span>
+            </div>
+            <span className="text-[10px] font-mono font-bold text-cyan-300 bg-cyan-950/70 border border-cyan-700/50 px-2 py-0.5 rounded">
+              7 VULNERABILITIES MITIGATED
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5 text-[11px]">
+            <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col items-center text-center">
+              <span className="text-rose-400 font-bold text-[10px]">Threat 1</span>
+              <span className="text-slate-200 font-semibold text-[10px] mt-0.5">Fake Passports & Visas</span>
+              <span className="text-[9px] text-cyan-400 font-mono mt-1">ICAO 9303 / OCR</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col items-center text-center">
+              <span className="text-rose-400 font-bold text-[10px]">Threat 2</span>
+              <span className="text-slate-200 font-semibold text-[10px] mt-0.5">Altered Photos</span>
+              <span className="text-[9px] text-cyan-400 font-mono mt-1">ELA & Edge Noise</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col items-center text-center">
+              <span className="text-rose-400 font-bold text-[10px]">Threat 3</span>
+              <span className="text-slate-200 font-semibold text-[10px] mt-0.5">Modified DOB</span>
+              <span className="text-[9px] text-cyan-400 font-mono mt-1">7-3-1 Checksums</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col items-center text-center">
+              <span className="text-rose-400 font-bold text-[10px]">Threat 4</span>
+              <span className="text-slate-200 font-semibold text-[10px] mt-0.5">Tampered Stamps</span>
+              <span className="text-[9px] text-cyan-400 font-mono mt-1">Stamp Boundary AI</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col items-center text-center">
+              <span className="text-rose-400 font-bold text-[10px]">Threat 5</span>
+              <span className="text-slate-200 font-semibold text-[10px] mt-0.5">Impersonation</span>
+              <span className="text-[9px] text-cyan-400 font-mono mt-1">1:1 Biometrics</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col items-center text-center">
+              <span className="text-rose-400 font-bold text-[10px]">Threat 6</span>
+              <span className="text-slate-200 font-semibold text-[10px] mt-0.5">Multiple/Expired IDs</span>
+              <span className="text-[9px] text-cyan-400 font-mono mt-1">Blacklist & DB Cross</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col items-center text-center col-span-2 sm:col-span-2 lg:col-span-1">
+              <span className="text-amber-400 font-bold text-[10px]">Threat 7</span>
+              <span className="text-slate-200 font-semibold text-[10px] mt-0.5">High Passenger Queue</span>
+              <span className="text-[9px] text-emerald-400 font-mono mt-1">&lt;2s AI Throughput</span>
+            </div>
+          </div>
+
+          <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800/80 text-[10px] text-slate-300 leading-relaxed">
+            <span className="font-semibold text-blue-300">Border Security Protocol: </span>
+            Border checkpoints process thousands of identity documents daily. Current verification methods rely heavily on human inspection and basic database lookups, which are time-consuming, prone to human error, and unable to catch sophisticated forgeries. BorderShield AI automatically performs multi-layer optical validation, tampering detection, and biometric matching in seconds.
+          </div>
+        </div>
       </div>
 
       {/* 2. Document Selection, Intake Mode & Front/Back Tabs (Shown before/during scan) */}
@@ -776,14 +835,74 @@ export default function DocumentScanner({
 
       {/* 4. Active Viewport / Scanner / Viewfinder Area */}
       {!isResultsView ? (
-        <div className="relative w-full aspect-[4/3] sm:aspect-[16/10] max-h-[500px] bg-black rounded-xl overflow-hidden border border-[#24365d] flex items-center justify-center shadow-inner">
+        <div className="relative w-full aspect-[4/3] sm:aspect-[16/10] max-h-[520px] bg-slate-950 bg-[radial-gradient(#1e3a8a_1.5px,transparent_1.5px)] [background-size:24px_24px] rounded-2xl overflow-hidden border-2 border-[#24365d] flex items-center justify-center shadow-2xl">
+          {/* Top Optical Telemetry HUD Banner */}
+          <div className="absolute top-3 left-3 z-30 flex flex-wrap items-center gap-2 pointer-events-none">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-950/90 border border-cyan-500/40 text-[10px] font-mono text-cyan-300 backdrop-blur-md shadow-md">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+              OPTICAL SENSOR: 300+ DPI EQUIV
+            </span>
+            <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-950/90 border border-[#24365d] text-[10px] font-mono text-slate-300 backdrop-blur-md">
+              ICAO DOC 9303 / ISO 7810
+            </span>
+          </div>
+
+          {/* Holographic Chamber Reticle / Crosshair Markings */}
+          <div className="absolute inset-0 pointer-events-none opacity-25">
+            <div className="absolute top-1/2 left-0 right-0 h-px bg-cyan-500/40" />
+            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-cyan-500/40" />
+            <div className="absolute top-1/4 left-1/4 w-3 h-3 border-t border-l border-cyan-400" />
+            <div className="absolute top-1/4 right-1/4 w-3 h-3 border-t border-r border-cyan-400" />
+            <div className="absolute bottom-1/4 left-1/4 w-3 h-3 border-b border-l border-cyan-400" />
+            <div className="absolute bottom-1/4 right-1/4 w-3 h-3 border-b border-r border-cyan-400" />
+          </div>
+
           {intakeMethod === "webcam" ? (
             /* Live Camera Stream with Customized Boundary Guide */
-            <div className="relative w-full h-full flex items-center justify-center bg-slate-950">
+            <div className="relative w-full h-full flex items-center justify-center">
               {isInitializing && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/80 space-y-3">
+                <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm space-y-3">
                   <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
                   <p className="text-xs text-slate-300 font-semibold">Initializing optical camera sensor...</p>
+                </div>
+              )}
+
+              {/* Optical Camera Standby HUD when no stream is active */}
+              {!stream && !isInitializing && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center bg-slate-950/95 backdrop-blur-sm space-y-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 rounded-full border-2 border-dashed border-cyan-400/60 animate-spin-slow flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-full border-2 border-cyan-500/40 flex items-center justify-center bg-cyan-950/50">
+                        <Camera className="w-6 h-6 text-cyan-400" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-w-sm">
+                    <h4 className="text-sm font-bold text-white font-mono tracking-wider">
+                      OPTICAL SENSOR STANDBY / READY
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Align {currentConfig.name} within document guide or activate camera stream.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-500/30 flex items-center gap-1.5 transition-all"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Activate Camera</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleUseDemoSample}
+                      className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold text-xs border border-cyan-500/40 flex items-center gap-1.5 transition-all shadow-md"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Load Sample Credential</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1350,13 +1469,32 @@ export default function DocumentScanner({
               </button>
             </>
           ) : (
-            <>
+            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={handleUseDemoSample}
+                disabled={isProcessingCorrections}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 font-semibold text-xs border border-cyan-500/30 flex items-center gap-1.5 transition-all shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Use Demo Sample</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRetake}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-semibold text-xs border border-[#24365d] transition-all flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                <span>Retake</span>
+              </button>
+
               {intakeMethod === "webcam" ? (
                 <button
                   type="button"
                   onClick={handleCaptureVideo}
                   disabled={!isConsentChecked || isInitializing || !stream || isProcessingCorrections}
-                  className="w-full sm:w-auto px-8 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Camera className="w-4 h-4" />
                   <span>Capture Document</span>
@@ -1366,13 +1504,13 @@ export default function DocumentScanner({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!isConsentChecked}
-                  className="w-full sm:w-auto px-8 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <UploadCloud className="w-4 h-4" />
                   <span>Select Image to Process</span>
                 </button>
               )}
-            </>
+            </div>
           )}
         </div>
       </div>
