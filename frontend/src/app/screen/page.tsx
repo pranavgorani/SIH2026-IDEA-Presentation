@@ -801,12 +801,14 @@ export default function ScreeningPage() {
                   <div className="text-[9px] text-slate-400 font-mono">Weighted</div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-center min-w-[90px]">
-                  <div className="text-[10px] text-slate-400 font-mono">Risk Score</div>
-                  <div className={`text-lg font-black font-mono ${screenResult.risk_score > 50 ? "text-red-400" : "text-emerald-400"}`}>
-                    {screenResult.risk_score}/100
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-center min-w-[110px]">
+                  <div className="text-[10px] text-slate-400 font-mono">Risk (0–10)</div>
+                  <div className={`text-lg font-black font-mono ${screenResult.risk_score > 65 ? "text-rose-400" : screenResult.risk_score > 35 ? "text-amber-400" : "text-emerald-400"}`}>
+                    {(screenResult.risk_score / 10).toFixed(1)} <span className="text-xs text-slate-400">/ 10</span>
                   </div>
-                  <div className="text-[9px] text-slate-400 font-mono">{screenResult.risk_level}</div>
+                  <div className={`text-[9px] font-mono font-bold ${screenResult.risk_score <= 35 ? "text-emerald-400" : screenResult.risk_score <= 65 ? "text-amber-400" : "text-rose-400"}`}>
+                    {screenResult.risk_score <= 35 ? "LOW (PASS)" : screenResult.risk_score <= 65 ? "MEDIUM (REVIEW)" : "HIGH (FAIL)"}
+                  </div>
                 </div>
               </div>
             </div>
