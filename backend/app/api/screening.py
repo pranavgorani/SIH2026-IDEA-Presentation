@@ -805,11 +805,18 @@ async def run_screening_pipeline(
             rep_rec = Report(
                 id=generate_uuid(),
                 case_id=case_id,
-                report_type="FULL_SCREENING",
+                report_hash=report_hash,
                 pdf_path=f"/api/cases/{case_id}/report/pdf",
                 csv_path=f"/api/cases/{case_id}/report/csv",
                 docx_path=f"/api/cases/{case_id}/report/docx",
-                report_hash=report_hash,
+                integrity_score=float(checks_data.get("document_integrity_score", 100.0)),
+                risk_score=float(risk_assessment.risk_score),
+                total_checks=100,
+                passed_checks=int(checks_data.get("passed", 0)),
+                failed_checks=int(checks_data.get("failed", 0)),
+                warning_checks=int(checks_data.get("warnings", 0)),
+                unavailable_checks=int(checks_data.get("unavailable", 0)),
+                not_applicable_checks=int(checks_data.get("not_applicable", 0)),
                 created_at=utc_now()
             )
             db.add(rep_rec)
