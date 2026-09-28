@@ -125,11 +125,12 @@ class TamperResultResponse(BaseModel):
 
 # Face Verification
 class FaceVerificationResponse(BaseModel):
-    document_face_detected: bool
-    live_face_detected: bool
-    document_face_quality: float
-    live_face_quality: float
-    similarity: float
+    face_detected: bool = False
+    document_face_detected: bool = False
+    live_face_detected: bool = False
+    document_face_quality: float = 0.0
+    live_face_quality: float = 0.0
+    similarity: float = 0.0
     status: str # MATCH_CONFIRMED, MATCH_REVIEW, MISMATCH_DETECTED, UNAVAILABLE, NOT_PROVIDED
     explanation: str
     message: Optional[str] = None

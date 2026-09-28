@@ -22,6 +22,9 @@ export default function CasesQueuePage() {
   const [riskFilter, setRiskFilter] = useState("");
   const [docFilter, setDocFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [detectionFilter, setDetectionFilter] = useState("");
+  const [reviewerFilter, setReviewerFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
   const loadCases = async () => {
@@ -45,13 +48,32 @@ export default function CasesQueuePage() {
   }, [riskFilter, docFilter, statusFilter]);
 
   const filteredCases = cases.filter((c) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      c.case_number.toLowerCase().includes(q) ||
-      c.document_type.toLowerCase().includes(q) ||
-      (c.notes && c.notes.toLowerCase().includes(q))
-    );
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = (
+        c.case_number.toLowerCase().includes(q) ||
+        c.document_type.toLowerCase().includes(q) ||
+        (c.notes && c.notes.toLowerCase().includes(q))
+      );
+      if (!matchesSearch) return false;
+    }
+
+    if (dateFilter) {
+      const caseDate = (c.created_at || "").slice(0, 10);
+      if (caseDate && !caseDate.includes(dateFilter)) return false;
+    }
+
+    if (detectionFilter) {
+      const notes = (c.notes || "").toUpperCase();
+      if (!notes.includes(detectionFilter.toUpperCase())) return false;
+    }
+
+    if (reviewerFilter) {
+      if (reviewerFilter === "ASSIGNED" && !c.assigned_reviewer_id) return false;
+      if (reviewerFilter === "UNASSIGNED" && c.assigned_reviewer_id) return false;
+    }
+
+    return true;
   });
 
   const riskBadge = (level: string, score: number) => {
@@ -159,6 +181,40 @@ export default function CasesQueuePage() {
             <option value="ESCALATED">Escalated</option>
             <option value="REUPLOAD_REQUESTED">Re-upload Requested</option>
           </select>
+
+          {/* Detection Type Filter */}
+          <select
+            value={detectionFilter}
+            onChange={(e) => setDetectionFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg bg-slate-950 border border-[#24365d] text-slate-300 text-xs focus:outline-none focus:border-blue-500"
+          >
+            <option value="">All Detection Types</option>
+            <option value="TAMPER">Tampering / Forensics</option>
+            <option value="EXPIRED">Expired Credential</option>
+            <option value="MISMATCH">Biometric Mismatch</option>
+            <option value="CHECKSUM">MRZ Checksum Error</option>
+            <option value="CLEAN">Clean / Conforming</option>
+          </select>
+
+          {/* Reviewer Filter */}
+          <select
+            value={reviewerFilter}
+            onChange={(e) => setReviewerFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg bg-slate-950 border border-[#24365d] text-slate-300 text-xs focus:outline-none focus:border-blue-500"
+          >
+            <option value="">All Reviewers</option>
+            <option value="ASSIGNED">Assigned Reviewer</option>
+            <option value="UNASSIGNED">Unassigned Queue</option>
+          </select>
+
+          {/* Date Filter */}
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            title="Filter by screening date"
+            className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-[#24365d] text-slate-300 text-xs focus:outline-none focus:border-blue-500"
+          />
         </div>
 
         <div className="text-xs font-mono text-slate-400">

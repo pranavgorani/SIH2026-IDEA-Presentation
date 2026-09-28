@@ -354,12 +354,66 @@ class ModularOCREngine(BaseOCREngine):
 
     def _run_local_ocr(self, img: np.ndarray) -> Tuple[str, str, List[BoundingBox]]:
         """
-        Attempts local OCR engines (Tesseract v5, EasyOCR) with image preprocessing
-        and word-level bounding box collection.
+        Attempts local OCR engines according to production specification:
+        - Primary Implementation: PaddleOCR or EasyOCR
+        - Fallback: Tesseract OCR v5 with multi-pass CLAHE/Otsu preprocessing
         """
         boxes: List[BoundingBox] = []
 
-        # Tier 1: Tesseract OCR with multi-pass preprocessing
+        # Tier 1 (Primary): PaddleOCR (if installed)
+        try:
+            from paddleocr import PaddleOCR
+            ocr = PaddleOCR(use_angle_cls=True, lang='en', show_log=False)
+            result = ocr.ocr(img, cls=True)
+            text_lines = []
+            if result and len(result) > 0 and result[0]:
+                for line in result[0]:
+                    if line and len(line) >= 2:
+                        box_coords = line[0]
+                        txt, conf = line[1]
+                        text_lines.append(txt)
+                        xs = [p[0] for p in box_coords]
+                        ys = [p[1] for p in box_coords]
+                        boxes.append(BoundingBox(
+                            text=str(txt),
+                            x=int(min(xs)),
+                            y=int(min(ys)),
+                            width=int(max(xs) - min(xs)),
+                            height=int(max(ys) - min(ys)),
+                            confidence=round(float(conf), 2)
+                        ))
+                if text_lines:
+                    return "\n".join(text_lines), "PaddleOCR Primary Engine", boxes
+        except Exception:
+            pass
+
+        # Tier 1 (Primary alternative): EasyOCR
+        try:
+            import easyocr
+            reader = easyocr.Reader(['en'], gpu=False)
+            res = reader.readtext(img)
+            text_lines = []
+            for item in res:
+                if item and len(item) > 1:
+                    text_lines.append(item[1])
+                    if len(item) >= 3 and isinstance(item[0], list):
+                        poly = item[0]
+                        xs = [p[0] for p in poly]
+                        ys = [p[1] for p in poly]
+                        boxes.append(BoundingBox(
+                            text=str(item[1]),
+                            x=int(min(xs)),
+                            y=int(min(ys)),
+                            width=int(max(xs) - min(xs)),
+                            height=int(max(ys) - min(ys)),
+                            confidence=round(float(item[2]), 2) if len(item) > 2 else 0.85
+                        ))
+            if text_lines:
+                return "\n".join(text_lines), "EasyOCR Primary Engine", boxes
+        except Exception:
+            pass
+
+        # Tier 2 (Fallback): Tesseract OCR with multi-pass preprocessing
         if self.tesseract_available:
             try:
                 import pytesseract
@@ -395,35 +449,9 @@ class ModularOCREngine(BaseOCREngine):
                                 ))
                     except Exception:
                         pass
-                    return text, "Tesseract OCR v5", boxes
+                    return text, "Tesseract OCR Fallback", boxes
             except Exception as te:
                 logger.debug(f"Tesseract execution skipped: {te}")
-
-        # Tier 2: EasyOCR
-        try:
-            import easyocr
-            reader = easyocr.Reader(['en'], gpu=False)
-            res = reader.readtext(img)
-            text_lines = []
-            for item in res:
-                if item and len(item) > 1:
-                    text_lines.append(item[1])
-                    if len(item) >= 3 and isinstance(item[0], list):
-                        poly = item[0]
-                        xs = [p[0] for p in poly]
-                        ys = [p[1] for p in poly]
-                        boxes.append(BoundingBox(
-                            text=str(item[1]),
-                            x=int(min(xs)),
-                            y=int(min(ys)),
-                            width=int(max(xs) - min(xs)),
-                            height=int(max(ys) - min(ys)),
-                            confidence=round(float(item[2]), 2) if len(item) > 2 else 0.85
-                        ))
-            if text_lines:
-                return "\n".join(text_lines), "EasyOCR Engine", boxes
-        except Exception:
-            pass
 
         return "", "", []
 

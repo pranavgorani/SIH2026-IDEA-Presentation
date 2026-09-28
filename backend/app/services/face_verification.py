@@ -66,13 +66,14 @@ class FaceVerificationService:
         # 2. If no live person image was provided (Optional presenter check)
         if not live_person_image_path or not Path(live_person_image_path).exists():
             return FaceVerificationResponse(
+                face_detected=True,
                 document_face_detected=True,
                 live_face_detected=False,
                 document_face_quality=doc_quality,
                 live_face_quality=0.0,
                 similarity=0.0,
                 status="NOT_PROVIDED",
-                explanation="Presenter live portrait was not provided (optional check).",
+                explanation="Identity verification unavailable — additional verification required.",
                 message="Presenter image was not provided."
             )
 
@@ -80,6 +81,7 @@ class FaceVerificationService:
         live_img = cv2.imread(live_person_image_path)
         if live_img is None:
             return FaceVerificationResponse(
+                face_detected=True,
                 document_face_detected=True,
                 live_face_detected=False,
                 document_face_quality=doc_quality,
@@ -92,6 +94,7 @@ class FaceVerificationService:
         live_face_crop, live_face_box, live_quality = self._detect_and_crop_face(live_img, is_document=False)
         if live_face_crop is None:
             return FaceVerificationResponse(
+                face_detected=True,
                 document_face_detected=True,
                 live_face_detected=False,
                 document_face_quality=doc_quality,
@@ -122,12 +125,13 @@ class FaceVerificationService:
             explanation = f"Facial biometric match confirmed with high confidence ({similarity*100:.1f}%). Document holder verified against presented individual."
         elif similarity >= 0.60:
             status = "MATCH_REVIEW"
-            explanation = f"Facial biometric similarity ({similarity*100:.1f}%) is in review range. Discrepancies may be due to lighting, aging, or perspective. Human verification required."
+            explanation = f"Face similarity is within the configured review range ({similarity*100:.1f}%). Discrepancies may be due to lighting, aging, or perspective. Human verification required."
         else:
             status = "MISMATCH_DETECTED"
             explanation = f"Low biometric similarity score ({similarity*100:.1f}%). High potential of photo discrepancy or impersonation. Mandatory human review triggered."
 
         return FaceVerificationResponse(
+            face_detected=True,
             document_face_detected=True,
             live_face_detected=True,
             document_face_quality=doc_quality,

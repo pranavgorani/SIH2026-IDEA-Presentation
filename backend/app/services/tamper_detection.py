@@ -217,6 +217,28 @@ class TamperDetectionService:
         std_mag = float(np.std(magnitude))
         return min(1.0, std_mag / 80.0)
 
+    def _compute_frequency_domain_anomaly(self, gray: np.ndarray) -> float:
+        """
+        Performs 2D Fast Fourier Transform (FFT) analysis to detect
+        periodic pattern disruption or artificial splicing in the frequency domain.
+        """
+        try:
+            f = np.fft.fft2(gray)
+            fshift = np.fft.fftshift(f)
+            magnitude_spectrum = 20 * np.log(np.abs(fshift) + 1e-5)
+            # High-frequency energy ratio
+            h, w = gray.shape
+            cy, cx = h // 2, w // 2
+            r = min(h, w) // 8
+            mask = np.ones((h, w), np.uint8)
+            cv2.circle(mask, (cx, cy), r, 0, -1)
+            high_freq_energy = np.mean(magnitude_spectrum[mask == 1])
+            low_freq_energy = np.mean(magnitude_spectrum[mask == 0])
+            ratio = float(high_freq_energy / (low_freq_energy + 1e-5))
+            return min(1.0, max(0.0, (ratio - 0.5) / 1.5))
+        except Exception:
+            return 0.1
+
     def _find_hotspot_regions(self, diff_array: np.ndarray, noisy_blocks: List[Any], w: int, h: int) -> List[TamperRegion]:
         regions = []
         if diff_array.size > 0:
@@ -228,13 +250,38 @@ class TamperDetectionService:
                 area = cv2.contourArea(cnt)
                 if 2500 < area < (w * h * 0.4):
                     x, y, rw, rh = cv2.boundingRect(cnt)
+                    aspect = rw / float(max(1, rh))
+
+                    # Categorize into the 10 core tampering types
+                    if x < (w * 0.40) and y < (h * 0.65) and (0.7 <= aspect <= 1.3):
+                        rtype = "possible_photo_replacement"
+                        expl = "This region shows signals consistent with possible photo replacement or border re-compositing."
+                    elif aspect > 2.5 and y > (h * 0.15) and y < (h * 0.80):
+                        rtype = "possible_text_manipulation"
+                        expl = "This region shows signals consistent with possible text manipulation or font substitution."
+                    elif y > (h * 0.65) and (0.7 <= aspect <= 1.4):
+                        rtype = "possible_stamp_manipulation"
+                        expl = "This region shows signals consistent with possible consular stamp or seal alteration."
+                    elif y > (h * 0.50) and aspect > 1.8 and rh < (h * 0.20):
+                        rtype = "possible_signature_manipulation"
+                        expl = "This region shows signals consistent with possible signature manipulation or overlay."
+                    elif area < (w * h * 0.05):
+                        rtype = "possible_copy_paste"
+                        expl = "This region shows signals consistent with possible localized copy-paste or clone-stamp duplication."
+                    elif aspect > 1.5:
+                        rtype = "possible_splicing"
+                        expl = "This region shows signals consistent with possible boundary splicing or edge discontinuity."
+                    else:
+                        rtype = "compression_inconsistency"
+                        expl = "This region shows signals consistent with possible compression inconsistency or localized re-saving."
+
                     regions.append(TamperRegion(
                         x=x, y=y, width=rw, height=rh,
-                        type="compression_discontinuity",
-                        confidence=0.81,
-                        explanation="Localized compression delta suggests possible content insertion or splice."
+                        type=rtype,
+                        confidence=0.82,
+                        explanation=expl
                     ))
-        return regions[:3]
+        return regions[:4]
 
     def _generate_heatmap_file(self, diff_np: np.ndarray, regions: List[TamperRegion], base_cv: np.ndarray, case_id: str) -> Optional[str]:
         try:

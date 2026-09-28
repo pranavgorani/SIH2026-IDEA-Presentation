@@ -105,5 +105,46 @@ class MockVerificationProvider(BaseVerificationProvider):
             "disclaimer": self.DISCLAIMER
         }
 
+# Specialized Provider Interfaces for Production Adapter Architecture
+class PassportVerificationProvider(BaseVerificationProvider):
+    """Adapter interface for official passport issuance APIs (e.g. ICAO PKD / Passport Seva)."""
+    def __init__(self, backend_provider: Optional[BaseVerificationProvider] = None):
+        self.backend = backend_provider or MockVerificationProvider()
+
+    def verify(self, document_number: str, doc_type: str = "PASSPORT", candidate_name: Optional[str] = None) -> Dict[str, Any]:
+        return self.backend.verify(document_number, "PASSPORT", candidate_name)
+
+
+class VisaVerificationProvider(BaseVerificationProvider):
+    """Adapter interface for official eVisa / consular entry authorization registries."""
+    def __init__(self, backend_provider: Optional[BaseVerificationProvider] = None):
+        self.backend = backend_provider or MockVerificationProvider()
+
+    def verify(self, document_number: str, doc_type: str = "VISA", candidate_name: Optional[str] = None) -> Dict[str, Any]:
+        return self.backend.verify(document_number, "VISA", candidate_name)
+
+
+class IdentityVerificationProvider(BaseVerificationProvider):
+    """Adapter interface for National ID registries (e.g. UIDAI Aadhaar, Civil Registry)."""
+    def __init__(self, backend_provider: Optional[BaseVerificationProvider] = None):
+        self.backend = backend_provider or MockVerificationProvider()
+
+    def verify(self, document_number: str, doc_type: str = "NATIONAL_ID", candidate_name: Optional[str] = None) -> Dict[str, Any]:
+        return self.backend.verify(document_number, "NATIONAL_ID", candidate_name)
+
+
+class PermitVerificationProvider(BaseVerificationProvider):
+    """Adapter interface for residence / work permit and travel authorization registries."""
+    def __init__(self, backend_provider: Optional[BaseVerificationProvider] = None):
+        self.backend = backend_provider or MockVerificationProvider()
+
+    def verify(self, document_number: str, doc_type: str = "PERMIT", candidate_name: Optional[str] = None) -> Dict[str, Any]:
+        return self.backend.verify(document_number, "PERMIT", candidate_name)
+
+
 # Provider instances
 mock_verification_provider = MockVerificationProvider()
+passport_verification_provider = PassportVerificationProvider(mock_verification_provider)
+visa_verification_provider = VisaVerificationProvider(mock_verification_provider)
+identity_verification_provider = IdentityVerificationProvider(mock_verification_provider)
+permit_verification_provider = PermitVerificationProvider(mock_verification_provider)
