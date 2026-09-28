@@ -210,6 +210,13 @@ export const api = {
           // Response is non-JSON HTML (e.g. Next.js rewrite or nginx 500/502)
         }
 
+        // Retry transient proxy connection drops (HTML 500 / 502 / 503)
+        if (!errPayload && res.status >= 500 && attempt < maxAttempts) {
+          options?.onRetryAttempt?.(attempt, maxAttempts);
+          await new Promise((resolve) => setTimeout(resolve, delays[attempt] || 1000));
+          continue;
+        }
+
         const isClientError = res.status >= 400 && res.status < 500;
         const recoverable = errPayload?.recoverable ?? (!isClientError || res.status === 429);
 
