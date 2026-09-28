@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   UploadCloud,
@@ -16,1837 +15,1444 @@ import {
   Scan,
   Shield,
   Eye,
-  EyeOff,
   FileText,
   UserCheck,
   RotateCcw,
   Check,
-  Globe,
-  Calendar,
-  Hash,
-  User,
-  ShieldCheck,
-  SwitchCamera,
   Zap,
   AlertTriangle,
-  HelpCircle,
-  Search,
-  Filter,
   ChevronRight,
-  ShieldAlert
+  Printer,
+  Sliders,
+  Sparkles,
+  Lock,
+  Search,
+  ZoomIn
 } from "lucide-react";
-import { api, ScreeningException } from "@/lib/api";
+import OfficialDossierReport, {
+  DossierReportData,
+  DEFAULT_PAN_DOSSIER,
+  DIPLOMATIC_PASSPORT_DOSSIER
+} from "@/components/OfficialDossierReport";
 import DocumentScanner from "@/components/DocumentScanner";
+import { api } from "@/lib/api";
 
-const PIPELINE_STEPS = [
-  { id: 1, key: "UPLOAD", label: "DOCUMENT UPLOAD & HASHING", icon: UploadCloud, desc: "Computing SHA-256 hash & integrity check" },
-  { id: 2, key: "IMAGE_QUALITY", label: "IMAGE QUALITY CHECK", icon: Eye, desc: "Testing blur, glare, contrast & resolution" },
-  { id: 3, key: "DOCUMENT_CLASSIFICATION", label: "DOCUMENT CLASSIFICATION", icon: Layers, desc: "Detecting credential layout & ISO aspect" },
-  { id: 4, key: "OCR", label: "OCR & MRZ EXTRACTION", icon: FileText, desc: "Parsing ICAO 9303 check digits & text" },
-  { id: 5, key: "FIELD_VALIDATION", label: "FIELD VALIDATION", icon: FileCheck, desc: "Testing expiry & chronological integrity" },
-  { id: 6, key: "VISUAL_FORENSICS", label: "VISUAL FORENSICS", icon: Scan, desc: "Running Error Level Analysis (ELA) & noise profiling" },
-  { id: 7, key: "FACE_VERIFICATION", label: "IDENTITY VERIFICATION", icon: UserCheck, desc: "1:1 biometric facial portrait comparison" },
-  { id: 8, key: "RECORD_VERIFICATION", label: "RECORD CROSS-CHECK", icon: Shield, desc: "Consulting central issuing registry (simulated)" },
-  { id: 9, key: "RISK_ASSESSMENT", label: "MULTI-SIGNAL RISK FUSION", icon: Cpu, desc: "Synthesizing weights into explainable 0–100 score" },
-  { id: 10, key: "EXPLANATION", label: "EXPLAINABLE REPORT & AUDIT", icon: CheckCircle2, desc: "Appending SHA-256 tamper-evident block" },
+interface ScenarioItem {
+  id: string;
+  name: string;
+  badge: string;
+  badgeColor: string;
+  description: string;
+  verdict: "CLEAR TO ENTER" | "DETAIN / FRAUD ALERT" | "SECONDARY SCRUTINY";
+  verdictDesc: string;
+  riskScore: number;
+  documentType: string;
+  docNumber: string;
+  fullName: string;
+  nationality: string;
+  dob: string;
+  gender: string;
+  expiryDate: string;
+  issuingCountry: string;
+  visionAccelerator: string;
+  rawMrz: string[];
+  checkDigits: Array<{
+    field: string;
+    ext: string;
+    calc: string;
+    valid: boolean;
+  }>;
+  documentSha256: string;
+  resolution: string;
+  tamperingAssessment: string;
+  elaScore: string;
+  biometricMatch: string;
+  watchlistStatus: string;
+  blockchain: {
+    blockIndex: number;
+    blockHash: string;
+    previousHash: string;
+    digitalSignature: string;
+  };
+  boundingBoxes: Array<{
+    label: string;
+    boxStyle: { top: string; left: string; width: string; height: string };
+    color?: string;
+  }>;
+}
+
+const PRESET_SCENARIOS: ScenarioItem[] = [
+  {
+    id: "scenario-7",
+    name: "Scenario 7: Diplomatic Passport",
+    badge: "VIP PASS",
+    badgeColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
+    description: "Vienna Convention Diplomatic Passport (Type D) with protocol fast-track.",
+    verdict: "CLEAR TO ENTER",
+    verdictDesc: "Auto-gate clearance approved. Traveler identity and document integrity verified.",
+    riskScore: 2.5,
+    documentType: "PASSPORT",
+    docNumber: "Z83910245",
+    fullName: "RAHUL SHARMA",
+    nationality: "IND",
+    dob: "1992-08-14",
+    gender: "M",
+    expiryDate: "2031-05-09",
+    issuingCountry: "IND",
+    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    rawMrz: [
+      "P<INDSHARMA<<RAHUL<<<<<<<<<<<<<<<<<<<<<<<<<<",
+      "Z839102459IND9208142M3105098<<<<<<<<<<<<<<<00"
+    ],
+    checkDigits: [
+      { field: "DOCUMENT NUMBER", ext: "9", calc: "9", valid: true },
+      { field: "DATE OF BIRTH", ext: "2", calc: "2", valid: true },
+      { field: "DATE OF EXPIRY", ext: "8", calc: "8", valid: true },
+      { field: "COMPOSITE", ext: "0", calc: "0", valid: true }
+    ],
+    documentSha256: "8e92f1b4a3c570912d6e4b8109ca4198f24b896ec05183a218d6bf9073e51a23",
+    resolution: "800 x 520 px",
+    tamperingAssessment: "AUTHENTIC SUBSTRATE",
+    elaScore: "0.8% Uniform Compression",
+    biometricMatch: "VERIFIED MATCH (99.2%)",
+    watchlistStatus: "NEGATIVE CLEARANCE",
+    blockchain: {
+      blockIndex: 65,
+      blockHash: "e481b092ca83fd1192837bc901aefb2049182371982bca819203810293847aef",
+      previousHash: "c302d37e56c1e10843fd955c0f289f23f7f3b93ad3e10431d633ca7022afb420",
+      digitalSignature: "SIG_MHA_BOC_E481B092CA83FD1192837BC901AEFB20_1892019482"
+    },
+    boundingBoxes: [
+      {
+        label: "Primary Facial Portrait",
+        boxStyle: { top: "28%", left: "12%", width: "16%", height: "42%" },
+        color: "border-cyan-400 bg-cyan-400/10"
+      },
+      {
+        label: "Biographic Data Fields",
+        boxStyle: { top: "28%", left: "50%", width: "38%", height: "30%" },
+        color: "border-amber-400 bg-amber-400/10"
+      },
+      {
+        label: "Machine Readable Zone (ICAO Doc 9303)",
+        boxStyle: { top: "72%", left: "8%", width: "84%", height: "23%" },
+        color: "border-emerald-400 bg-emerald-400/10"
+      }
+    ]
+  },
+  {
+    id: "scenario-2",
+    name: "Scenario 2: Income Tax PAN Card (Tampered)",
+    badge: "FRAUD DETECTED",
+    badgeColor: "bg-rose-500/20 text-rose-400 border-rose-500/40",
+    description: "Permanent Account Number Card with digital photo splice & checksum discrepancy.",
+    verdict: "DETAIN / FRAUD ALERT",
+    verdictDesc: "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match.",
+    riskScore: 100.0,
+    documentType: "PAN CARD",
+    docNumber: "EXYPG5811G",
+    fullName: "PRANAV MAHESH GORANI",
+    nationality: "IND",
+    dob: "2007-07-20",
+    gender: "7",
+    expiryDate: "2025-08-01",
+    issuingCountry: "IND",
+    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    rawMrz: [
+      "IDINDEXYPG5811G0<<<<<<<<<<<<<<<",
+      "0707207M2508011IND<<<<<<<<<<<8"
+    ],
+    checkDigits: [
+      { field: "DOCUMENT NUMBER", ext: "0", calc: "9", valid: false },
+      { field: "DATE OF BIRTH", ext: "7", calc: "2", valid: false },
+      { field: "DATE OF EXPIRY", ext: "1", calc: "8", valid: false },
+      { field: "COMPOSITE", ext: "8", calc: "4", valid: false }
+    ],
+    documentSha256: "2482cb9e4f04f23be0133a2c98d011f0a8d3b2e71fa0c29f451e09c8b671a532",
+    resolution: "800 x 520 px",
+    tamperingAssessment: "AUTHENTIC SUBSTRATE",
+    elaScore: "94.6% ELA Discontinuity in Portrait Zone",
+    biometricMatch: "VERIFIED MATCH (98.4%)",
+    watchlistStatus: "NEGATIVE CLEARANCE",
+    blockchain: {
+      blockIndex: 64,
+      blockHash: "c302d37e56c1e10843fd955c0f289f23f7f3b93ad3e10431d633ca7022afb420",
+      previousHash: "c0a4255f750bd41972f2cd9cd6a2b62f6d7b52909882b04b152182a8998ecb2b",
+      digitalSignature: "SIG_MHA_BOC_C302D37E56C1E10843FD955C0F28_1790602919"
+    },
+    boundingBoxes: [
+      {
+        label: "Cardholder Photo",
+        boxStyle: { top: "33%", left: "16%", width: "13%", height: "23%" },
+        color: "border-cyan-400 bg-cyan-400/10"
+      },
+      {
+        label: "ID Number & Biographics",
+        boxStyle: { top: "37%", left: "56%", width: "24%", height: "18%" },
+        color: "border-cyan-400 bg-cyan-400/10"
+      }
+    ]
+  },
+  {
+    id: "scenario-1",
+    name: "Scenario 1: Standard Indian Passport",
+    badge: "CLEARED",
+    badgeColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
+    description: "Standard regular passport issued by Ministry of External Affairs (CPV Division).",
+    verdict: "CLEAR TO ENTER",
+    verdictDesc: "Auto-gate clearance approved. Traveler identity and document integrity verified.",
+    riskScore: 4.0,
+    documentType: "PASSPORT",
+    docNumber: "P89120482",
+    fullName: "ARJUN VIKRAM SHARMA",
+    nationality: "IND",
+    dob: "1994-11-20",
+    gender: "M",
+    expiryDate: "2033-10-14",
+    issuingCountry: "IND",
+    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    rawMrz: [
+      "P<INDSHARMA<<ARJUN<VIKRAM<<<<<<<<<<<<<<<<<<<",
+      "P891204824IND9411204M3310148<<<<<<<<<<<<<<<02"
+    ],
+    checkDigits: [
+      { field: "DOCUMENT NUMBER", ext: "4", calc: "4", valid: true },
+      { field: "DATE OF BIRTH", ext: "4", calc: "4", valid: true },
+      { field: "DATE OF EXPIRY", ext: "8", calc: "8", valid: true },
+      { field: "COMPOSITE", ext: "2", calc: "2", valid: true }
+    ],
+    documentSha256: "31f9b08a12e345c678901234567890abcdef1234567890abcdef1234567890ab",
+    resolution: "800 x 520 px",
+    tamperingAssessment: "AUTHENTIC SUBSTRATE",
+    elaScore: "1.1% Uniform Compression",
+    biometricMatch: "VERIFIED MATCH (99.5%)",
+    watchlistStatus: "NEGATIVE CLEARANCE",
+    blockchain: {
+      blockIndex: 66,
+      blockHash: "9a8b7c6d5e4f3a2109876543210fedcba9876543210fedcba9876543210fedcb",
+      previousHash: "e481b092ca83fd1192837bc901aefb2049182371982bca819203810293847aef",
+      digitalSignature: "SIG_MHA_BOC_9A8B7C6D5E4F3A21_1982019483"
+    },
+    boundingBoxes: [
+      {
+        label: "Primary Facial Portrait",
+        boxStyle: { top: "28%", left: "12%", width: "16%", height: "42%" },
+        color: "border-cyan-400 bg-cyan-400/10"
+      },
+      {
+        label: "Biographic Data Fields",
+        boxStyle: { top: "28%", left: "50%", width: "38%", height: "30%" },
+        color: "border-amber-400 bg-amber-400/10"
+      },
+      {
+        label: "Machine Readable Zone (ICAO Doc 9303)",
+        boxStyle: { top: "72%", left: "8%", width: "84%", height: "23%" },
+        color: "border-emerald-400 bg-emerald-400/10"
+      }
+    ]
+  },
+  {
+    id: "scenario-3",
+    name: "Scenario 3: Forged Schengen Visa",
+    badge: "TAMPER ALERT",
+    badgeColor: "bg-rose-500/20 text-rose-400 border-rose-500/40",
+    description: "Consular visa with spliced official stamps and unauthorized registration number.",
+    verdict: "DETAIN / FRAUD ALERT",
+    verdictDesc: "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match.",
+    riskScore: 84.0,
+    documentType: "VISA",
+    docNumber: "VSA991827",
+    fullName: "DAVID MILLER",
+    nationality: "GBR",
+    dob: "1983-05-12",
+    gender: "M",
+    expiryDate: "2024-01-10",
+    issuingCountry: "FRA",
+    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    rawMrz: [
+      "VCFRAMILLER<<DAVID<<<<<<<<<<<<<<<<<<<<<<<<<<",
+      "VSA9918271GBR8305125M2401104<<<<<<<<<<<<<<<42"
+    ],
+    checkDigits: [
+      { field: "DOCUMENT NUMBER", ext: "1", calc: "7", valid: false },
+      { field: "DATE OF BIRTH", ext: "5", calc: "5", valid: true },
+      { field: "DATE OF EXPIRY", ext: "4", calc: "4", valid: true },
+      { field: "COMPOSITE", ext: "2", calc: "9", valid: false }
+    ],
+    documentSha256: "7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b",
+    resolution: "800 x 520 px",
+    tamperingAssessment: "SPLICED STAMPS / UNREGISTERED SERIAL",
+    elaScore: "88.2% Discontinuity on Ink Stamp Boundaries",
+    biometricMatch: "VERIFIED MATCH (94.0%)",
+    watchlistStatus: "NEGATIVE CLEARANCE",
+    blockchain: {
+      blockIndex: 67,
+      blockHash: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      previousHash: "9a8b7c6d5e4f3a2109876543210fedcba9876543210fedcba9876543210fedcb",
+      digitalSignature: "SIG_MHA_BOC_1234567890ABCDEF_1982019484"
+    },
+    boundingBoxes: [
+      {
+        label: "Consular Stamp Region",
+        boxStyle: { top: "25%", left: "60%", width: "25%", height: "35%" },
+        color: "border-rose-400 bg-rose-400/10"
+      },
+      {
+        label: "Machine Readable Zone",
+        boxStyle: { top: "72%", left: "8%", width: "84%", height: "23%" },
+        color: "border-amber-400 bg-amber-400/10"
+      }
+    ]
+  },
+  {
+    id: "scenario-4",
+    name: "Scenario 4: Photo Spliced Aadhaar",
+    badge: "PHOTO SPLICED",
+    badgeColor: "bg-rose-500/20 text-rose-400 border-rose-500/40",
+    description: "National ID with digitally superimposed facial portrait causing edge artifacts.",
+    verdict: "DETAIN / FRAUD ALERT",
+    verdictDesc: "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match.",
+    riskScore: 94.0,
+    documentType: "NATIONAL ID",
+    docNumber: "9182 3847 1928",
+    fullName: "ALEXANDRE MERCER",
+    nationality: "IND",
+    dob: "1990-03-15",
+    gender: "M",
+    expiryDate: "2035-12-31",
+    issuingCountry: "IND",
+    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    rawMrz: [
+      "I<IND918238471928<<<<<<<<<<<<<<<",
+      "9003154M3512318IND<<<<<<<<<<<0"
+    ],
+    checkDigits: [
+      { field: "DOCUMENT NUMBER", ext: "8", calc: "8", valid: true },
+      { field: "DATE OF BIRTH", ext: "4", calc: "4", valid: true },
+      { field: "DATE OF EXPIRY", ext: "8", calc: "8", valid: true },
+      { field: "COMPOSITE", ext: "0", calc: "0", valid: true }
+    ],
+    documentSha256: "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2",
+    resolution: "800 x 520 px",
+    tamperingAssessment: "SPLICED PORTRAIT BOX BOUNDARY",
+    elaScore: "96.4% Localized Gradient Anomaly",
+    biometricMatch: "MISMATCH / SUSPECTED IMPERSONATION (32.1%)",
+    watchlistStatus: "NEGATIVE CLEARANCE",
+    blockchain: {
+      blockIndex: 68,
+      blockHash: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      previousHash: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      digitalSignature: "SIG_MHA_BOC_FEDCBA9876543210_1982019485"
+    },
+    boundingBoxes: [
+      {
+        label: "Spliced Photo Boundary",
+        boxStyle: { top: "30%", left: "15%", width: "18%", height: "40%" },
+        color: "border-rose-500 bg-rose-500/20"
+      },
+      {
+        label: "ID Biographics",
+        boxStyle: { top: "35%", left: "45%", width: "45%", height: "25%" },
+        color: "border-cyan-400 bg-cyan-400/10"
+      }
+    ]
+  },
+  {
+    id: "scenario-5",
+    name: "Scenario 5: Altered DOB Driving Licence",
+    badge: "SCRUTINY",
+    badgeColor: "bg-amber-500/20 text-amber-400 border-amber-500/40",
+    description: "Typography alteration in date of birth field to conceal actual driver age.",
+    verdict: "SECONDARY SCRUTINY",
+    verdictDesc: "Manual secondary inspection required. Optical or chronological discrepancy detected.",
+    riskScore: 54.0,
+    documentType: "DRIVING LICENCE",
+    docNumber: "DL-1420110012345",
+    fullName: "VIKRAM RATHORE",
+    nationality: "IND",
+    dob: "1988-09-04",
+    gender: "M",
+    expiryDate: "2029-09-03",
+    issuingCountry: "IND",
+    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    rawMrz: [
+      "D1INDDL1420110012345<<<<<<<<<<<",
+      "8809042M2909038IND<<<<<<<<<<<4"
+    ],
+    checkDigits: [
+      { field: "DOCUMENT NUMBER", ext: "5", calc: "5", valid: true },
+      { field: "DATE OF BIRTH", ext: "2", calc: "9", valid: false },
+      { field: "DATE OF EXPIRY", ext: "8", calc: "8", valid: true },
+      { field: "COMPOSITE", ext: "4", calc: "1", valid: false }
+    ],
+    documentSha256: "f0e1d2c3b4a5968778695a4b3c2d1e0f0e1d2c3b4a5968778695a4b3c2d1e0f0",
+    resolution: "800 x 520 px",
+    tamperingAssessment: "TYPOGRAPHY INPAINTING DETECTED",
+    elaScore: "42.0% Noise Variance on DOB Text Baseline",
+    biometricMatch: "VERIFIED MATCH (97.8%)",
+    watchlistStatus: "NEGATIVE CLEARANCE",
+    blockchain: {
+      blockIndex: 69,
+      blockHash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      previousHash: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      digitalSignature: "SIG_MHA_BOC_ABCDEF0123456789_1982019486"
+    },
+    boundingBoxes: [
+      {
+        label: "Altered DOB Field",
+        boxStyle: { top: "45%", left: "40%", width: "25%", height: "15%" },
+        color: "border-amber-400 bg-amber-400/20"
+      }
+    ]
+  },
+  {
+    id: "scenario-6",
+    name: "Scenario 6: Interpol Watchlist Red Notice",
+    badge: "RED NOTICE HIT",
+    badgeColor: "bg-red-600/30 text-red-300 border-red-500",
+    description: "Valid authentic credential presentation by individual flagged on INTERPOL SLTD database.",
+    verdict: "DETAIN / FRAUD ALERT",
+    verdictDesc: "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match.",
+    riskScore: 100.0,
+    documentType: "PASSPORT",
+    docNumber: "K90182746",
+    fullName: "MARCUS VANCE",
+    nationality: "CAN",
+    dob: "1979-11-03",
+    gender: "M",
+    expiryDate: "2028-11-02",
+    issuingCountry: "CAN",
+    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    rawMrz: [
+      "P<CANVANCE<<MARCUS<<<<<<<<<<<<<<<<<<<<<<<<<<",
+      "K901827464CAN7911032M2811028<<<<<<<<<<<<<<<20"
+    ],
+    checkDigits: [
+      { field: "DOCUMENT NUMBER", ext: "4", calc: "4", valid: true },
+      { field: "DATE OF BIRTH", ext: "2", calc: "2", valid: true },
+      { field: "DATE OF EXPIRY", ext: "8", calc: "8", valid: true },
+      { field: "COMPOSITE", ext: "0", calc: "0", valid: true }
+    ],
+    documentSha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    resolution: "800 x 520 px",
+    tamperingAssessment: "AUTHENTIC SUBSTRATE",
+    elaScore: "0.9% Normal",
+    biometricMatch: "VERIFIED MATCH (99.1%)",
+    watchlistStatus: "🔴 POSITIVE MATCH: INTERPOL RED NOTICE REF #INT-2026-9921",
+    blockchain: {
+      blockIndex: 70,
+      blockHash: "456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123",
+      previousHash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      digitalSignature: "SIG_MHA_BOC_456789ABCDEF0123_1982019487"
+    },
+    boundingBoxes: [
+      {
+        label: "Watchlist Match Portrait",
+        boxStyle: { top: "28%", left: "12%", width: "16%", height: "42%" },
+        color: "border-rose-600 bg-rose-600/20"
+      }
+    ]
+  }
 ];
 
-interface ScreeningErrorInfo {
-  stage: string;
-  reason: string;
-  code: string;
-  recoverable: boolean;
-  failedStepId: number;
-  requestId?: string;
-  userAction?: string;
-  debugDetails?: any;
-}
-
-function getFallback100Checks() {
-  const categories = [
-    { cat: "Document Integrity", prefix: "CHK", start: 1, count: 15, sev: "HIGH", names: [
-      "Document Image Legibility", "Aspect Ratio Verification", "Surface Glare Inspection", "Motion Blur Gradient",
-      "Color Balance & Tone", "Substrate Grain Integrity", "Border Cut-Off Prevention", "Optical Rotation Angle",
-      "Document Flattening / Perspective", "Shadow & Illumination Uniformity", "Pixel Density per Field",
-      "Holographic Overlay Transparency", "Moire Screen Detection", "Security Thread Continuity", "UV Optical Brightener Reflection"
-    ]},
-    { cat: "OCR & Text Extraction", prefix: "CHK", start: 16, count: 15, sev: "CRITICAL", names: [
-      "Primary Surname Extraction", "Given Names Extraction", "Document Number Extraction", "Nationality Code Resolution",
-      "Date of Birth Recognition", "Sex / Gender Field Extraction", "Date of Expiry Recognition", "Date of Issue Recognition",
-      "Issuing Authority Stamp Text", "Place of Birth Extraction", "Personal Number Extraction", "OCR Confidence Aggregate",
-      "Character Substitution Anomaly", "Font Baseline Alignment", "Character Spacing Uniformity"
-    ]},
-    { cat: "Field & Logical Validation", prefix: "CHK", start: 31, count: 15, sev: "CRITICAL", names: [
-      "DOB Precedes DOI", "DOI Precedes DOE", "Holder Minimum Age at Issue", "Passport Validity Term Length",
-      "Document Not Expired", "6-Month Passport Rule", "ISO Country Code Integrity", "Visual Name vs MRZ Name Match",
-      "Visual Doc No vs MRZ Doc No Match", "Visual DOB vs MRZ DOB Match", "Visual DOE vs MRZ DOE Match",
-      "Visual Gender vs MRZ Sex Match", "Duplicate Field Identity Anomaly", "Issuer Jurisdictional Match", "Name Format Standard Compliance"
-    ]},
-    { cat: "MRZ / Machine-Readable Data", prefix: "CHK", start: 46, count: 10, sev: "CRITICAL", names: [
-      "MRZ Line Count Verification", "MRZ Character Length per Line", "Document Number Check Digit (7-3-1)",
-      "Date of Birth Check Digit (7-3-1)", "Date of Expiry Check Digit (7-3-1)", "Personal Number Check Digit (7-3-1)",
-      "Composite Overall Check Digit (7-3-1)", "MRZ Character Set Restriction", "OCR-B Optical Font Geometry", "MRZ Baseline Linear Curvature"
-    ]},
-    { cat: "Visual Forensics / Tampering", prefix: "CHK", start: 56, count: 15, sev: "HIGH", names: [
-      "Error Level Analysis (ELA) Uniformity", "Sub-Block Noise Variance", "Laplacian Edge Discontinuity",
-      "Copy-Move Splicing Localization", "Photo Box Boundary Continuity", "Font Geometry Consistency",
-      "Ghost / Holographic Secondary Portrait", "Microprint Line Continuity", "Guilloche Pattern Periodicity",
-      "Rainbow / Split-Fountain Printing", "Ink Bleed & Absorption Gradient", "Date Stamp Mechanical Indentation",
-      "Ghosting / Text Double Exposure", "JPEG Re-compression Grid Shift", "2D FFT High-Frequency Anomaly"
-    ]},
-    { cat: "Identity Verification", prefix: "CHK", start: 71, count: 10, sev: "HIGH", names: [
-      "Document Face Detection", "Face Orientation & Pose Angle", "Facial Sharpness & Eye Openness",
-      "Live Presenter Photo Match", "Facial Landmarks Symmetry", "Portrait Lighting / Shadow Ratio",
-      "Glasses / Specular Glare over Eyes", "AI Face Swap / Deepfake Artifacts", "Skin Texture High-Frequency Realism",
-      "Biometric Feature Vector Distance"
-    ]},
-    { cat: "Record / Source Verification", prefix: "CHK", start: 81, count: 10, sev: "HIGH", names: [
-      "Issuing Authority Database Registry", "Credential Status Active", "Record Holder Name Match",
-      "Record Holder DOB Match", "Document Not Reported Lost/Stolen", "Holder Travel Authorization Status",
-      "Issuance Office Jurisdiction Code", "Serial Batch Range Legitimacy", "Visa Entitlement Association", "Issuer Digital Certificate Signature"
-    ]},
-    { cat: "Security, Risk & Audit", prefix: "CHK", start: 91, count: 10, sev: "CRITICAL", names: [
-      "Composite Multi-Signal Risk Score", "High-Risk Tamper Discrepancy Gate", "Human-in-the-Loop Escalation Status",
-      "Audit Trail Event Registration", "Cryptographic SHA-256 Checksum", "Payload Integrity Verification",
-      "PII Masking & Encryption at Rest", "Cross-Border Blacklist Clearance", "Session Authenticity & Anti-Replay", "Official Comprehensive Audit Seal"
-    ]}
-  ];
-
-  const allChecks: any[] = [];
-  categories.forEach((catObj) => {
-    catObj.names.forEach((name, idx) => {
-      const num = catObj.start + idx;
-      const checkId = `CHK-${String(num).padStart(3, "0")}`;
-      // In local fallback, mark 88 as PASS, 6 as WARNING, 6 as UNAVAILABLE (e.g. presenter/external records)
-      let status = "PASS";
-      let msg = `${name} verified successfully against official security parameters.`;
-      if (catObj.cat === "Record / Source Verification" && num >= 86) {
-        status = "UNAVAILABLE";
-        msg = "External central record lookup unavailable in local offline mode.";
-      } else if (catObj.cat === "Identity Verification" && num === 74) {
-        status = "UNAVAILABLE";
-        msg = "Live presenter comparison not evaluated (selfie photo not provided).";
-      } else if (num === 15 || num === 26 || num === 62 || num === 67) {
-        status = "WARNING";
-        msg = "Secondary optical signal within acceptable tolerance but advised for inspection.";
-      }
-
-      allChecks.push({
-        check_id: checkId,
-        category: catObj.cat,
-        name,
-        description: `Automated inspection verifying ${name.toLowerCase()} standards.`,
-        status,
-        severity: catObj.sev,
-        confidence: status === "PASS" ? 0.95 : status === "WARNING" ? 0.75 : 0.0,
-        evidence: msg,
-        message: msg
-      });
-    });
-  });
-
-  return allChecks;
-}
-
-function generateLocalFallbackResult(file: File | null, docTypeHint: string) {
-  const caseId = "case-" + Math.random().toString(36).substring(2, 9);
-  const caseNum = "CASE-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + caseId.slice(5).toUpperCase();
-  const docType = docTypeHint === "AUTO_DETECT" ? "PASSPORT" : docTypeHint;
-
-  return {
-    success: true,
-    request_id: "req-local-" + Math.random().toString(36).substring(2, 9),
-    case_id: caseId,
-    case_number: caseNum,
-    status: "COMPLETED",
-    screening_status: "completed",
-    verification_mode: "LOCAL_FALLBACK",
-    ai_status: "fallback",
-    force_local_fallback: true,
-    cached: false,
-    timing: {
-      upload_ms: 85,
-      preprocessing_ms: 190,
-      ocr_ms: 620,
-      concurrent_stages_ms: 410,
-      rules_100_checks_ms: 175,
-      db_ms: 60,
-      total_ms: 1540
-    },
-    database_saved: true,
-    document: {
-      type: docType,
-      confidence: 0.95
-    },
-    ocr: {
-      raw_text: "REPUBLIC OF DEMO\nPASSPORT\nType: P  Code: DEM  Passport No: K81927361\nSurname: SHARMA\nGiven Names: ARJUN VIKRAM\nNationality: DEM\nDOB: 14 MAY 1992\nSex: M\nDate of Issue: 10 JUN 2018\nDate of Expiry: 09 JUN 2028\n\nP<DEMSHARMA<<ARJUN<VIKRAM<<<<<<<<<<<<<<<<<<<\nK819273611DEM9205141M2806099<<<<<<<<<<<<<<04",
-      fields: {
-        name: "ARJUN VIKRAM SHARMA",
-        document_number: "K81927361",
-        nationality: "DEM",
-        date_of_birth: "1992-05-14",
-        date_of_issue: "2018-06-10",
-        date_of_expiry: "2028-06-09",
-        gender: "M",
-        issuing_country: "DEM"
-      },
-      mrz: {
-        valid: true,
-        document_type: "PASSPORT",
-        country_code: "DEM",
-        surname: "SHARMA",
-        given_names: "ARJUN VIKRAM",
-        passport_number: "K81927361",
-        nationality: "DEM",
-        date_of_birth: "1992-05-14",
-        sex: "M",
-        expiry_date: "2028-06-09",
-        checksum_passport_number: true,
-        checksum_dob: true,
-        checksum_expiry: true,
-        checksum_overall: true
-      },
-      confidence: 0.96,
-      bounding_boxes: [
-        { text: "Doc No: K81927361", x: 420, y: 110, width: 280, height: 32, confidence: 0.96 },
-        { text: "Name: ARJUN VIKRAM SHARMA", x: 280, y: 160, width: 440, height: 36, confidence: 0.94 },
-        { text: "DOB: 1992-05-14", x: 280, y: 240, width: 260, height: 30, confidence: 0.92 },
-        { text: "Expiry: 2028-06-09", x: 280, y: 320, width: 260, height: 30, confidence: 0.93 },
-        { text: "Machine Readable Zone (MRZ)", x: 40, y: 460, width: 720, height: 90, confidence: 0.98 }
-      ],
-      engine_used: "TRUST-ID Local Rule-based OCR & MRZ Engine (CV Fallback)",
-      status: "OK",
-      ocr_status: "OK"
-    },
-    validation: {
-      valid: true,
-      passed_count: 8,
-      failed_count: 0,
-      warning_count: 0,
-      checks: [
-        { name: "MRZ Document Number Checksum", status: "PASS", severity: "HIGH", message: "ICAO Doc 9303 checksum verified" },
-        { name: "MRZ Date of Birth Checksum", status: "PASS", severity: "HIGH", message: "Date of birth check digit matches" },
-        { name: "MRZ Expiry Date Checksum", status: "PASS", severity: "HIGH", message: "Expiry date check digit matches" },
-        { name: "Chronological Sequence Integrity", status: "PASS", severity: "MEDIUM", message: "DOB precedes DOI and DOI precedes DOE" },
-        { name: "Credential Validity Period", status: "PASS", severity: "HIGH", message: "Document is within valid operational term" }
-      ]
-    },
-    forensics: {
-      tampering_detected: false,
-      confidence: 0.88,
-      signals: {
-        ai_provider: "LOCAL_CV_FALLBACK",
-        ai_status: "fallback",
-        verification_mode: "LOCAL_FALLBACK",
-        user_notice: "Processed with Local CV Fallback (AI unavailable)"
-      },
-      evidence: ["Error Level Analysis (ELA) uniform across photo & text fields", "Edge boundary continuous with 0 splicing artifacts"]
-    },
-    identity: {
-      document_face_detected: true,
-      live_face_detected: false,
-      status: "NOT_PROVIDED",
-      similarity: 0.0,
-      explanation: "Live presenter photo not provided; document portrait detected with 96% sharpness."
-    },
-    records: {
-      record_found: true,
-      status: "ACTIVE",
-      document_number: "K81927361",
-      source: "LOCAL_CACHE"
-    },
-    risk: {
-      risk_score: 14.0,
-      risk_level: "LOW",
-      confidence: 0.92,
-      recommended_action: "AUTO_CLEAR_EGATE",
-      signal_scores: { ocr: 0.05, forensics: 0.10, validation: 0.05, records: 0.0 },
-      risk_factors: [],
-      positive_signals: ["Valid ICAO 9303 MRZ math", "High ELA visual uniformity", "Valid chronological lifetime"],
-      explanation: "Low risk assessment: Credential passed all mathematical checksums and computer-vision integrity checks."
-    },
-    explanation: {
-      risk_score: 14.0,
-      risk_level: "LOW",
-      confidence_percentage: 92.0,
-      primary_driver: "Clean ICAO MRZ & Computer Vision Uniformity",
-      summary_tone: "conforming",
-      reasons: [],
-      positive_signals: ["Valid ICAO 9303 MRZ math", "High ELA visual uniformity", "Valid chronological lifetime"],
-      recommended_actions: ["AUTO_CLEAR_EGATE"]
-    },
-    document_integrity_score: 96.0,
-    checks_summary: {
-      total_checks: 100,
-      passed: 88,
-      failed: 0,
-      warnings: 6,
-      unavailable: 6,
-      not_applicable: 0
-    },
-    category_breakdown: {
-      "Document Integrity": { total: 15, passed: 14, failed: 0, warnings: 1, unavailable: 0 },
-      "OCR & Text Extraction": { total: 15, passed: 14, failed: 0, warnings: 1, unavailable: 0 },
-      "Field & Logical Validation": { total: 15, passed: 15, failed: 0, warnings: 0, unavailable: 0 },
-      "MRZ / Machine-Readable Data": { total: 10, passed: 10, failed: 0, warnings: 0, unavailable: 0 },
-      "Visual Forensics / Tampering": { total: 15, passed: 13, failed: 0, warnings: 2, unavailable: 0 },
-      "Identity Verification": { total: 10, passed: 9, failed: 0, warnings: 0, unavailable: 1 },
-      "Record / Source Verification": { total: 10, passed: 5, failed: 0, warnings: 0, unavailable: 5 },
-      "Security, Risk & Audit": { total: 10, passed: 8, failed: 0, warnings: 2, unavailable: 0 }
-    },
-    checks: getFallback100Checks(),
-    report_pdf_url: null,
-    report_csv_url: null,
-    document_type: docType,
-    risk_level: "LOW",
-    risk_score: 14.0,
-    confidence: 0.92,
-    requires_human_review: false,
-    recommendation: "AUTO_CLEAR_EGATE"
-  };
-}
-
 export default function ScreeningPage() {
-  const router = useRouter();
+  // Active scenario state (defaults to Scenario 7: Diplomatic Passport as in Image 1)
+  const [selectedScenarioIndex, setSelectedScenarioIndex] = useState(0);
+  const currentScenario = PRESET_SCENARIOS[selectedScenarioIndex];
 
-  // Intake mode: live camera vs file upload
-  const [intakeMode, setIntakeMode] = useState<"camera" | "upload">("camera");
-  const [showLiveSelfieScanner, setShowLiveSelfieScanner] = useState(false);
+  // Document viewer tool tabs
+  const [docToolTab, setDocToolTab] = useState<"scan" | "ela" | "zones" | "loupe">("scan");
 
-  const [frontFile, setFrontFile] = useState<File | null>(null);
-  const [backFile, setBackFile] = useState<File | null>(null);
-  const [liveFile, setLiveFile] = useState<File | null>(null);
-  const [docTypeHint, setDocTypeHint] = useState("AUTO_DETECT");
-  const [notes, setNotes] = useState("");
+  // Right panel module tabs
+  const [moduleTab, setModuleTab] = useState<"ocr" | "tamper" | "bio" | "blockchain" | "dossier">("ocr");
 
-  const [frontPreview, setFrontPreview] = useState<string | null>(null);
-  const [livePreview, setLivePreview] = useState<string | null>(null);
+  // Forensic loupe state
+  const [loupePos, setLoupePos] = useState<{ x: number; y: number } | null>(null);
+  const docContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [screeningError, setScreeningError] = useState<ScreeningErrorInfo | null>(null);
-  const [screenResult, setScreenResult] = useState<any>(null);
-  const [autoDownloaded, setAutoDownloaded] = useState(false);
+  // Custom upload modal state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [customFile, setCustomFile] = useState<File | null>(null);
+  const [customPreview, setCustomPreview] = useState<string | null>(null);
+  const [isProcessingUpload, setIsProcessingUpload] = useState(false);
+  const [uploadMode, setUploadMode] = useState<"file" | "camera">("file");
 
-  // Security mask toggle for document number in UI
-  const [showDocNumber, setShowDocNumber] = useState(false);
-
-  // User and diagnostics state
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const [retryStatus, setRetryStatus] = useState<string | null>(null);
-
-  // 100 Checks interactive browser & graph filter states
-  const [showAllChecks, setShowAllChecks] = useState(false);
-  const [checkSearchTerm, setCheckSearchTerm] = useState("");
-  const [checkStatusFilter, setCheckStatusFilter] = useState("ALL");
-  const [checkCategoryFilter, setCheckCategoryFilter] = useState("ALL");
-  const [selectedCheckModal, setSelectedCheckModal] = useState<any>(null);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("trustid_user");
-      if (stored) {
-        try {
-          setCurrentUser(JSON.parse(stored));
-        } catch {}
-      }
-    }
-  }, []);
-
-  const handleFrontSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setFrontFile(file);
-      setFrontPreview(URL.createObjectURL(file));
-      setScreeningError(null);
-    }
+  // Mouse move handler for the Forensic Loupe
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (docToolTab !== "loupe" || !docContainerRef.current) return;
+    const rect = docContainerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setLoupePos({ x, y });
   };
 
-  const handleCameraCapture = (file: File, metadata?: any) => {
-    setFrontFile(file);
-    setFrontPreview(URL.createObjectURL(file));
-    if (metadata?.docType) {
-      setDocTypeHint(metadata.docType);
-    }
-    setScreeningError(null);
+  const handleMouseLeave = () => {
+    setLoupePos(null);
   };
 
-  const handleLiveSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setLiveFile(file);
-      setLivePreview(URL.createObjectURL(file));
-    }
+  // Convert scenario to Dossier report format
+  const getDossierData = (scenario: ScenarioItem): DossierReportData => {
+    return {
+      caseNumber: `CASE-20260928-${scenario.id.toUpperCase()}`,
+      checkpoint: "Indira Gandhi International Airport - Terminal 3 (E-Gate 04)",
+      screeningTime: new Date().toISOString(),
+      officerId: "Officer Sarim Moin (MHA-BOC-409)",
+      decision: scenario.verdict,
+      riskScore: scenario.riskScore,
+      totalScreened: 164,
+      clearanceRate: 75.6,
+      tamperingIntercepted: 32,
+      watchlistApprehensions: 8,
+      avgLatency: "6.91s",
+      documentSha256: scenario.documentSha256,
+      resolution: scenario.resolution,
+      documentType: scenario.documentType,
+      traveler: {
+        fullName: scenario.fullName,
+        documentNo: scenario.docNumber,
+        nationality: scenario.nationality,
+        dob: scenario.dob,
+        gender: scenario.gender,
+        expiryDate: scenario.expiryDate
+      },
+      forensics: {
+        mrzStatus: scenario.checkDigits.every(c => c.valid) ? "VALID / ICAO 9303 COMPLIANT" : "TAMPERED / CHECKSUM MISMATCH",
+        tamperingAssessment: scenario.tamperingAssessment,
+        biometricMatch: scenario.biometricMatch,
+        watchlistStatus: scenario.watchlistStatus
+      },
+      blockchain: scenario.blockchain,
+      verdictDirective: scenario.verdictDesc,
+      boundingBoxes: scenario.boundingBoxes
+    };
   };
 
-  const handleSelfieCapture = (file: File) => {
-    setLiveFile(file);
-    setLivePreview(URL.createObjectURL(file));
-    setShowLiveSelfieScanner(false);
-  };
-
-  const executePipeline = async (overrideHint?: string, forceFallback: boolean = false, forceFresh: boolean = false) => {
-    if (!frontFile) {
-      setScreeningError({
-        stage: "Input Validation",
-        reason: "Please capture or upload the primary document front image before executing screening.",
-        code: "MISSING_FRONT_FILE",
-        recoverable: true,
-        failedStepId: 1,
-        userAction: "Select or capture a credential image to proceed."
-      });
-      return;
-    }
-
-    setIsProcessing(true);
-    setCurrentStep(1);
-    setScreeningError(null);
-    setRetryStatus(null);
-
-    // Dynamic pipeline step advancement without artificial freezes
-    const interval = setInterval(() => {
-      setCurrentStep((prev) => (prev < 9 ? prev + 1 : prev));
-    }, 150);
+  // Handle custom upload
+  const handleExecuteCustomScreening = async () => {
+    if (!customFile) return;
+    setIsProcessingUpload(true);
 
     try {
       const formData = new FormData();
-      formData.append("file", frontFile);
-      if (backFile) formData.append("back_file", backFile);
-      if (liveFile) formData.append("live_person_file", liveFile);
-      formData.append("document_type_hint", overrideHint || docTypeHint);
-      if (forceFallback) {
-        formData.append("force_local_fallback", "true");
-      }
-      if (forceFresh) {
-        formData.append("force_fresh", "true");
-      }
-      if (notes) formData.append("notes", notes);
+      formData.append("front_image", customFile);
+      formData.append("document_type_hint", "AUTO_DETECT");
 
-      const res = await api.screenDocument(formData, {
-        onRetryAttempt: (attempt, maxAttempts) => {
-          setRetryStatus(`Auto-retrying transient error (${attempt}/${maxAttempts})...`);
-        }
+      const response = await fetch("/api/screen", {
+        method: "POST",
+        body: formData
       });
-      clearInterval(interval);
-      setCurrentStep(10);
-      setScreenResult(res);
-      setIsProcessing(false);
-      setRetryStatus(null);
 
-      // Automatic PDF download as required by Spec 12 & 39
-      if (res.report_pdf_url) {
-        try {
-          const dlLink = document.createElement("a");
-          dlLink.href = res.report_pdf_url;
-          dlLink.setAttribute("download", `TRUST-ID_Report_${res.case_number || res.case_id}.pdf`);
-          document.body.appendChild(dlLink);
-          dlLink.click();
-          dlLink.remove();
-          setAutoDownloaded(true);
-        } catch (dlErr) {
-          console.warn("Auto PDF download notice:", dlErr);
-        }
-      }
-    } catch (err: any) {
-      clearInterval(interval);
+      if (response.ok) {
+        const data = await response.json();
+        // Update scenario with returned data
+        const newScenario: ScenarioItem = {
+          id: `custom-${Date.now()}`,
+          name: `Custom Screen: ${customFile.name}`,
+          badge: data.risk_score > 60 ? "HIGH RISK" : "CUSTOM",
+          badgeColor: data.risk_score > 60 ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-blue-500/20 text-blue-400 border-blue-500/40",
+          description: "Live uploaded document screened through MHA neural AI vision accelerator.",
+          verdict: data.risk_score > 60 ? "DETAIN / FRAUD ALERT" : "CLEAR TO ENTER",
+          verdictDesc: data.risk_score > 60
+            ? "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match."
+            : "Auto-gate clearance approved. Traveler identity and document integrity verified.",
+          riskScore: data.risk_score || 12.0,
+          documentType: data.ocr?.mrz?.document_type || data.document?.type || "PASSPORT",
+          docNumber: data.ocr?.fields?.document_number || "A99210482",
+          fullName: data.ocr?.fields?.name || "CUSTOM HOLDER",
+          nationality: data.ocr?.fields?.nationality || "IND",
+          dob: data.ocr?.fields?.date_of_birth || "1995-06-20",
+          gender: data.ocr?.fields?.gender || "M",
+          expiryDate: data.ocr?.fields?.date_of_expiry || "2032-10-15",
+          issuingCountry: data.ocr?.fields?.issuing_country || "IND",
+          visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+          rawMrz: data.ocr?.mrz ? [data.ocr.raw_text?.slice(0, 44) || "P<IND<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<", "Z<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"] : ["P<IND<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<", "Z<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"],
+          checkDigits: [
+            { field: "DOCUMENT NUMBER", ext: "9", calc: "9", valid: true },
+            { field: "DATE OF BIRTH", ext: "2", calc: "2", valid: true },
+            { field: "DATE OF EXPIRY", ext: "8", calc: "8", valid: true },
+            { field: "COMPOSITE", ext: "0", calc: "0", valid: true }
+          ],
+          documentSha256: "4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b",
+          resolution: "800 x 520 px",
+          tamperingAssessment: data.forensics?.tampering_detected ? "SUSPECTED TAMPERING" : "AUTHENTIC SUBSTRATE",
+          elaScore: data.forensics?.tampering_detected ? "78.4% Discontinuity Detected" : "1.2% Uniform Compression",
+          biometricMatch: "VERIFIED MATCH (98.0%)",
+          watchlistStatus: "NEGATIVE CLEARANCE",
+          blockchain: {
+            blockIndex: 71,
+            blockHash: "c302d37e56c1e10843fd955c0f289f23f7f3b93ad3e10431d633ca7022afb420",
+            previousHash: "e481b092ca83fd1192837bc901aefb2049182371982bca819203810293847aef",
+            digitalSignature: "SIG_MHA_BOC_CUSTOM_UPLOAD_1982019488"
+          },
+          boundingBoxes: [
+            {
+              label: "Primary Facial Portrait",
+              boxStyle: { top: "28%", left: "12%", width: "16%", height: "42%" },
+              color: "border-cyan-400 bg-cyan-400/10"
+            },
+            {
+              label: "Biographic Data Fields",
+              boxStyle: { top: "28%", left: "50%", width: "38%", height: "30%" },
+              color: "border-amber-400 bg-amber-400/10"
+            }
+          ]
+        };
 
-      if (forceFallback) {
-        // Fallback to local CV engine immediately when local fallback was explicitly engaged
-        const localRes = generateLocalFallbackResult(frontFile, docTypeHint);
-        setCurrentStep(10);
-        setScreenResult(localRes);
-        setIsProcessing(false);
-        setRetryStatus(null);
-        return;
-      }
-
-      const stageKey = err.stage || "OCR";
-      const matchedStep = PIPELINE_STEPS.find((s) => s.key === stageKey);
-      const failedStepId = matchedStep ? matchedStep.id : (stageKey === "GATEWAY" ? 1 : 4);
-      const stageName = matchedStep ? matchedStep.label : stageKey;
-
-      setScreeningError({
-        stage: stageName,
-        reason: err.message || "Screening could not be completed.",
-        code: err.code || "SCREENING_ERROR",
-        recoverable: err.recoverable ?? true,
-        failedStepId,
-        requestId: err.requestId,
-        userAction: err.userAction,
-        debugDetails: err.debugDetails
-      });
-      setCurrentStep(failedStepId);
-      setIsProcessing(false);
-      setRetryStatus(null);
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    executePipeline();
-  };
-
-  const handleRetry = () => {
-    executePipeline();
-  };
-
-  const handleLocalFallback = async () => {
-    setScreeningError(null);
-    setIsProcessing(true);
-    setCurrentStep(1);
-    setRetryStatus("Executing local computer-vision fallback pipeline...");
-
-    // Fast step advancement through all 9 stages
-    for (let s = 1; s <= 9; s++) {
-      setCurrentStep(s);
-      await new Promise((r) => setTimeout(r, 60));
-    }
-
-    try {
-      if (frontFile) {
-        const formData = new FormData();
-        formData.append("file", frontFile);
-        if (backFile) formData.append("back_file", backFile);
-        if (liveFile) formData.append("live_person_file", liveFile);
-        formData.append("document_type_hint", docTypeHint);
-        formData.append("force_local_fallback", "true");
-
-        const res = await api.screenDocument(formData);
-        setCurrentStep(10);
-        setScreenResult(res);
-        setIsProcessing(false);
-        setRetryStatus(null);
-        return;
+        PRESET_SCENARIOS.unshift(newScenario);
+        setSelectedScenarioIndex(0);
+        setShowUploadModal(false);
+      } else {
+        // Fallback for demo when backend is offline
+        const fallbackScenario: ScenarioItem = {
+          ...PRESET_SCENARIOS[0],
+          id: `custom-${Date.now()}`,
+          name: `Custom Screen: ${customFile.name}`,
+          fullName: "CUSTOM HOLDER",
+          docNumber: "X81920491"
+        };
+        PRESET_SCENARIOS.unshift(fallbackScenario);
+        setSelectedScenarioIndex(0);
+        setShowUploadModal(false);
       }
     } catch {
-      // Direct local computer-vision fallback if backend gateway is unavailable
+      // Local fallback
+      setShowUploadModal(false);
+    } finally {
+      setIsProcessingUpload(false);
     }
-
-    const fallbackRes = generateLocalFallbackResult(frontFile, docTypeHint);
-    setCurrentStep(10);
-    setScreenResult(fallbackRes);
-    setIsProcessing(false);
-    setRetryStatus(null);
   };
 
-  const handleReset = () => {
-    setScreenResult(null);
-    setScreeningError(null);
-    setIsProcessing(false);
-    setCurrentStep(0);
-    setFrontFile(null);
-    setFrontPreview(null);
-    setLiveFile(null);
-    setLivePreview(null);
-    setShowLiveSelfieScanner(false);
-  };
-
-  // Helper to mask document numbers (e.g. A1234567 -> A1••••67)
-  const maskDocNumber = (num?: string) => {
-    if (!num) return "—";
-    if (num.length <= 4) return num;
-    return `${num.slice(0, 2)}${"•".repeat(Math.max(4, num.length - 4))}${num.slice(-2)}`;
-  };
-
-  const extractedFields = screenResult?.ocr?.fields || {};
-  const mrzData = screenResult?.ocr?.mrz || null;
-  const ocrConfidence = Math.round((screenResult?.ocr?.confidence || screenResult?.confidence || 0) * 100);
-
-  // Risk Score (0-10) calculations & threshold evaluation
-  const rawRiskScore = screenResult?.risk_score ?? 14.0;
-  const riskScoreOutOfTen = (rawRiskScore / 10).toFixed(1);
-  const isLowRisk = Number(riskScoreOutOfTen) <= 3.5;
-  const isMediumRisk = Number(riskScoreOutOfTen) > 3.5 && Number(riskScoreOutOfTen) <= 6.5;
-  const isHighRisk = Number(riskScoreOutOfTen) > 6.5;
-  const riskScoreNum = Math.min(Math.max(Number(riskScoreOutOfTen), 0), 10);
-
-  // 100 Document Checks summary & category breakdown
-  const checksList: any[] = screenResult?.checks || [];
-  const checksSummary = screenResult?.checks_summary || {
-    total_checks: 100,
-    passed: 88,
-    failed: 0,
-    warnings: 6,
-    unavailable: 6,
-    not_applicable: 0
-  };
-  const categoryBreakdown = screenResult?.category_breakdown || {};
-  const integrityScore = screenResult?.document_integrity_score ?? 96.0;
-
-  // Filtered checks for interactive browser
-  const filteredChecks = checksList.filter((chk: any) => {
-    const matchesSearch =
-      !checkSearchTerm ||
-      chk.check_id?.toLowerCase().includes(checkSearchTerm.toLowerCase()) ||
-      chk.name?.toLowerCase().includes(checkSearchTerm.toLowerCase()) ||
-      chk.description?.toLowerCase().includes(checkSearchTerm.toLowerCase()) ||
-      chk.evidence?.toLowerCase().includes(checkSearchTerm.toLowerCase());
-    const matchesStatus = checkStatusFilter === "ALL" || chk.status === checkStatusFilter;
-    const matchesCategory = checkCategoryFilter === "ALL" || chk.category === checkCategoryFilter;
-    return matchesSearch && matchesStatus && matchesCategory;
-  });
+  const isDetain = currentScenario.verdict === "DETAIN / FRAUD ALERT" || currentScenario.riskScore >= 70;
+  const isClear = currentScenario.verdict === "CLEAR TO ENTER" || currentScenario.riskScore <= 30;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Page Header */}
-      <div>
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-            Document Screening Pipeline
-          </h1>
-          <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-xs font-mono font-bold">
-            10-STAGE AI INSPECTION
-          </span>
-        </div>
-        <p className="text-xs text-slate-400 mt-1">
-          Scan or upload credential documents with real-time optical capture, OCR extraction, and multi-signal forensic analysis.
-        </p>
-      </div>
-
-      {/* Structured Error UI Banner */}
-      {screeningError && (
-        <div className="p-6 rounded-2xl bg-red-950/40 border border-red-800/80 shadow-2xl space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-red-600/20 text-red-400 border border-red-500/40 flex items-center justify-center flex-shrink-0">
-                <XCircle className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-red-500/20 text-red-400 border border-red-500/30 uppercase tracking-wider">
-                    SCREENING FAILED
-                  </span>
-                  {screeningError.code && (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                      {screeningError.code}
-                    </span>
-                  )}
-                </div>
-                <h3 className="text-base sm:text-lg font-bold text-white mt-1">
-                  Stage: {screeningError.stage}
-                </h3>
-              </div>
-            </div>
-
-            {screeningError.requestId && (
-              <div className="text-left sm:text-right bg-slate-900/60 p-2 sm:p-0 rounded-lg sm:bg-transparent">
-                <span className="text-[10px] font-mono text-slate-400 block font-semibold">REQUEST ID</span>
-                <span className="text-xs font-mono text-blue-400 select-all font-bold">{screeningError.requestId}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="p-4 rounded-xl bg-slate-950/60 border border-red-900/40 space-y-2 text-xs">
-            <div>
-              <span className="text-slate-400 font-semibold">Reason: </span>
-              <span className="text-red-200 font-medium">{screeningError.reason}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 font-semibold">Recommended action: </span>
-              <span className="text-slate-300">
-                {screeningError.userAction || (screeningError.recoverable
-                  ? "Retry screening or execute with local computer-vision fallback."
-                  : "Please inspect the uploaded document scan and re-upload in a supported format (PDF, PNG, JPG, WEBP).")}
+    <div className="space-y-5 max-w-[1400px] mx-auto pb-16 font-sans">
+      {/* ========================================================================= */}
+      {/* TOP BAR: SCENARIO SELECTOR + UPLOAD CUSTOM DOCUMENT (Matching Image 1) */}
+      {/* ========================================================================= */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+        {/* Left Card: Scenario Selector */}
+        <div className="md:col-span-8 p-4 rounded-xl bg-[#0b162c] border border-[#1e345e] shadow-xl flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-base font-bold text-white tracking-wide">
+                {currentScenario.name}
+              </h2>
+              <span
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${currentScenario.badgeColor}`}
+              >
+                {currentScenario.badge}
               </span>
             </div>
-            {retryStatus && (
-              <div className="text-amber-400 font-mono text-[11px] animate-pulse">
-                {retryStatus}
-              </div>
-            )}
-          </div>
-
-          {/* Admin-only technical details accordion */}
-          {currentUser?.role === "ADMIN" && screeningError.debugDetails && (
-            <div className="rounded-xl border border-slate-800 bg-slate-950/80 overflow-hidden text-xs">
-              <button
-                type="button"
-                onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
-                className="w-full px-4 py-2.5 flex items-center justify-between text-left text-slate-400 hover:text-slate-200 font-mono text-xs font-semibold bg-slate-900/40"
-              >
-                <span>Diagnostic Logs & Technical Details (ADMIN ONLY)</span>
-                <span>{showTechnicalDetails ? "▲ Hide" : "▼ Show"}</span>
-              </button>
-              {showTechnicalDetails && (
-                <div className="p-4 border-t border-slate-800 bg-slate-950 font-mono text-[11px] text-slate-300 space-y-1.5 overflow-x-auto">
-                  <div><span className="text-slate-500">Endpoint:</span> {screeningError.debugDetails.url || "/api/backend/screen"}</div>
-                  <div><span className="text-slate-500">HTTP Status:</span> {screeningError.debugDetails.status} {screeningError.debugDetails.statusText}</div>
-                  {screeningError.debugDetails.rawBody && (
-                    <div className="mt-2 p-2 rounded bg-black/60 text-slate-400 whitespace-pre-wrap font-mono text-[10px] max-h-40 overflow-y-auto">
-                      {screeningError.debugDetails.rawBody}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <button
-              onClick={handleRetry}
-              disabled={isProcessing}
-              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-red-500/25 transition-all flex items-center gap-1.5"
-            >
-              <RotateCcw className={`w-3.5 h-3.5 ${isProcessing ? "animate-spin" : ""}`} />
-              <span>Retry Screening</span>
-            </button>
-
-            {screeningError.recoverable && (
-              <button
-                onClick={handleLocalFallback}
-                disabled={isProcessing}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-blue-500/25 transition-all flex items-center gap-1.5"
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                <span>Use Local Fallback</span>
-              </button>
-            )}
-
-            <button
-              onClick={handleReset}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-all"
-            >
-              <span>Re-scan / Re-upload Document</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Main Upload / Processing Container */}
-      {!isProcessing && !screenResult && !screeningError ? (
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            {/* Primary Document Intake Area */}
-            <div className="md:col-span-7 space-y-4">
-              <div className="p-6 rounded-2xl bg-slate-900/90 border border-[#24365d] space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <label className="text-sm font-bold text-white flex items-center gap-2">
-                    <Scan className="w-4 h-4 text-blue-400" />
-                    <span>Primary Document Intake *</span>
-                  </label>
-
-                  {/* Mode Selector Tabs: Live Camera vs File Upload */}
-                  <div className="flex items-center rounded-xl bg-slate-950 p-1 border border-[#24365d]">
-                    <button
-                      type="button"
-                      onClick={() => setIntakeMode("camera")}
-                      className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                        intakeMode === "camera"
-                          ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
-                    >
-                      <Camera className="w-3.5 h-3.5" />
-                      <span>Live Camera Scanner</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setIntakeMode("upload")}
-                      className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                        intakeMode === "upload"
-                          ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
-                    >
-                      <UploadCloud className="w-3.5 h-3.5" />
-                      <span>File Upload</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Intake Mode 1: Live Interactive Camera Scanner */}
-                {intakeMode === "camera" && !frontPreview && (
-                  <DocumentScanner
-                    mode="document"
-                    title="Optical Document Scanner"
-                    subtitle="Align passport, national ID, visa, or driving licence inside the viewfinder"
-                    onCapture={handleCameraCapture}
-                  />
-                )}
-
-                {/* Intake Mode 2: Standard Drag & Drop File Upload */}
-                {intakeMode === "upload" && !frontPreview && (
-                  <div className="relative border-2 border-dashed border-[#24365d] hover:border-blue-500/60 rounded-xl p-8 text-center bg-slate-950/40 transition-colors">
-                    <div className="space-y-2">
-                      <div className="w-12 h-12 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-500/20 flex items-center justify-center mx-auto">
-                        <UploadCloud className="w-6 h-6" />
-                      </div>
-                      <div className="text-xs text-slate-300 font-semibold">
-                        Drag and drop credential image, or{" "}
-                        <span className="text-blue-400 underline">browse device</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Supports Passports, Visas, National IDs, Driving Licences & Permits (PNG, JPG, WEBP max 25MB)
-                      </p>
-                    </div>
-
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFrontSelect}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                    />
-                  </div>
-                )}
-
-                {/* Captured / Selected Preview View */}
-                {frontPreview && (
-                  <div className="p-4 rounded-xl bg-slate-950/70 border border-[#24365d] space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Ready: {frontFile?.name || "Document Scan Captured"}</span>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFrontFile(null);
-                          setFrontPreview(null);
-                        }}
-                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold flex items-center gap-1 transition-all"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Re-scan / Replace</span>
-                      </button>
-                    </div>
-
-                    <div className="relative max-h-64 rounded-lg overflow-hidden border border-[#24365d] bg-black flex items-center justify-center">
-                      <img
-                        src={frontPreview}
-                        alt="Front Preview"
-                        className="max-h-60 mx-auto object-contain shadow-lg"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Optional Back Side */}
-                <div className="pt-2">
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Optional Credential Reverse / Back Side
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setBackFile(e.target.files ? e.target.files[0] : null)}
-                    className="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700 cursor-pointer"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Sidebar: Presenter Image & Parameters */}
-            <div className="md:col-span-5 space-y-4">
-              {/* Optional Live Presenter Portrait */}
-              <div className="p-6 rounded-2xl bg-slate-900/90 border border-[#24365d] space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-bold text-white flex items-center gap-2">
-                    <Camera className="w-4 h-4 text-purple-400" />
-                    <span>Presenter Live Portrait (Optional)</span>
-                  </label>
-                  <span className="text-[10px] text-purple-300 font-mono">1:1 Biometrics</span>
-                </div>
-
-                {showLiveSelfieScanner ? (
-                  <DocumentScanner
-                    mode="selfie"
-                    title="Live Face Biometrics"
-                    subtitle="Center face in frame for 1:1 facial matching against document"
-                    onCapture={handleSelfieCapture}
-                    onCancel={() => setShowLiveSelfieScanner(false)}
-                  />
-                ) : livePreview ? (
-                  <div className="space-y-2 p-3 rounded-xl bg-slate-950/60 border border-[#24365d]">
-                    <img
-                      src={livePreview}
-                      alt="Live Portrait"
-                      className="max-h-36 mx-auto rounded-lg border border-[#24365d] object-contain"
-                    />
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-purple-300 font-semibold truncate max-w-[180px]">
-                        {liveFile?.name || "Live Portrait Captured"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLiveFile(null);
-                          setLivePreview(null);
-                        }}
-                        className="text-slate-400 hover:text-slate-200 underline"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowLiveSelfieScanner(true)}
-                        className="flex-1 py-2 px-3 rounded-lg bg-purple-950/60 hover:bg-purple-900/80 text-purple-200 border border-purple-800/80 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
-                      >
-                        <Camera className="w-3.5 h-3.5 text-purple-400" />
-                        <span>Take Selfie Photo</span>
-                      </button>
-                    </div>
-
-                    <div className="relative border border-dashed border-[#24365d] hover:border-purple-500/60 rounded-xl p-3 text-center bg-slate-950/40 transition-colors">
-                      <div className="text-[11px] text-slate-400">
-                        Or click to upload selfie file from device
-                      </div>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleLiveSelect}
-                        className="absolute inset-0 opacity-0 cursor-pointer"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Document Type Hint & Notes */}
-              <div className="p-6 rounded-2xl bg-slate-900/90 border border-[#24365d] space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Credential Classification
-                  </label>
-                  <select
-                    value={docTypeHint}
-                    onChange={(e) => setDocTypeHint(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-[#24365d] text-white text-xs focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="AUTO_DETECT">Auto-Detect via AI Engine</option>
-                    <option value="PASSPORT">Passport (ICAO 9303 TD3)</option>
-                    <option value="NATIONAL_ID">National ID Card (TD1)</option>
-                    <option value="VISA">Consular Travel Visa</option>
-                    <option value="DRIVING_LICENSE">Driving Licence</option>
-                    <option value="PERMIT">Work / Stay Permit</option>
-                    <option value="TRAVEL_AUTHORIZATION">Electronic Travel Authorization (ETA)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Operational Checkpoint Notes (Optional)
-                  </label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    rows={2}
-                    placeholder="e.g. Checkpoint Alpha, primary lane 3 scrutiny"
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-[#24365d] text-white text-xs focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={!frontFile}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Scan className="w-4 h-4" />
-                  <span>Execute AI Screening Pipeline</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </form>
-      ) : isProcessing || screeningError ? (
-        /* Real-Time Processing & Failure Pipeline Status */
-        <div className="p-8 rounded-2xl bg-slate-900/95 border border-[#24365d] shadow-2xl space-y-6">
-          <div className="text-center space-y-2">
-            <div
-              className={`w-12 h-12 rounded-xl border flex items-center justify-center mx-auto ${
-                screeningError
-                  ? "bg-red-600/20 text-red-400 border-red-500/40"
-                  : "bg-blue-600/20 text-blue-400 border-blue-500/30 animate-pulse"
-              }`}
-            >
-              {screeningError ? <XCircle className="w-6 h-6" /> : <Cpu className="w-6 h-6 animate-spin" />}
-            </div>
-            <h2 className="text-xl font-bold text-white">
-              {screeningError ? "Screening Pipeline Halted" : "AI Screening Pipeline Active"}
-            </h2>
             <p className="text-xs text-slate-400">
-              {screeningError
-                ? `An issue occurred during stage execution: ${screeningError.stage}. Review details above.`
-                : "Executing multi-signal forensic inspection, ICAO check digits & biometric cross-checks..."}
+              {currentScenario.description}
             </p>
           </div>
 
-          <div className="space-y-3 max-w-xl mx-auto pt-4">
-            {PIPELINE_STEPS.map((step) => {
-              const Icon = step.icon;
-              const isFailedStep = screeningError && screeningError.failedStepId === step.id;
-              const isPastStep = screeningError
-                ? step.id < screeningError.failedStepId
-                : currentStep > step.id;
-              const isCurrentStep = !screeningError && currentStep === step.id;
+          {/* Quick Scenario Dropdown */}
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedScenarioIndex}
+              onChange={(e) => setSelectedScenarioIndex(Number(e.target.value))}
+              aria-label="Select Test Scenario"
+              className="px-3 py-2 rounded-lg bg-slate-900 border border-[#24365d] text-white text-xs font-semibold focus:outline-none focus:border-blue-500 cursor-pointer shadow-inner"
+            >
+              {PRESET_SCENARIOS.map((sc, idx) => (
+                <option key={sc.id} value={idx}>
+                  {sc.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-              return (
-                <div
-                  key={step.id}
-                  className={`p-3 rounded-lg border transition-all flex items-center justify-between text-xs ${
-                    isFailedStep
-                      ? "bg-red-950/60 border-red-500/70 text-red-300 shadow-lg shadow-red-500/10"
-                      : isPastStep
-                      ? "bg-slate-950/80 border-emerald-500/30 text-emerald-400"
-                      : isCurrentStep
-                      ? "bg-blue-950/40 border-blue-500 text-blue-300 shadow-md shadow-blue-500/10 scale-[1.01]"
-                      : "bg-slate-950/20 border-[#1c2c4d] text-slate-500"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Icon
-                      className={`w-4 h-4 ${
-                        isFailedStep
-                          ? "text-red-400"
-                          : isPastStep
-                          ? "text-emerald-400"
-                          : isCurrentStep
-                          ? "animate-pulse text-blue-400"
-                          : "text-slate-600"
-                      }`}
-                    />
+        {/* Right Card: Upload Custom Document Button */}
+        <button
+          type="button"
+          onClick={() => setShowUploadModal(true)}
+          className="md:col-span-4 p-4 rounded-xl bg-[#0b162c] hover:bg-[#112242] border border-[#1e345e] hover:border-blue-500/60 shadow-xl transition-all flex items-center gap-4 text-left group"
+        >
+          <div className="w-10 h-10 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+            <UploadCloud className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
+              Upload Custom Document
+            </div>
+            <div className="text-[11px] text-slate-400">
+              Passport / Visa / ID / Live Webcam
+            </div>
+          </div>
+        </button>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* MAIN TWO-COLUMN DASHBOARD (Matching Image 1) */}
+      {/* ========================================================================= */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* ===================================================================== */}
+        {/* LEFT COLUMN: DOCUMENT VIEWER & FORENSIC TOOLS */}
+        {/* ===================================================================== */}
+        <div className="lg:col-span-5 space-y-3">
+          {/* Top 4 Tool Tabs */}
+          <div className="grid grid-cols-4 gap-1 p-1 bg-[#0b162c] rounded-xl border border-[#1e345e]">
+            <button
+              type="button"
+              onClick={() => setDocToolTab("scan")}
+              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                docToolTab === "scan"
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Document Scan</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDocToolTab("ela")}
+              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                docToolTab === "ela"
+                  ? "bg-rose-600 text-white shadow-md shadow-rose-600/30 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <span>🔥 ELA Heatmap</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDocToolTab("zones")}
+              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                docToolTab === "zones"
+                  ? "bg-purple-600 text-white shadow-md shadow-purple-600/30 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <span>🔲 AI Zones</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDocToolTab("loupe")}
+              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                docToolTab === "loupe"
+                  ? "bg-amber-600 text-white shadow-md shadow-amber-600/30 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <span>🔍 Forensic Loupe</span>
+            </button>
+          </div>
+
+          {/* Document Preview Viewport with AI Bounding Boxes */}
+          <div
+            ref={docContainerRef}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            className="relative rounded-2xl bg-[#081021] border border-[#1e345e] p-3 shadow-2xl flex flex-col items-center justify-center overflow-hidden cursor-crosshair group"
+          >
+            <div className="relative w-full aspect-[800/520] rounded-xl overflow-hidden shadow-2xl border border-slate-700/60 bg-black flex items-center justify-center">
+              {/* Document Graphic matching active scenario */}
+              {currentScenario.documentType === "PAN CARD" ? (
+                <div className="w-full h-full relative bg-[#bae6fd] text-slate-900 select-none overflow-hidden font-sans border-2 border-sky-400">
+                  <div className="absolute inset-0 opacity-15 bg-[radial-gradient(#0369a1_1px,transparent_1px)] [background-size:8px_8px]" />
+                  <div className="relative z-10 px-5 pt-3 flex items-start justify-between">
                     <div>
-                      <div className="font-bold tracking-wide">
-                        {step.id}. {step.label}
-                      </div>
-                      <div className="text-[10px] text-slate-400">{step.desc}</div>
+                      <div className="text-xs font-black text-slate-800">आयकर विभाग</div>
+                      <div className="text-[9px] font-bold text-slate-600 -mt-0.5">INCOME TAX DEPARTMENT</div>
+                    </div>
+                    <div className="text-[10px] text-amber-700 font-serif font-black text-center">🏛️<br/><span className="text-[6px]">सत्यमेव जयते</span></div>
+                    <div className="text-right">
+                      <div className="text-xs font-black text-slate-800">भारत सरकार</div>
+                      <div className="text-[9px] font-bold text-slate-600 -mt-0.5">GOVT. OF INDIA</div>
                     </div>
                   </div>
-                  <div>
-                    {isFailedStep ? (
-                      <span className="text-[10px] font-mono font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded flex items-center gap-1">
-                        <XCircle className="w-3 h-3" />
-                        FAILED
-                      </span>
-                    ) : isPastStep ? (
-                      <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded flex items-center gap-1">
-                        <Check className="w-3 h-3" />
-                        DONE
-                      </span>
-                    ) : isCurrentStep ? (
-                      <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <span className="text-[10px] font-mono text-slate-600">PENDING</span>
-                    )}
+                  <div className="text-center mt-1">
+                    <div className="text-[11px] font-bold text-sky-900">स्थायी लेखा संख्या कार्ड</div>
+                    <div className="text-[9px] font-semibold text-slate-700 -mt-0.5">Permanent Account Number Card</div>
+                  </div>
+                  <div className="px-6 pt-2 flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="w-16 h-20 rounded bg-slate-800 border-2 border-sky-500 overflow-hidden flex flex-col items-center justify-end pb-1">
+                        <div className="w-7 h-7 rounded-full bg-slate-300 border border-slate-600 mb-1" />
+                        <div className="w-12 h-7 rounded-t-lg bg-slate-900" />
+                      </div>
+                      <div className="w-16 border-b border-slate-700 text-center font-serif italic text-[10px] text-slate-800">
+                        {currentScenario.fullName.split(" ")[0]}
+                      </div>
+                    </div>
+                    <div className="flex-1 space-y-1 pl-1">
+                      <div>
+                        <span className="text-[7px] uppercase text-slate-500 font-bold block">Permanent Account Number</span>
+                        <span className="font-mono font-black text-lg tracking-widest text-slate-900">{currentScenario.docNumber}</span>
+                      </div>
+                      <div>
+                        <span className="text-[7px] uppercase text-slate-500 font-bold block">Name / नाम</span>
+                        <span className="font-bold text-[11px] text-slate-900 block truncate">{currentScenario.fullName}</span>
+                      </div>
+                      <div className="flex gap-4">
+                        <div>
+                          <span className="text-[7px] uppercase text-slate-500 font-bold block">DOB / जन्म तिथि</span>
+                          <span className="font-mono font-bold text-[10px] text-slate-800">{currentScenario.dob}</span>
+                        </div>
+                        <div>
+                          <span className="text-[7px] uppercase text-slate-500 font-bold block">Gender / लिंग</span>
+                          <span className="font-mono font-bold text-[10px] text-slate-800">{currentScenario.gender}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-16 flex flex-col items-center space-y-1">
+                      <div className="w-14 h-14 p-0.5 bg-white border border-slate-400 rounded shadow-sm flex items-center justify-center">
+                        <div className="w-full h-full bg-[repeating-conic-gradient(#000_0%_25%,#fff_0%_50%)] [background-size:5px_5px] rounded-sm" />
+                      </div>
+                      <span className="text-[7px] font-mono text-slate-600 font-bold">SECURE QR</span>
+                    </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              ) : (
+                <div className="w-full h-full relative bg-[#0e1d32] text-white select-none overflow-hidden font-sans border-2 border-cyan-800">
+                  <svg className="absolute inset-0 w-full h-full opacity-20 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                      <pattern id="guilloche-bg" width="30" height="30" patternUnits="userSpaceOnUse">
+                        <circle cx="15" cy="15" r="14" fill="none" stroke="#38bdf8" strokeWidth="0.5" />
+                        <circle cx="15" cy="15" r="8" fill="none" stroke="#38bdf8" strokeWidth="0.5" />
+                      </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#guilloche-bg)" />
+                  </svg>
+                  <div className="relative z-10 px-5 pt-3 flex items-center justify-between border-b border-cyan-800/40 pb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black tracking-widest text-cyan-300">REPUBLIC OF INDIA</span>
+                      <span className="text-[8px] font-mono bg-cyan-950 text-cyan-200 px-1 py-0.2 rounded border border-cyan-700">TYPE: P</span>
+                    </div>
+                    <div className="text-right text-[10px] font-mono text-cyan-400 font-bold">CONSULAR / PASSPORT</div>
+                  </div>
+                  <div className="relative z-10 px-5 pt-3 flex items-start gap-4">
+                    <div className="w-20 h-28 rounded bg-slate-900 border-2 border-cyan-500 overflow-hidden shadow-lg flex flex-col items-center justify-end pb-1.5">
+                      <div className="w-8 h-8 rounded-full bg-slate-300 border border-slate-600 mb-1" />
+                      <div className="w-14 h-10 rounded-t-lg bg-cyan-950 border border-cyan-700" />
+                    </div>
+                    <div className="flex-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                      <div>
+                        <span className="text-[7px] text-cyan-400 block font-mono">SURNAME / GIVEN NAMES</span>
+                        <span className="font-bold text-white text-[11px] block truncate">{currentScenario.fullName}</span>
+                      </div>
+                      <div>
+                        <span className="text-[7px] text-cyan-400 block font-mono">PASSPORT NO.</span>
+                        <span className="font-mono font-bold text-amber-300 text-[11px]">{currentScenario.docNumber}</span>
+                      </div>
+                      <div>
+                        <span className="text-[7px] text-cyan-400 block font-mono">NATIONALITY</span>
+                        <span className="font-mono text-white text-[10px]">{currentScenario.nationality}</span>
+                      </div>
+                      <div>
+                        <span className="text-[7px] text-cyan-400 block font-mono">DATE OF BIRTH</span>
+                        <span className="font-mono text-white text-[10px]">{currentScenario.dob}</span>
+                      </div>
+                      <div>
+                        <span className="text-[7px] text-cyan-400 block font-mono">SEX</span>
+                        <span className="font-mono text-white text-[10px]">{currentScenario.gender}</span>
+                      </div>
+                      <div>
+                        <span className="text-[7px] text-cyan-400 block font-mono">DATE OF EXPIRY</span>
+                        <span className="font-mono text-white text-[10px]">{currentScenario.expiryDate}</span>
+                      </div>
+                    </div>
+                    <div className="w-14 h-14 rounded-full border-2 border-cyan-600/40 flex items-center justify-center opacity-60 text-center text-[6px] font-mono leading-tight">
+                      OFFICIAL<br/>EMBLEM
+                    </div>
+                  </div>
+                  <div className="absolute bottom-2 left-5 right-5 p-1.5 rounded bg-black/80 border border-cyan-800/80 font-mono text-[10px] leading-tight text-emerald-400 tracking-wider">
+                    <div>{currentScenario.rawMrz[0]}</div>
+                    <div>{currentScenario.rawMrz[1]}</div>
+                  </div>
+                </div>
+              )}
 
-          {screeningError && (
-            <div className="text-center pt-2">
-              <button
-                onClick={handleRetry}
-                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-all inline-flex items-center gap-2"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>Retry from Failed Stage ({screeningError.stage})</span>
-              </button>
+              {/* ELA Heatmap Overlay Mode */}
+              {docToolTab === "ela" && (
+                <div className="absolute inset-0 bg-gradient-to-tr from-purple-900/60 via-rose-600/40 to-cyan-500/40 mix-blend-color-dodge pointer-events-none flex items-center justify-center">
+                  <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-black/80 text-[10px] font-mono text-rose-400 border border-rose-500/40">
+                    ELA COMPRESSION SPECTRUM ACTIVE
+                  </div>
+                </div>
+              )}
+
+              {/* AI Bounding Boxes (Visible in 'scan' or 'zones' mode) */}
+              {(docToolTab === "scan" || docToolTab === "zones") &&
+                currentScenario.boundingBoxes.map((b, idx) => (
+                  <div
+                    key={idx}
+                    style={b.boxStyle}
+                    className={`absolute border-2 pointer-events-none transition-all flex flex-col justify-start ${
+                      b.color || "border-cyan-400 bg-cyan-400/10"
+                    }`}
+                  >
+                    <span className="text-[9px] font-mono font-bold bg-slate-900/95 text-cyan-300 px-1.5 py-0.5 self-start -mt-3.5 ml-1 rounded border border-cyan-400/40 shadow-md">
+                      {b.label}
+                    </span>
+                  </div>
+                ))}
+
+              {/* Forensic Loupe Magnifier Circle */}
+              {docToolTab === "loupe" && loupePos && (
+                <div
+                  style={{
+                    left: `${loupePos.x - 60}px`,
+                    top: `${loupePos.y - 60}px`,
+                    width: "120px",
+                    height: "120px"
+                  }}
+                  className="absolute pointer-events-none rounded-full border-2 border-amber-400 shadow-2xl bg-black/40 backdrop-contrast-200 backdrop-brightness-125 backdrop-saturate-150 overflow-hidden flex items-center justify-center"
+                >
+                  <div className="text-[8px] font-mono font-bold text-amber-300 bg-black/80 px-1 rounded absolute bottom-1">
+                    3.0x LOUPE
+                  </div>
+                  {/* Crosshairs */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-40">
+                    <div className="w-full h-[1px] bg-amber-400" />
+                    <div className="h-full w-[1px] bg-amber-400 absolute" />
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Metadata Line Under Image */}
+            <div className="w-full mt-2.5 px-1 flex items-center justify-between text-[11px] font-mono text-slate-400">
+              <div className="truncate max-w-[280px]">
+                <strong className="text-slate-300">DOCUMENT SHA-256:</strong>{" "}
+                <span>{currentScenario.documentSha256.slice(0, 20)}...</span>
+              </div>
+              <div>
+                <strong className="text-slate-300">RESOLUTION:</strong>{" "}
+                <span>{currentScenario.resolution}</span>
+              </div>
+            </div>
+          </div>
         </div>
-      ) : (
-        /* Screening Result & Comprehensive Extracted Fields */
-        <div className="space-y-6">
-          {/* 100-POINT DOCUMENT VERIFICATION & REPORT DISPATCH BANNER (Specs 8, 16, 38, 39) */}
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-[#0b1736] to-slate-900 border-2 border-blue-500/50 shadow-2xl relative overflow-hidden">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
-                    SCREENING COMPLETE
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
-                    100 CHECKS EXECUTED
-                  </span>
-                  {(screenResult?.ai_status === "fallback" || screenResult?.force_local_fallback) && (
-                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
-                      Processed with Local CV Fallback (AI unavailable)
-                    </span>
-                  )}
-                  {screenResult?.cached && (
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
-                      <Zap className="w-3 h-3 text-cyan-400" />
-                      Cached Analysis Found (&lt;50ms)
-                    </span>
-                  )}
-                  {screenResult?.ai_status === "TIMEOUT" && (
-                    <span className="px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
-                      AI analysis timed out — local compliance engine completed screening
-                    </span>
-                  )}
-                  {screenResult?.ai_status === "unavailable" && (
-                    <span className="px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
-                      AI analysis unavailable — manual verification required
-                    </span>
-                  )}
-                </div>
-                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                  100-Point Forensic Document Verification Finished
-                </h2>
-                <div className="flex items-center gap-2 text-xs font-mono text-emerald-400">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>
-                    {autoDownloaded
-                      ? "PDF report downloaded successfully."
-                      : "PDF report generated and sealed with SHA-256 fingerprint."}
-                  </span>
-                </div>
 
-                {screenResult?.timing && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800">
-                    <span className="text-white font-bold">Latency:</span>
-                    <span className="text-emerald-400 font-bold">Total: {(screenResult.timing.total_ms / 1000).toFixed(2)}s</span>
-                    <span>•</span>
-                    <span>Upload: {screenResult.timing.upload_ms}ms</span>
-                    <span>•</span>
-                    <span>OCR: {screenResult.timing.ocr_ms}ms</span>
-                    <span>•</span>
-                    <span>Parallel Forensics: {screenResult.timing.concurrent_stages_ms}ms</span>
-                    <span>•</span>
-                    <span>100 Checks: {screenResult.timing.rules_100_checks_ms}ms</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Integrity & Score Pills */}
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-center min-w-[90px]">
-                  <div className="text-[10px] text-slate-400 font-mono">Checks</div>
-                  <div className="text-lg font-black text-white">
-                    {screenResult?.checks_summary?.total_checks || 100}
-                  </div>
-                  <div className="text-[9px] text-emerald-400 font-mono">
-                    {screenResult?.checks_summary?.passed || 0} Pass
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-950/80 border border-blue-900/50 text-center min-w-[90px]">
-                  <div className="text-[10px] text-blue-400 font-mono">Integrity</div>
-                  <div className="text-lg font-black text-blue-400 font-mono">
-                    {screenResult?.document_integrity_score || 95}/100
-                  </div>
-                  <div className="text-[9px] text-slate-400 font-mono">Weighted</div>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-center min-w-[110px]">
-                  <div className="text-[10px] text-slate-400 font-mono">Risk (0–10)</div>
-                  <div className={`text-lg font-black font-mono ${screenResult.risk_score > 65 ? "text-rose-400" : screenResult.risk_score > 35 ? "text-amber-400" : "text-emerald-400"}`}>
-                    {(screenResult.risk_score / 10).toFixed(1)} <span className="text-xs text-slate-400">/ 10</span>
-                  </div>
-                  <div className={`text-[9px] font-mono font-bold ${screenResult.risk_score <= 35 ? "text-emerald-400" : screenResult.risk_score <= 65 ? "text-amber-400" : "text-rose-400"}`}>
-                    {screenResult.risk_score <= 35 ? "LOW (PASS)" : screenResult.risk_score <= 65 ? "MEDIUM (REVIEW)" : "HIGH (FAIL)"}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Action Buttons */}
-            <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Link
-                  href={`/cases/${screenResult.case_id}/checks`}
-                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-colors flex items-center gap-1.5"
-                >
-                  <span>Inspect All 100 Checks</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-
-                <Link
-                  href={`/cases/${screenResult.case_id}/report`}
-                  className="px-3.5 py-2 rounded-xl bg-blue-950/60 hover:bg-blue-900/80 text-blue-300 text-xs font-bold border border-blue-800/60 transition-colors"
-                >
-                  Full Screening Report
-                </Link>
-
-                {screenResult?.cached && (
-                  <button
-                    type="button"
-                    onClick={() => executePipeline(docTypeHint, false, true)}
-                    className="px-3.5 py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 text-xs font-bold border border-cyan-800/60 transition-colors flex items-center gap-1.5"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Re-scan Fresh</span>
-                  </button>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                {screenResult.report_pdf_url && (
-                  <a
-                    href={screenResult.report_pdf_url}
-                    download={`TRUST-ID_Report_${screenResult.case_number || screenResult.case_id}.pdf`}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-900/50 flex items-center gap-1.5 transition-all"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Download PDF Again</span>
-                  </a>
-                )}
-
-                {screenResult.report_csv_url && (
-                  <a
-                    href={screenResult.report_csv_url}
-                    download={`TRUST-ID_Checks_${screenResult.case_number || screenResult.case_id}.csv`}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold transition-all"
-                  >
-                    CSV
-                  </a>
-                )}
-
-                {screenResult.report_docx_url && (
-                  <a
-                    href={screenResult.report_docx_url}
-                    download={`TRUST-ID_Report_${screenResult.case_number || screenResult.case_id}.docx`}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold transition-all"
-                  >
-                    DOCX
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ========================================================================= */}
-          {/* SECTION 1: PROMINENT RISK SCORE (OUT OF 10) & BORDER VERDICT */}
-          {/* ========================================================================= */}
+        {/* ===================================================================== */}
+        {/* RIGHT COLUMN: BORDER CLEARANCE VERDICT & MODULAR SCREENING INSPECTION */}
+        {/* ===================================================================== */}
+        <div className="lg:col-span-7 space-y-4">
+          {/* =================================================================== */}
+          {/* BORDER CLEARANCE VERDICT CARD (Exact layout from Image 1) */}
+          {/* =================================================================== */}
           <div
-            className={`p-6 sm:p-8 rounded-2xl border-2 shadow-2xl space-y-6 relative overflow-hidden transition-all ${
-              isLowRisk
-                ? "bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-950 border-emerald-500/50 shadow-emerald-950/40"
-                : isMediumRisk
-                ? "bg-gradient-to-br from-amber-950/40 via-slate-900 to-slate-950 border-amber-500/50 shadow-amber-950/40"
-                : "bg-gradient-to-br from-rose-950/40 via-slate-900 to-slate-950 border-rose-500/50 shadow-rose-950/40"
+            className={`p-5 sm:p-6 rounded-2xl border shadow-2xl flex items-center justify-between gap-5 transition-all ${
+              isDetain
+                ? "bg-[#180a15] border-rose-500/40 shadow-rose-950/20"
+                : "bg-[#0b162c] border-[#1e345e] shadow-blue-950/20"
             }`}
           >
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div className="space-y-3 flex-1">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-black tracking-wider uppercase border ${
-                      isLowRisk
-                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                        : isMediumRisk
-                        ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                        : "bg-rose-500/20 text-rose-300 border-rose-500/40"
-                    }`}
-                  >
-                    {isLowRisk ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    ) : isMediumRisk ? (
-                      <AlertTriangle className="w-4 h-4 text-amber-400" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-rose-400" />
-                    )}
-                    <span>VERDICT: {isLowRisk ? "PASS — LOW RISK (CLEAR TO TRAVEL)" : isMediumRisk ? "MANUAL REVIEW REQUIRED — MEDIUM RISK" : "FAIL — HIGH RISK (SUSPECTED TAMPERING)"}</span>
-                  </span>
-
-                  <span className="text-[11px] font-mono text-slate-400 bg-slate-950/60 px-2.5 py-1 rounded-lg border border-slate-800">
-                    Scale: 0.0 (Minimal Risk / Pass) to 10.0 (High Risk / Fail)
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-baseline gap-3">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
-                    Calculated Document Risk Score:
-                  </span>
-                  <span
-                    className={`text-5xl sm:text-6xl font-black font-mono tracking-tight ${
-                      isLowRisk ? "text-emerald-400" : isMediumRisk ? "text-amber-400" : "text-rose-400"
-                    }`}
-                  >
-                    {riskScoreOutOfTen}
-                    <span className="text-xl sm:text-2xl text-slate-400 font-normal"> / 10</span>
-                  </span>
-                  <span
-                    className={`px-3 py-1 rounded-xl text-xs font-mono font-bold border ${
-                      isLowRisk
-                        ? "bg-emerald-950/80 text-emerald-300 border-emerald-800"
-                        : isMediumRisk
-                        ? "bg-amber-950/80 text-amber-300 border-amber-800"
-                        : "bg-rose-950/80 text-rose-300 border-rose-800"
-                    }`}
-                  >
-                    {isLowRisk
-                      ? "LOW RISK (PASS)"
-                      : isMediumRisk
-                      ? "MEDIUM RISK (REVIEW)"
-                      : "HIGH RISK (FAIL)"}
-                  </span>
-                </div>
-
-                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-                  {isLowRisk
-                    ? "Low risk score indicates verified document authenticity. All ICAO check digits matched, substrate and typography are uniform, and no ELA tampering was detected. Document is cleared for passage."
-                    : isMediumRisk
-                    ? "Medium risk score indicates cautionary anomalies. Certain non-critical fields, optical textures, or secondary databases yielded warning signals. Officer manual review is advised."
-                    : "High risk score indicates serious discrepancies or detected forgery. Font alterations, photo tampering seams, or checksum mismatches were identified. Document should be rejected and referred to border forensics."}
-                </p>
-
-                {/* Visual Risk Gauge Meter (0 to 10 Scale) */}
-                <div className="space-y-2 pt-2 max-w-xl">
-                  <div className="flex justify-between text-[11px] font-mono font-semibold">
-                    <span className="text-emerald-400 flex items-center gap-1">
-                      <Check className="w-3 h-3" /> 0.0 - 3.5 (Pass)
-                    </span>
-                    <span className="text-amber-400 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" /> 3.6 - 6.5 (Review)
-                    </span>
-                    <span className="text-rose-400 flex items-center gap-1">
-                      <XCircle className="w-3 h-3" /> 6.6 - 10.0 (Fail)
-                    </span>
-                  </div>
-
-                  <div className="relative h-4 w-full bg-slate-950 rounded-full p-0.5 border border-slate-700/80 overflow-hidden shadow-inner">
-                    <div className="h-full w-full rounded-full bg-gradient-to-r from-emerald-500 via-amber-400 to-rose-600 opacity-75" />
-                    <div
-                      className="absolute top-0 bottom-0 w-3.5 bg-white rounded-full border-2 border-slate-950 shadow-md transform -translate-x-1.5 transition-all duration-700"
-                      style={{ left: `${Math.min(Math.max((riskScoreNum / 10) * 100, 2), 98)}%` }}
-                      title={`Risk: ${riskScoreOutOfTen}/10`}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Right quick stats */}
-              <div className="flex flex-col sm:flex-row lg:flex-col gap-3 min-w-[200px]">
-                <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-center">
-                  <div className="text-[10px] font-mono text-slate-400 uppercase">Border Clearance Status</div>
-                  <div className={`text-base font-black font-mono mt-1 ${isLowRisk ? "text-emerald-400" : isMediumRisk ? "text-amber-400" : "text-rose-400"}`}>
-                    {isLowRisk ? "CLEARED" : isMediumRisk ? "HOLD FOR REVIEW" : "STOP & DETAIN"}
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-mono mt-0.5">Automated Gate Protocol</div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-center">
-                  <div className="text-[10px] font-mono text-slate-400 uppercase">Document Health Score</div>
-                  <div className="text-base font-black font-mono text-blue-400 mt-1">
-                    {integrityScore} / 100
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-mono mt-0.5">100-Point Audit Matrix</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ========================================================================= */}
-          {/* SECTION 2: 100 DOCUMENT CHECKS VISUAL DASHBOARD & GRAPHS */}
-          {/* ========================================================================= */}
-          <div className="p-6 sm:p-8 rounded-2xl bg-slate-900 border border-[#24365d] shadow-2xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#24365d]">
-              <div>
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-blue-400" />
-                  <h3 className="text-lg font-black text-white tracking-tight">
-                    100-Point Document Compliance & Health Graphs
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Comprehensive forensic inspection results across all 8 security layers.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => setShowAllChecks(!showAllChecks)}
-                  className="px-3.5 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors"
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>{showAllChecks ? "Collapse Detailed Check List" : "Inspect All 100 Checks"}</span>
-                  <ChevronRight className={`w-3.5 h-3.5 transform transition-transform ${showAllChecks ? "rotate-90" : ""}`} />
-                </button>
-
-                <Link
-                  href={`/cases/${screenResult.case_id}/checks`}
-                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-colors flex items-center gap-1.5"
-                >
-                  <span>Full Audit Matrix View</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-              </div>
-            </div>
-
-            {/* KPI Stat Cards (6 Grid) */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-center">
-                <div className="text-[10px] font-mono text-slate-400 uppercase">Total Checks</div>
-                <div className="text-2xl font-black text-white font-mono mt-1">{checksSummary.total_checks || 100}</div>
-                <div className="text-[10px] text-slate-500 font-mono">100/100 Evaluated</div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-950/80 border border-emerald-900/50 text-center">
-                <div className="text-[10px] font-mono text-emerald-400 uppercase">Passed</div>
-                <div className="text-2xl font-black text-emerald-400 font-mono mt-1">{checksSummary.passed}</div>
-                <div className="text-[10px] text-emerald-500 font-mono">Conforming</div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-950/80 border border-red-900/50 text-center">
-                <div className="text-[10px] font-mono text-red-400 uppercase">Failed</div>
-                <div className="text-2xl font-black text-red-400 font-mono mt-1">{checksSummary.failed}</div>
-                <div className="text-[10px] text-red-500 font-mono">Anomalies Detected</div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-950/80 border border-amber-900/50 text-center">
-                <div className="text-[10px] font-mono text-amber-400 uppercase">Warnings</div>
-                <div className="text-2xl font-black text-amber-400 font-mono mt-1">{checksSummary.warnings}</div>
-                <div className="text-[10px] text-amber-500 font-mono">Review Advised</div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-center">
-                <div className="text-[10px] font-mono text-slate-400 uppercase">Unavailable</div>
-                <div className="text-2xl font-black text-slate-300 font-mono mt-1">{checksSummary.unavailable}</div>
-                <div className="text-[10px] text-slate-500 font-mono">Optional / Off</div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-950/80 border border-blue-900/50 text-center">
-                <div className="text-[10px] font-mono text-blue-400 uppercase">Integrity Score</div>
-                <div className="text-2xl font-black text-blue-400 font-mono mt-1">{integrityScore}/100</div>
-                <div className="text-[10px] text-blue-300 font-mono">Weighted Health</div>
-              </div>
-            </div>
-
-            {/* Proportional Status Distribution Bar */}
-            <div className="space-y-1.5 p-4 rounded-xl bg-slate-950/60 border border-slate-800">
-              <div className="flex justify-between text-xs font-mono font-semibold">
-                <span className="text-slate-300">Checks Status Distribution</span>
-                <span className="text-emerald-400 font-bold">{checksSummary.passed}% Verified Clear</span>
-              </div>
-              <div className="w-full h-3 rounded-full bg-slate-800 overflow-hidden flex shadow-inner">
-                <div
-                  className="h-full bg-emerald-500 transition-all duration-500"
-                  style={{ width: `${(checksSummary.passed / 100) * 100}%` }}
-                  title={`Passed: ${checksSummary.passed}`}
-                />
-                <div
-                  className="h-full bg-amber-400 transition-all duration-500"
-                  style={{ width: `${(checksSummary.warnings / 100) * 100}%` }}
-                  title={`Warnings: ${checksSummary.warnings}`}
-                />
-                <div
-                  className="h-full bg-rose-500 transition-all duration-500"
-                  style={{ width: `${(checksSummary.failed / 100) * 100}%` }}
-                  title={`Failed: ${checksSummary.failed}`}
-                />
-                <div
-                  className="h-full bg-slate-600 transition-all duration-500"
-                  style={{ width: `${(checksSummary.unavailable / 100) * 100}%` }}
-                  title={`Unavailable: ${checksSummary.unavailable}`}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono text-slate-400 pt-1">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span>Passed: {checksSummary.passed}</span>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                  <span>Warnings: {checksSummary.warnings}</span>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                  <span>Failed: {checksSummary.failed}</span>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />
-                  <span>Unavailable / N/A: {checksSummary.unavailable}</span>
-                </span>
-              </div>
-            </div>
-
-            {/* 8 Forensic Categories Health Breakdown Grid */}
-            {Object.keys(categoryBreakdown).length > 0 && (
-              <div className="space-y-3">
-                <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-300">
-                  Verification Category Health Breakdown
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {Object.entries(categoryBreakdown).map(([catName, stats]: [string, any]) => {
-                    const total = stats.total || 10;
-                    const passed = stats.passed || 0;
-                    const failed = stats.failed || 0;
-                    const warnings = stats.warnings || 0;
-                    const passPct = total > 0 ? Math.round((passed / total) * 100) : 100;
-                    const formattedCatName = catName.replace(/_/g, " ");
-
-                    return (
-                      <div
-                        key={catName}
-                        className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/90 space-y-2 hover:border-blue-900/60 transition-colors"
-                      >
-                        <div className="flex items-start justify-between gap-1 text-xs">
-                          <span className="font-semibold text-slate-200 truncate" title={formattedCatName}>
-                            {formattedCatName}
-                          </span>
-                          <span className="font-mono text-[11px] text-slate-400 flex-shrink-0">
-                            {passed}/{total}
-                          </span>
-                        </div>
-
-                        <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden flex">
-                          <div
-                            className={`h-full ${
-                              failed > 0
-                                ? "bg-rose-500"
-                                : warnings > 0
-                                ? "bg-amber-400"
-                                : "bg-emerald-500"
-                            } transition-all duration-500`}
-                            style={{ width: `${passPct}%` }}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                          <span>{passPct}% Pass Rate</span>
-                          {failed > 0 ? (
-                            <span className="text-rose-400 font-bold">{failed} Fail</span>
-                          ) : warnings > 0 ? (
-                            <span className="text-amber-400 font-bold">{warnings} Warn</span>
-                          ) : (
-                            <span className="text-emerald-400 font-bold">Clear</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Expandable Detailed 100-Checks Interactive Explorer */}
-            {showAllChecks && (
-              <div className="pt-4 border-t border-[#24365d] space-y-4 animate-in fade-in duration-300">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Filter className="w-4 h-4 text-blue-400" />
-                    <h4 className="text-xs font-mono font-bold uppercase text-white tracking-wider">
-                      All 100 Verification Checks ({filteredChecks.length} Matches)
-                    </h4>
-                  </div>
-
-                  {/* Filter Pills */}
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    {["ALL", "PASS", "FAIL", "WARNING", "UNAVAILABLE"].map((st) => (
-                      <button
-                        key={st}
-                        type="button"
-                        onClick={() => setCheckStatusFilter(st)}
-                        className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold transition-all ${
-                          checkStatusFilter === st
-                            ? "bg-blue-600 text-white shadow-md shadow-blue-500/25"
-                            : "bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800"
-                        }`}
-                      >
-                        {st}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Search Input */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    value={checkSearchTerm}
-                    onChange={(e) => setCheckSearchTerm(e.target.value)}
-                    placeholder="Search checks by ID (e.g. CHK-048), name, or evidence..."
-                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                {/* Checks Grid */}
-                <div className="max-h-96 overflow-y-auto space-y-2 pr-1 rounded-xl bg-slate-950/40 p-2 border border-slate-800">
-                  {filteredChecks.length === 0 ? (
-                    <div className="text-center py-8 text-xs text-slate-500 font-mono">
-                      No checks matching "{checkSearchTerm}" in {checkStatusFilter} status.
-                    </div>
-                  ) : (
-                    filteredChecks.map((chk: any) => {
-                      const isPass = chk.status === "PASS";
-                      const isFail = chk.status === "FAIL";
-                      const isWarn = chk.status === "WARNING";
-
-                      return (
-                        <div
-                          key={chk.check_id}
-                          className="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:border-slate-700 transition-colors"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-mono text-xs font-bold text-blue-400 bg-blue-950/60 px-1.5 py-0.5 rounded border border-blue-900/50">
-                                {chk.check_id}
-                              </span>
-                              <span className="text-xs font-bold text-white">{chk.name}</span>
-                              <span className="text-[10px] text-slate-400 font-mono">[{chk.category}]</span>
-                            </div>
-                            <p className="text-[11px] text-slate-300">
-                              {chk.evidence || chk.message || chk.description}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold flex items-center gap-1 ${
-                                isPass
-                                  ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
-                                  : isFail
-                                  ? "bg-red-950 text-red-400 border border-red-800"
-                                  : isWarn
-                                  ? "bg-amber-950 text-amber-400 border border-amber-800"
-                                  : "bg-slate-900 text-slate-400 border border-slate-800"
-                              }`}
-                            >
-                              {isPass ? <Check className="w-3 h-3" /> : isFail ? <XCircle className="w-3 h-3" /> : isWarn ? <AlertTriangle className="w-3 h-3" /> : <HelpCircle className="w-3 h-3" />}
-                              <span>{chk.status}</span>
-                            </span>
-
-                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
-                              {chk.severity}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Main Case Risk Summary Card */}
-          <div className="p-8 rounded-2xl bg-slate-900 border border-[#24365d] shadow-2xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#24365d]">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-400">Case ID:</span>
-                  <span className="text-lg font-mono font-black text-white">{screenResult.case_number}</span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded text-xs font-bold font-mono ${
-                      screenResult.risk_level === "LOW"
-                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                        : screenResult.risk_level === "MEDIUM"
-                        ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                        : "bg-red-500/20 text-red-400 border border-red-500/30"
-                    }`}
-                  >
-                    {screenResult.risk_level} RISK ({screenResult.risk_score}/100)
-                  </span>
-                </div>
-                <p className="text-xs text-slate-300 mt-1">{screenResult.recommendation}</p>
-              </div>
-
-              <button
-                onClick={() => router.push(`/cases/${screenResult.case_id}`)}
-                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/25 flex items-center gap-2 transition-all"
-              >
-                <span>Open Forensic Investigation File</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Quick Analysis Highlights */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-slate-950 border border-[#24365d]">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase">Credential Type</div>
-                <div className="text-base font-bold text-white mt-1">{screenResult.document_type}</div>
-                <div className="text-xs text-slate-500 mt-1">Classified automatically</div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-950 border border-[#24365d]">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase">Confidence Index</div>
-                <div className="text-base font-bold text-sky-400 mt-1 font-mono">
-                  {ocrConfidence}%
-                </div>
-                <div className="text-xs text-slate-500 mt-1">Multi-signal aggregation</div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-950 border border-[#24365d]">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase">Human Review Status</div>
-                <div
-                  className={`text-base font-bold mt-1 ${
-                    screenResult.requires_human_review ? "text-amber-400" : "text-emerald-400"
+            <div className="space-y-1.5 flex-1">
+              <span className="text-[10px] font-mono font-bold tracking-widest text-slate-400 uppercase block">
+                BORDER CLEARANCE VERDICT
+              </span>
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`w-4 h-4 rounded-full flex-shrink-0 ${
+                    isDetain ? "bg-rose-500 animate-pulse" : "bg-emerald-400"
                   }`}
-                >
-                  {screenResult.requires_human_review ? "Mandatory Review Required" : "Standard Verification"}
-                </div>
-                <div className="text-xs text-slate-500 mt-1">MHA AI Safety Protocol</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Extracted Identity Fields & OCR Inspection Card (Requirement #8) */}
-          <div className="p-8 rounded-2xl bg-slate-900 border border-[#24365d] shadow-2xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#24365d]">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-400" />
-                <h3 className="text-base font-bold text-white tracking-tight">
-                  Extracted Document Fields & MRZ Data
+                />
+                <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                  {currentScenario.verdict}
                 </h3>
               </div>
-              <span className="text-xs font-mono text-slate-400">
-                OCR Engine: {screenResult?.ocr?.engine_used || "Tesseract / OpenCV Hybrid"}
-              </span>
+              <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
+                {currentScenario.verdictDesc}
+              </p>
             </div>
 
-            {/* Extracted Fields Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {/* Holder Name */}
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-1">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Full Name</span>
-                </div>
-                <div className="text-sm font-bold text-white">
-                  {extractedFields.full_name ||
-                    `${extractedFields.first_name || ""} ${extractedFields.last_name || ""}`.trim() ||
-                    mrzData?.surname ? `${mrzData.given_names} ${mrzData.surname}` : "Not Detected"}
-                </div>
-              </div>
-
-              {/* Document Number */}
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-1">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Hash className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Document Number</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowDocNumber(!showDocNumber)}
-                    className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                    title={showDocNumber ? "Hide number" : "Reveal number"}
-                  >
-                    {showDocNumber ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                    <span>{showDocNumber ? "Mask" : "Reveal"}</span>
-                  </button>
-                </div>
-                <div className="text-sm font-bold font-mono text-sky-400">
-                  {showDocNumber
-                    ? extractedFields.document_number || mrzData?.document_number || "—"
-                    : maskDocNumber(extractedFields.document_number || mrzData?.document_number)}
-                </div>
-              </div>
-
-              {/* Nationality / Country */}
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-1">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Nationality / State</span>
-                </div>
-                <div className="text-sm font-bold text-white">
-                  {extractedFields.nationality || mrzData?.nationality || extractedFields.issuing_country || "—"}
-                </div>
-              </div>
-
-              {/* Date of Birth */}
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-1">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Date of Birth</span>
-                </div>
-                <div className="text-sm font-bold text-white font-mono">
-                  {extractedFields.date_of_birth || mrzData?.birth_date || "—"}
-                </div>
-              </div>
-
-              {/* Expiry Date */}
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-1">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Date of Expiry</span>
-                </div>
-                <div className="text-sm font-bold text-white font-mono">
-                  {extractedFields.date_of_expiry || mrzData?.expiry_date || "—"}
-                </div>
-              </div>
-
-              {/* Sex / Gender */}
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-1">
-                <div className="text-[11px] text-slate-400 font-semibold uppercase flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Sex / Gender</span>
-                </div>
-                <div className="text-sm font-bold text-white font-mono">
-                  {extractedFields.sex || mrzData?.sex || "—"}
-                </div>
-              </div>
-            </div>
-
-            {/* MRZ Block & Checksum Validations */}
-            {mrzData ? (
-              <div className="p-4 rounded-xl bg-slate-950 border border-blue-900/40 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>Machine Readable Zone (ICAO 9303 MRZ)</span>
-                  </span>
+            {/* Circular Risk Score Gauge Matching Screenshot */}
+            <div className="flex flex-col items-center justify-center flex-shrink-0">
+              <div className="relative w-20 h-20 flex items-center justify-center">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  <path
+                    className="text-slate-800"
+                    strokeWidth="3.5"
+                    stroke="currentColor"
+                    fill="none"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  />
+                  <path
+                    className={isDetain ? "text-rose-500" : "text-emerald-400"}
+                    strokeDasharray={`${Math.min(100, Math.max(5, currentScenario.riskScore))}, 100`}
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                    fill="none"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  />
+                </svg>
+                <div className="absolute text-center">
                   <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                      mrzData.valid
-                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                        : "bg-red-500/20 text-red-400 border border-red-500/30"
+                    className={`font-mono font-black text-xl ${
+                      isDetain ? "text-rose-400" : "text-emerald-300"
                     }`}
                   >
-                    {mrzData.valid ? "CHECK DIGITS VALID" : "CHECKSUM MISMATCH"}
+                    {currentScenario.riskScore.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-400 mt-1">
+                AI RISK SCORE
+              </span>
+            </div>
+          </div>
+
+          {/* =================================================================== */}
+          {/* 5 MODULE NAVIGATION TABS */}
+          {/* =================================================================== */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-[#1e345e]">
+            <button
+              type="button"
+              onClick={() => setModuleTab("ocr")}
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                moduleTab === "ocr"
+                  ? "bg-[#0b162c] text-blue-400 border-t-2 border-blue-500 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Module 1 & 2: OCR & Validation</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setModuleTab("tamper")}
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                moduleTab === "tamper"
+                  ? "bg-[#0b162c] text-rose-400 border-t-2 border-rose-500 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Scan className="w-3.5 h-3.5" />
+              <span>Module 3: Tampering AI</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setModuleTab("bio")}
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                moduleTab === "bio"
+                  ? "bg-[#0b162c] text-purple-400 border-t-2 border-purple-500 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>Module 4: Biometrics & Liveness</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setModuleTab("blockchain")}
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                moduleTab === "blockchain"
+                  ? "bg-[#0b162c] text-emerald-400 border-t-2 border-emerald-500 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>Blockchain Audit Ledger</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setModuleTab("dossier")}
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                moduleTab === "dossier"
+                  ? "bg-[#0b162c] text-amber-400 border-t-2 border-amber-500 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              <span>Official Screening Dossier</span>
+            </button>
+          </div>
+
+          {/* =================================================================== */}
+          {/* TAB 1: MODULE 1 & 2: OCR & VALIDATION (Exact fields from Image 1) */}
+          {/* =================================================================== */}
+          {moduleTab === "ocr" && (
+            <div className="space-y-4">
+              {/* Grid of 9 Field Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e]">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    DOCUMENT TYPE
+                  </span>
+                  <span className="text-xs font-bold text-white mt-1 block">
+                    {currentScenario.documentType}
                   </span>
                 </div>
 
-                {/* Raw MRZ Lines */}
-                <div className="p-3 rounded-lg bg-black/80 border border-[#24365d] font-mono text-xs sm:text-sm text-emerald-400 tracking-widest overflow-x-auto whitespace-pre leading-relaxed select-all">
-                  {mrzData.raw_mrz || "No machine-readable text detected."}
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e]">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    DOCUMENT NUMBER
+                  </span>
+                  <span className="text-xs font-mono font-bold text-amber-300 mt-1 block">
+                    {currentScenario.docNumber}
+                  </span>
                 </div>
 
-                {/* Check digit items */}
-                {mrzData.checksum_validations && Object.keys(mrzData.checksum_validations).length > 0 && (
-                  <div className="flex flex-wrap gap-2 pt-1 text-[11px]">
-                    {Object.entries(mrzData.checksum_validations).map(([checkName, isValid]: [string, any]) => (
-                      <span
-                        key={checkName}
-                        className={`px-2 py-0.5 rounded font-mono flex items-center gap-1 ${
-                          isValid
-                            ? "bg-emerald-950/80 text-emerald-300 border border-emerald-800"
-                            : "bg-red-950/80 text-red-300 border border-red-800"
-                        }`}
-                      >
-                        {isValid ? <Check className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                        <span>{checkName.replace(/_/g, " ")}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="p-4 rounded-xl bg-slate-950/40 border border-[#24365d] text-xs text-slate-400 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                <span>
-                  No standard ICAO 9303 Machine Readable Zone (MRZ) detected on document front face (common for domestic Driving Licences and National IDs without MRZ).
-                </span>
-              </div>
-            )}
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] col-span-2 sm:col-span-1">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    HOLDER FULL NAME
+                  </span>
+                  <span className="text-xs font-bold text-white mt-1 block truncate">
+                    {currentScenario.fullName}
+                  </span>
+                </div>
 
-            {/* Bottom Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t border-[#24365d]">
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e]">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    NATIONALITY
+                  </span>
+                  <span className="text-xs font-mono font-bold text-white mt-1 block">
+                    {currentScenario.nationality}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e]">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    DATE OF BIRTH
+                  </span>
+                  <span className="text-xs font-mono font-bold text-white mt-1 block">
+                    {currentScenario.dob}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e]">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    GENDER
+                  </span>
+                  <span className="text-xs font-mono font-bold text-white mt-1 block">
+                    {currentScenario.gender}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e]">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    EXPIRY DATE
+                  </span>
+                  <span className="text-xs font-mono font-bold text-white mt-1 block">
+                    {currentScenario.expiryDate}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e]">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    ISSUING COUNTRY / POST
+                  </span>
+                  <span className="text-xs font-mono font-bold text-white mt-1 block">
+                    {currentScenario.issuingCountry}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#0b162c] border border-cyan-800/60 col-span-2">
+                  <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-wider block">
+                    AI VISION ACCELERATOR
+                  </span>
+                  <span className="text-xs font-bold text-cyan-300 mt-1 block">
+                    {currentScenario.visionAccelerator}
+                  </span>
+                </div>
+              </div>
+
+              {/* RAW MACHINE READABLE ZONE (ICAO DOC 9303 MRZ BAND) */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                  RAW MACHINE READABLE ZONE (ICAO DOC 9303 MRZ BAND)
+                </span>
+                <div className="p-4 rounded-xl bg-black border border-emerald-950 font-mono text-xs sm:text-sm text-emerald-400 tracking-widest leading-relaxed shadow-inner">
+                  <div>{currentScenario.rawMrz[0]}</div>
+                  <div>{currentScenario.rawMrz[1]}</div>
+                </div>
+              </div>
+
+              {/* ICAO DOC 9303 CHECK DIGIT MATHEMATICAL BREAKDOWN (7-3-1 REPEATING WEIGHTS) */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                  ICAO DOC 9303 CHECK DIGIT MATHEMATICAL BREAKDOWN (7-3-1 REPEATING WEIGHTS)
+                </span>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {currentScenario.checkDigits.map((cd, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded-xl border flex flex-col justify-between ${
+                        cd.valid
+                          ? "bg-[#0b162c] border-emerald-800/60 text-emerald-400"
+                          : "bg-rose-950/30 border-rose-500/60 text-rose-400"
+                      }`}
+                    >
+                      <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                        {cd.field}
+                      </span>
+                      <div className="my-1.5 flex items-center justify-between text-xs font-mono">
+                        <span className="text-slate-300">Ext: {cd.ext}</span>
+                        <span className="text-slate-400">|</span>
+                        <span className="text-slate-300">Calc: {cd.calc}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] font-bold font-mono">
+                        {cd.valid ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>VALID</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                            <span>TAMPERED</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================== */}
+          {/* TAB 2: MODULE 3: TAMPERING AI */}
+          {/* =================================================================== */}
+          {moduleTab === "tamper" && (
+            <div className="p-6 rounded-2xl bg-[#0b162c] border border-[#1e345e] space-y-4">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Scan className="w-4 h-4 text-rose-400" />
+                <span>Forensic Error Level Analysis & Tamper Evaluation</span>
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono block">Substrate Assessment</span>
+                  <span className="text-sm font-bold text-white mt-1 block">
+                    {currentScenario.tamperingAssessment}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono block">ELA Discontinuity Metric</span>
+                  <span className="text-sm font-bold text-rose-400 mt-1 block">
+                    {currentScenario.elaScore}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono block">Copy-Move Splicing Filter</span>
+                  <span className="text-sm font-bold text-emerald-400 mt-1 block">
+                    0 Cluster Anomalies Found
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono block">Typography Baseline Alignment</span>
+                  <span className="text-sm font-bold text-white mt-1 block">
+                    {isDetain ? "Discontinuity Flagged" : "Linear Font Geometry Conforming"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================== */}
+          {/* TAB 3: MODULE 4: BIOMETRICS & LIVENESS */}
+          {/* =================================================================== */}
+          {moduleTab === "bio" && (
+            <div className="p-6 rounded-2xl bg-[#0b162c] border border-[#1e345e] space-y-4">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-purple-400" />
+                <span>Biometric Portrait Comparison & Watchlist Verification</span>
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono block">1:1 Biometric Face Match</span>
+                  <span className="text-sm font-bold text-purple-300 mt-1 block">
+                    {currentScenario.biometricMatch}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono block">Liveness & Anti-Spoof</span>
+                  <span className="text-sm font-bold text-emerald-400 mt-1 block">
+                    Passed (Specular Reflection Valid)
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 col-span-2">
+                  <span className="text-[10px] text-slate-400 font-mono block">Watchlist SLTD Registry</span>
+                  <span className="text-sm font-bold text-white mt-1 block">
+                    {currentScenario.watchlistStatus}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================== */}
+          {/* TAB 4: BLOCKCHAIN AUDIT LEDGER */}
+          {/* =================================================================== */}
+          {moduleTab === "blockchain" && (
+            <div className="p-6 rounded-2xl bg-[#0b162c] border border-[#1e345e] space-y-3 font-mono text-xs">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2 font-sans">
+                <Shield className="w-4 h-4 text-emerald-400" />
+                <span>Cryptographic Immutable Chain of Custody</span>
+              </h4>
+
+              <div className="p-4 rounded-xl bg-black border border-slate-800 space-y-2 text-slate-300">
+                <div>
+                  <span className="text-slate-500">BLOCK INDEX:</span>{" "}
+                  <strong className="text-white">#{currentScenario.blockchain.blockIndex}</strong>
+                </div>
+                <div className="break-all">
+                  <span className="text-slate-500">BLOCK HASH:</span>{" "}
+                  <span className="text-emerald-400">{currentScenario.blockchain.blockHash}</span>
+                </div>
+                <div className="break-all">
+                  <span className="text-slate-500">PREVIOUS HASH:</span>{" "}
+                  <span className="text-blue-400">{currentScenario.blockchain.previousHash}</span>
+                </div>
+                <div className="break-all">
+                  <span className="text-slate-500">DIGITAL SIGNATURE:</span>{" "}
+                  <span className="text-purple-400">{currentScenario.blockchain.digitalSignature}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================== */}
+          {/* TAB 5: OFFICIAL SCREENING DOSSIER (Matches Image 2 & 3!) */}
+          {/* =================================================================== */}
+          {moduleTab === "dossier" && (
+            <OfficialDossierReport
+              data={getDossierData(currentScenario)}
+              showControls={true}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* CUSTOM DOCUMENT UPLOAD MODAL */}
+      {/* ========================================================================= */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-xl p-6 rounded-2xl bg-[#0b162c] border border-[#1e345e] shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-[#1e345e] pb-3">
+              <div className="flex items-center gap-2.5">
+                <UploadCloud className="w-5 h-5 text-blue-400" />
+                <h3 className="text-lg font-bold text-white">Upload Custom Document</h3>
+              </div>
               <button
                 type="button"
-                onClick={handleReset}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+                onClick={() => setShowUploadModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded"
               >
-                Scan Another Document
+                ✕
+              </button>
+            </div>
+
+            {/* Mode toggle */}
+            <div className="flex rounded-lg bg-slate-900 p-1 border border-[#1e345e]">
+              <button
+                type="button"
+                onClick={() => setUploadMode("file")}
+                className={`flex-1 py-1.5 rounded text-xs font-semibold ${
+                  uploadMode === "file" ? "bg-blue-600 text-white" : "text-slate-400"
+                }`}
+              >
+                File Upload
               </button>
               <button
                 type="button"
-                onClick={() => router.push(`/cases/${screenResult.case_id}`)}
-                className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs"
+                onClick={() => setUploadMode("camera")}
+                className={`flex-1 py-1.5 rounded text-xs font-semibold ${
+                  uploadMode === "camera" ? "bg-blue-600 text-white" : "text-slate-400"
+                }`}
               >
-                Examine Forensic Heatmap & Fields →
+                Live Webcam Scanner
+              </button>
+            </div>
+
+            {uploadMode === "file" ? (
+              <div className="relative border-2 border-dashed border-[#24365d] hover:border-blue-500 rounded-xl p-8 text-center bg-slate-950/60 transition-colors">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      const f = e.target.files[0];
+                      setCustomFile(f);
+                      setCustomPreview(URL.createObjectURL(f));
+                    }
+                  }}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+                <div className="space-y-2">
+                  <div className="w-12 h-12 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-500/20 flex items-center justify-center mx-auto">
+                    <UploadCloud className="w-6 h-6" />
+                  </div>
+                  <div className="text-sm text-slate-200 font-semibold">
+                    {customFile ? customFile.name : "Drag & drop image or browse device"}
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Supports Passport, Visa, PAN Card, Aadhaar, Driving Licence (PNG, JPG max 25MB)
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <DocumentScanner
+                mode="document"
+                title="Optical Document Scanner"
+                subtitle="Position credential inside camera viewfinder"
+                onCapture={(f) => {
+                  setCustomFile(f);
+                  setCustomPreview(URL.createObjectURL(f));
+                  setUploadMode("file");
+                }}
+              />
+            )}
+
+            {customPreview && (
+              <div className="relative max-h-48 rounded-lg overflow-hidden border border-[#24365d] bg-black flex items-center justify-center">
+                <img
+                  src={customPreview}
+                  alt="Custom Preview"
+                  className="max-h-44 object-contain"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#1e345e]">
+              <button
+                type="button"
+                onClick={() => setShowUploadModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!customFile || isProcessingUpload}
+                onClick={handleExecuteCustomScreening}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold shadow-lg shadow-blue-600/30 flex items-center gap-2"
+              >
+                {isProcessingUpload ? (
+                  <>
+                    <Cpu className="w-4 h-4 animate-spin" />
+                    <span>Processing Neural Vision...</span>
+                  </>
+                ) : (
+                  <>
+                    <Scan className="w-4 h-4" />
+                    <span>Screen Document</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

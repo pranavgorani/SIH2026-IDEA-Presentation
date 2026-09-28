@@ -57,3 +57,31 @@ body {
 .animate-scanline {
   animation: scanline 2.5s ease-in-out infinite;
 }
+
+/* Print styling for official MHA evidentiary screening dossiers */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  header, aside, nav, footer, .no-print, button:not(.allow-print) {
+    display: none !important;
+  }
+
+  body, .md\:pl-64, main {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+  }
+
+  .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+    height: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+}
