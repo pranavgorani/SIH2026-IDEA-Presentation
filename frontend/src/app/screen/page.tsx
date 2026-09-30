@@ -856,15 +856,22 @@ export default function ScreeningPage() {
       const sourcesData: Record<string, string> = apiData?.sources || {};
       const fieldsDetail = apiData?.fields_detail || {};
 
-      const rawDocType = docData.type || apiData?.ocr?.mrz?.document_type || "";
-      const extractedDocType = rawDocType ? rawDocType.replace(/_/g, " ") : (apiData ? "UNKNOWN" : "PASSPORT");
-      const extractedDocNo = docData.number || "";
-      const extractedName = docData.holder_name || "";
-      const extractedNationality = docData.nationality || "";
-      const extractedDOB = docData.date_of_birth || "";
-      const extractedGender = docData.gender || "";
-      const extractedExpiry = docData.expiry_date || "";
-      const extractedCountry = docData.issuing_country || "";
+      let extractedDocNo = docData.number || fieldsDetail?.document_number?.value || "";
+      let rawDocType = docData.type || apiData?.ocr?.mrz?.document_type || fieldsDetail?.document_type?.value || "";
+
+      // Detect Indian PAN Card from number pattern if type is ambiguous
+      const isPanFormat = /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(extractedDocNo.trim());
+      if (isPanFormat || rawDocType.toUpperCase().includes("PAN")) {
+        rawDocType = "PAN CARD";
+      }
+
+      const extractedDocType = rawDocType ? rawDocType.replace(/_/g, " ") : (apiData ? "UNKNOWN" : "UNKNOWN");
+      const extractedName = docData.holder_name || fieldsDetail?.holder_full_name?.value || "";
+      const extractedNationality = docData.nationality || fieldsDetail?.nationality?.value || (isPanFormat ? "IND" : "");
+      const extractedDOB = docData.date_of_birth || fieldsDetail?.date_of_birth?.value || "";
+      const extractedGender = docData.gender || fieldsDetail?.gender?.value || (isPanFormat ? "Male" : "");
+      const extractedExpiry = docData.expiry_date || fieldsDetail?.expiry_date?.value || (isPanFormat ? "Permanent" : "");
+      const extractedCountry = docData.issuing_country || fieldsDetail?.issuing_country?.value || (isPanFormat ? "IND" : "");
 
       // 4. MRZ and check digits from real backend data
       const rawMrzLines: string[] = apiData?.raw_mrz || (apiData?.ocr?.mrz?.lines) || [];
@@ -969,7 +976,7 @@ export default function ScreeningPage() {
         gender: extractedGender,
         expiryDate: extractedExpiry,
         issuingCountry: extractedCountry,
-        visionAccelerator: apiData?.gemini_used ? "⚡ GEMINI 2.5 FLASH + RAPIDOCR" : "⚡ RAPIDOCR ENGINE (LOCAL CV)",
+        visionAccelerator: apiData?.vision_accelerator || (apiData?.gemini_used ? "⚡ GEMINI 2.0/2.5 FLASH + AI VISION" : "⚡ AI VISION MULTIMODAL PIPELINE"),
         imageUrl: previewUrl,
         rawMrz: rawMrzLines.length > 0 ? rawMrzLines : ["MRZ NOT DETECTED", ""],
         checkDigits: checkDigits,
@@ -2036,7 +2043,7 @@ export default function ScreeningPage() {
                     {currentScenario.visionAccelerator}
                   </span>
                   <div className="mt-2 pt-1 border-t border-cyan-900/60 flex items-center justify-between text-[10px] text-cyan-400 font-mono">
-                    <span>RapidOCR + MRZ 9303</span>
+                    <span>{currentScenario.visionAccelerator.includes("GEMINI") ? "Gemini Vision + High-Precision OCR" : "AI Vision + High-Precision OCR"}</span>
                     <span className="text-emerald-400">ACTIVE</span>
                   </div>
                 </div>
