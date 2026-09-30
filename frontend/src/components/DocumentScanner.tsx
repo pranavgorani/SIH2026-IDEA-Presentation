@@ -1576,7 +1576,7 @@ export default function DocumentScanner({
                 </h4>
               </div>
               <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-[10px] font-bold border border-emerald-500/30">
-                Ready for Extraction (98.4% OCR Confidence)
+                Ready for AI Screening Pipeline
               </span>
             </div>
 
@@ -1587,15 +1587,15 @@ export default function DocumentScanner({
               </div>
               <div className="p-2.5 rounded-lg bg-slate-900 border border-[#24365d]">
                 <span className="text-slate-500 block text-[10px]">Document Number</span>
-                <span className="font-mono font-bold text-white">L898902C3</span>
+                <span className="font-mono text-slate-400 italic">Pending AI Screening</span>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-900 border border-[#24365d]">
                 <span className="text-slate-500 block text-[10px]">Holder Name</span>
-                <span className="font-mono font-bold text-white">ERIKSSON, ANNA MARIA</span>
+                <span className="font-mono text-slate-400 italic">Pending AI Screening</span>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-900 border border-[#24365d]">
                 <span className="text-slate-500 block text-[10px]">Expiry Date</span>
-                <span className="font-mono font-bold text-emerald-400">15 APR 2032 (Valid)</span>
+                <span className="font-mono text-slate-400 italic">Pending AI Screening</span>
               </div>
             </div>
 
@@ -1603,12 +1603,11 @@ export default function DocumentScanner({
             {currentConfig.hasMRZ && (
               <div className="p-2.5 rounded-lg bg-slate-900 border border-amber-500/30 font-mono text-[11px] text-amber-300 space-y-1">
                 <div className="flex items-center justify-between text-[10px] text-amber-400/80 mb-1">
-                  <span>ICAO 9303 MRZ CHECKSUM VERIFICATION</span>
-                  <span className="text-emerald-400 font-bold">ALL CHECKSUMS PASSED (7-3-1)</span>
+                  <span>ICAO 9303 MRZ VERIFICATION</span>
+                  <span className="text-cyan-400 font-bold">READY TO EXTRACT FROM UPLOAD</span>
                 </div>
-                <div className="tracking-widest bg-black/60 p-2 rounded border border-amber-500/20 select-all">
-                  <div>P&lt;UTOERIKSSON&lt;&lt;ANNA&lt;MARIA&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</div>
-                  <div>L898902C36UTO8408122F3204159ZE184226B&lt;&lt;&lt;&lt;&lt;10</div>
+                <div className="text-[10px] text-slate-400 italic p-2 bg-black/40 rounded border border-slate-800">
+                  MRZ zone identified. High-resolution OCR and check-digit validation will execute upon pipeline execution.
                 </div>
               </div>
             )}

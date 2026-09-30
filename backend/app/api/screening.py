@@ -46,6 +46,7 @@ router = APIRouter(prefix="/screen", tags=["Document Screening Pipeline"])
 async def run_screening_pipeline(
     file: Optional[UploadFile] = File(None, description="Front image of identity credential"),
     primary_document: Optional[UploadFile] = File(None, description="Alternative key for front image of identity credential"),
+    front_image: Optional[UploadFile] = File(None, description="Frontend upload key for front image of identity credential"),
     back_file: Optional[UploadFile] = File(None, description="Optional back side image"),
     live_person_file: Optional[UploadFile] = File(None, description="Optional live portrait of individual"),
     document_type_hint: Optional[str] = Form("AUTO_DETECT"),
@@ -121,7 +122,7 @@ async def run_screening_pipeline(
         )
 
     user_id = (current_user or {}).get("username", "anonymous")
-    primary_file = file or primary_document
+    primary_file = file or primary_document or front_image
     file_name = primary_file.filename if primary_file else "unknown"
     content_type = primary_file.content_type if primary_file else "unknown"
 
@@ -230,7 +231,12 @@ async def run_screening_pipeline(
     # =========================================================================
     current_stage = "DOCUMENT_CLASSIFICATION"
     try:
-        if document_type_hint == "AUTO_DETECT" or not document_type_hint:
+        mf = ocr_raw_res.get("master_fields") or {}
+        extracted_doc_type = mf.get("document_type", {}).get("value")
+        if (document_type_hint == "AUTO_DETECT" or not document_type_hint) and extracted_doc_type and extracted_doc_type != "UNKNOWN":
+            detected_doc_type = extracted_doc_type
+            doc_confidence = mf.get("document_type", {}).get("confidence", 0.95)
+        elif document_type_hint == "AUTO_DETECT" or not document_type_hint:
             class_res = document_classifier.classify_document(
                 text=ocr_raw_res["raw_text"],
                 width=f_w,
@@ -848,6 +854,16 @@ async def run_screening_pipeline(
     # =========================================================================
     # UNIFIED RESPONSE CONTRACT (100 CHECKS + EXPORTS + TIMING METRICS)
     # =========================================================================
+    master_fields = ocr_raw_res.get("master_fields") or {}
+    raw_mrz_list = []
+    if ocr_raw_res.get("mrz"):
+        if hasattr(ocr_raw_res["mrz"], "raw_mrz") and ocr_raw_res["mrz"].raw_mrz:
+            raw_mrz_list = ocr_raw_res["mrz"].raw_mrz
+        elif isinstance(ocr_raw_res["mrz"], dict) and ocr_raw_res["mrz"].get("raw_mrz"):
+            raw_mrz_list = ocr_raw_res["mrz"]["raw_mrz"]
+
+    final_doc_type = (master_fields.get("document_type", {}).get("value") if master_fields.get("document_type", {}).get("value") not in (None, "", "UNKNOWN") else None) or detected_doc_type
+
     return {
         "success": True,
         "request_id": request_id,
@@ -869,8 +885,43 @@ async def run_screening_pipeline(
         },
         "database_saved": db_save_successful,
         "document": {
-            "type": detected_doc_type,
+            "type": final_doc_type,
+            "number": master_fields.get("document_number", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "document_number", ""),
+            "holder_name": master_fields.get("holder_full_name", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "name", ""),
+            "nationality": master_fields.get("nationality", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "nationality", ""),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "date_of_birth", ""),
+            "gender": master_fields.get("gender", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "gender", ""),
+            "expiry_date": master_fields.get("expiry_date", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "date_of_expiry", ""),
+            "issuing_country": master_fields.get("issuing_country", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "issuing_country", ""),
             "confidence": doc_confidence
+        },
+        "field_confidence": {
+            "document_type": master_fields.get("document_type", {}).get("confidence", doc_confidence),
+            "document_number": master_fields.get("document_number", {}).get("confidence", 0.0),
+            "holder_name": master_fields.get("holder_full_name", {}).get("confidence", 0.0),
+            "nationality": master_fields.get("nationality", {}).get("confidence", 0.0),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("confidence", 0.0),
+            "gender": master_fields.get("gender", {}).get("confidence", 0.0),
+            "expiry_date": master_fields.get("expiry_date", {}).get("confidence", 0.0),
+            "issuing_country": master_fields.get("issuing_country", {}).get("confidence", 0.0)
+        },
+        "sources": {
+            "document_type": master_fields.get("document_type", {}).get("source", "OCR"),
+            "document_number": master_fields.get("document_number", {}).get("source", "OCR"),
+            "holder_name": master_fields.get("holder_full_name", {}).get("source", "OCR"),
+            "nationality": master_fields.get("nationality", {}).get("source", "OCR"),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("source", "OCR"),
+            "gender": master_fields.get("gender", {}).get("source", "OCR"),
+            "expiry_date": master_fields.get("expiry_date", {}).get("source", "OCR"),
+            "issuing_country": master_fields.get("issuing_country", {}).get("source", "OCR")
+        },
+        "fields_detail": master_fields,
+        "raw_mrz": raw_mrz_list,
+        "raw_ocr_text": ocr_raw_res.get("raw_text", ""),
+        "mrz_validation": {
+            "detected": bool(ocr_raw_res.get("mrz")),
+            "valid": bool(getattr(ocr_raw_res.get("mrz"), "valid", False)) if ocr_raw_res.get("mrz") else False,
+            "consistency": master_fields.get("document_number", {}).get("validation", "MATCH")
         },
         "ocr": serialize_model(ocr_response_obj),
         "validation": serialize_model(validation_res),
