@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   FileText, Download, Shield, AlertTriangle, CheckCircle, Clock,
   Search, Filter, RefreshCw, FileArchive, ArrowUpRight, BarChart2,
-  Lock, CheckCircle2, AlertCircle, Eye, Printer, X
+  Lock, CheckCircle2, AlertCircle, Eye, Printer, X, ChevronDown, Table, File
 } from "lucide-react";
 import { api } from "@/lib/api";
 import OfficialDossierReport, { DossierReportData } from "@/components/OfficialDossierReport";
@@ -167,6 +167,9 @@ export default function ReportsPage() {
   const [selectedType, setSelectedType] = useState("ALL");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [activeDossier, setActiveDossier] = useState<DossierReportData | null>(null);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+  const [isExporting, setIsExporting] = useState<string | null>(null);
+  const [exportFeedback, setExportFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const fetchReports = async () => {
     setLoading(true);
@@ -236,6 +239,108 @@ export default function ReportsPage() {
     link.remove();
   };
 
+  const exportReportLedgerClientCsv = () => {
+    const headers = [
+      "Case Number",
+      "Document Type",
+      "Holder Name",
+      "Screening Timestamp",
+      "Risk Score",
+      "Risk Category",
+      "Validation Status",
+      "Audit Hash",
+      "Final Decision"
+    ];
+    const rows = filteredReports.map((r) => [
+      `"${r.case_number}"`,
+      `"${r.document_type}"`,
+      `"${r.holder_name.replace(/"/g, '""')}"`,
+      `"${r.created_at}"`,
+      `"${r.risk_score}"`,
+      `"${r.risk_level}"`,
+      `"${r.status}"`,
+      `"${r.report_hash}"`,
+      `"${r.decision}"`
+    ]);
+    const csvContent = [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, `TRUST-ID_Report_Ledger_${new Date().toISOString().slice(0, 10)}.csv`);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleExport = async (format: "all" | "csv" | "pdf" | "docx") => {
+    if (isExporting) return;
+    setIsExporting(format);
+    setShowDownloadDropdown(false);
+    setExportFeedback(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (searchTerm) params.append("search", searchTerm);
+      if (selectedRisk !== "ALL") params.append("risk_level", selectedRisk);
+      if (selectedType !== "ALL") params.append("document_type", selectedType);
+      params.append("limit", "100");
+
+      const endpoint = `/api/reports/export/${format}?${params.toString()}`;
+      const res = await fetch(endpoint);
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const contentDisp = res.headers.get("Content-Disposition");
+        let filename = `TRUST-ID_Export_${format.toUpperCase()}_${new Date().toISOString().slice(0, 10)}`;
+        if (format === "all") filename += ".zip";
+        else if (format === "csv") filename += ".csv";
+        else if (format === "pdf") filename += ".pdf";
+        else if (format === "docx") filename += ".docx";
+
+        if (contentDisp && contentDisp.includes("filename=")) {
+          const match = contentDisp.match(/filename="?([^";]+)"?/);
+          if (match && match[1]) filename = match[1];
+        }
+
+        const blobUrl = window.URL.createObjectURL(blob);
+        triggerDownload(blobUrl, filename);
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+
+        setExportFeedback({
+          type: "success",
+          message: `Successfully downloaded ${format.toUpperCase()} export (${filteredReports.length} records).`
+        });
+        setTimeout(() => setExportFeedback(null), 5000);
+      } else {
+        if (format === "csv") {
+          exportReportLedgerClientCsv();
+          setExportFeedback({
+            type: "success",
+            message: `Generated client-side CSV ledger (${filteredReports.length} records).`
+          });
+          setTimeout(() => setExportFeedback(null), 5000);
+        } else {
+          throw new Error(`Server returned HTTP ${res.status}`);
+        }
+      }
+    } catch (err: any) {
+      console.warn("Export notice:", err);
+      if (format === "csv") {
+        exportReportLedgerClientCsv();
+        setExportFeedback({
+          type: "success",
+          message: `Generated client-side CSV ledger (${filteredReports.length} records).`
+        });
+        setTimeout(() => setExportFeedback(null), 5000);
+      } else {
+        setExportFeedback({
+          type: "error",
+          message: `Export dispatch unavailable: ${err?.message || "Check backend connection"}.`
+        });
+        setTimeout(() => setExportFeedback(null), 6000);
+      }
+    } finally {
+      setIsExporting(null);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Top Banner */}
@@ -253,15 +358,129 @@ export default function ReportsPage() {
           </p>
         </div>
 
-        <button
-          onClick={fetchReports}
-          disabled={loading}
-          className="self-start sm:self-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 flex items-center gap-2 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          <span>Refresh Ledger</span>
-        </button>
+        {/* Header Action Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto relative">
+          {/* Header Download Reports Button with Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              id="download-reports-btn"
+              onClick={() => setShowDownloadDropdown((prev) => !prev)}
+              disabled={isExporting !== null}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl border border-blue-500/40 shadow-lg shadow-blue-600/25 flex items-center gap-2 transition-all disabled:opacity-50"
+              title="Download screening reports, ledgers, and audit summaries"
+            >
+              {isExporting ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+              ) : (
+                <Download className="w-3.5 h-3.5 text-white" />
+              )}
+              <span>{isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Download Reports"}</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showDownloadDropdown ? "rotate-180" : ""}`} />
+            </button>
+
+            {/* Compact Dropdown Menu */}
+            {showDownloadDropdown && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowDownloadDropdown(false)}
+                />
+                <div className="absolute right-0 mt-2 w-72 rounded-xl bg-slate-900 border border-[#24365d] shadow-2xl p-1.5 z-50 space-y-1">
+                  <div className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                    Export Filtered Ledger ({filteredReports.length} records)
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExport("all")}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-600/20 hover:text-blue-300 text-slate-200 text-xs font-medium flex items-center gap-2.5 transition-colors group"
+                  >
+                    <FileArchive className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+                    <div>
+                      <div className="font-semibold text-white">Download All Reports</div>
+                      <div className="text-[10px] text-slate-400">ZIP archive containing the available reports</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExport("csv")}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-600/20 hover:text-emerald-300 text-slate-200 text-xs font-medium flex items-center gap-2.5 transition-colors group"
+                  >
+                    <Table className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
+                    <div>
+                      <div className="font-semibold text-white">Export Report Ledger</div>
+                      <div className="text-[10px] text-slate-400">CSV containing the filtered or complete report ledger</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExport("pdf")}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-600/20 hover:text-blue-300 text-slate-200 text-xs font-medium flex items-center gap-2.5 transition-colors group"
+                  >
+                    <FileText className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform shrink-0" />
+                    <div>
+                      <div className="font-semibold text-white">Export as PDF</div>
+                      <div className="text-[10px] text-slate-400">Professional PDF summary of screening results</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExport("docx")}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-indigo-600/20 hover:text-indigo-300 text-slate-200 text-xs font-medium flex items-center gap-2.5 transition-colors group"
+                  >
+                    <File className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
+                    <div>
+                      <div className="font-semibold text-white">Export as DOCX</div>
+                      <div className="text-[10px] text-slate-400">Editable Word format report summary</div>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Existing Refresh Ledger Button */}
+          <button
+            onClick={fetchReports}
+            disabled={loading}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 flex items-center gap-2 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            <span>Refresh Ledger</span>
+          </button>
+        </div>
       </div>
+
+      {/* Export Feedback Notification Banner */}
+      {exportFeedback && (
+        <div
+          className={`p-3 rounded-xl border flex items-center justify-between text-xs font-mono transition-all ${
+            exportFeedback.type === "success"
+              ? "bg-emerald-950/60 border-emerald-500/40 text-emerald-300"
+              : "bg-rose-950/60 border-rose-500/40 text-rose-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {exportFeedback.type === "success" ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{exportFeedback.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExportFeedback(null)}
+            className="text-slate-400 hover:text-white"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Analytics KPI Ribbon */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

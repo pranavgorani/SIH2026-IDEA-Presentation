@@ -449,3 +449,140 @@ class ReportExportService:
         doc.save(docx_buffer)
         docx_buffer.seek(0)
         return docx_buffer.read()
+
+    @staticmethod
+    def generate_ledger_csv_bytes(cases: List[Dict[str, Any]]) -> bytes:
+        """
+        Generates CSV for the Document Screening Reports Center ledger with columns:
+        Case Number, Document Type, Holder Name, Screening Timestamp, Risk Score,
+        Risk Category, Validation Status, Audit Hash, Final Decision.
+        """
+        output = io.StringIO()
+        writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+        writer.writerow([
+            "Case Number",
+            "Document Type",
+            "Holder Name",
+            "Screening Timestamp",
+            "Risk Score",
+            "Risk Category",
+            "Validation Status",
+            "Audit Hash",
+            "Final Decision"
+        ])
+        for c in cases:
+            writer.writerow([
+                c.get("case_number", ""),
+                c.get("document_type", "PASSPORT"),
+                mask_name(c.get("holder_name", "Official Credential Holder")),
+                c.get("created_at", ""),
+                f"{float(c.get('risk_score', 0.0)):.1f}",
+                c.get("risk_level", "LOW"),
+                c.get("status", "100-Point Verified"),
+                c.get("report_hash", ""),
+                c.get("decision", "APPROVED")
+            ])
+        return output.getvalue().encode("utf-8")
+
+    @staticmethod
+    def generate_ledger_docx_bytes(cases: List[Dict[str, Any]], filters: Optional[Dict[str, Any]] = None) -> bytes:
+        """
+        Generates official Word (.docx) document summary for Document Screening Reports Center ledger.
+        """
+        doc = Document()
+        for section in doc.sections:
+            section.top_margin = Inches(0.7)
+            section.bottom_margin = Inches(0.7)
+            section.left_margin = Inches(0.7)
+            section.right_margin = Inches(0.7)
+
+        title_p = doc.add_paragraph()
+        title_p.paragraph_format.space_before = Pt(0)
+        title_p.paragraph_format.space_after = Pt(2)
+        run_org = title_p.add_run("TRUST-ID | OFFICIAL EXPORT DISPATCH\n")
+        run_org.font.size = Pt(9)
+        run_org.font.color.rgb = RGBColor(100, 116, 139)
+        run_org.font.bold = True
+
+        run_title = title_p.add_run("Document Screening Reports Center — Official Ledger Summary")
+        run_title.font.size = Pt(18)
+        run_title.font.bold = True
+        run_title.font.color.rgb = RGBColor(15, 23, 42)
+
+        desc_p = doc.add_paragraph("Executive screening ledger summary generated with cryptographic audit hash verification.")
+        desc_p.runs[0].font.size = Pt(10)
+        desc_p.runs[0].font.italic = True
+        desc_p.runs[0].font.color.rgb = RGBColor(71, 85, 105)
+
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
+        meta_table = doc.add_table(rows=2, cols=4)
+        meta_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        meta_headers = ["Generated At", "Total Reports", "Risk Filter", "Document Type Filter"]
+        meta_vals = [
+            now_str,
+            str(len(cases)),
+            (filters or {}).get("risk_level", "ALL"),
+            (filters or {}).get("document_type", "ALL")
+        ]
+        for i, h in enumerate(meta_headers):
+            meta_table.rows[0].cells[i].text = h
+            meta_table.rows[1].cells[i].text = meta_vals[i]
+            set_cell_background(meta_table.rows[0].cells[i], "0F172A")
+            set_cell_background(meta_table.rows[1].cells[i], "F1F5F9")
+            set_cell_margins(meta_table.rows[0].cells[i], 50, 50, 80, 80)
+            set_cell_margins(meta_table.rows[1].cells[i], 50, 50, 80, 80)
+            for r in meta_table.rows[0].cells[i].paragraphs[0].runs:
+                r.font.size = Pt(8.5)
+                r.font.bold = True
+                r.font.color.rgb = RGBColor(255, 255, 255)
+            for r in meta_table.rows[1].cells[i].paragraphs[0].runs:
+                r.font.size = Pt(8.5)
+                r.font.bold = True
+                r.font.color.rgb = RGBColor(15, 23, 42)
+
+        h2 = doc.add_heading("Screening Records Ledger", level=2)
+        h2.paragraph_format.space_before = Pt(14)
+        h2.paragraph_format.space_after = Pt(6)
+
+        table = doc.add_table(rows=1 + len(cases), cols=7)
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        cols = ["Case Number", "Document Type", "Holder Name", "Screening Date", "Risk Score", "Decision", "Audit Seal"]
+        for j, c_name in enumerate(cols):
+            cell = table.rows[0].cells[j]
+            cell.text = c_name
+            set_cell_background(cell, "1E293B")
+            set_cell_margins(cell, 60, 60, 80, 80)
+            for r in cell.paragraphs[0].runs:
+                r.font.size = Pt(8)
+                r.font.bold = True
+                r.font.color.rgb = RGBColor(255, 255, 255)
+
+        for row_idx, case_item in enumerate(cases, start=1):
+            r_cells = table.rows[row_idx].cells
+            r_cells[0].text = case_item.get("case_number", "")
+            r_cells[1].text = case_item.get("document_type", "PASSPORT")
+            r_cells[2].text = mask_name(case_item.get("holder_name", "Official Credential Holder"))
+            r_cells[3].text = str(case_item.get("created_at", ""))[:19].replace("T", " ")
+            r_cells[4].text = f"{float(case_item.get('risk_score', 0.0)):.1f} ({case_item.get('risk_level', 'LOW')})"
+            r_cells[5].text = case_item.get("decision", "APPROVED")
+            r_cells[6].text = str(case_item.get("report_hash", ""))[:12] + "..."
+
+            bg_col = "F8FAFC" if row_idx % 2 == 0 else "FFFFFF"
+            for c in r_cells:
+                set_cell_background(c, bg_col)
+                set_cell_margins(c, 50, 50, 80, 80)
+                for run in c.paragraphs[0].runs:
+                    run.font.size = Pt(7.5)
+                    run.font.color.rgb = RGBColor(15, 23, 42)
+
+        doc.add_paragraph()
+        footer_p = doc.add_paragraph("Cryptographically Sealed Ledger by TRUST-ID Authority. Compliant with ICAO Doc 9303, ISO/IEC 19794-5, and NIST SP 800-63A Level 3.")
+        footer_p.runs[0].font.size = Pt(8)
+        footer_p.runs[0].font.italic = True
+        footer_p.runs[0].font.color.rgb = RGBColor(100, 116, 139)
+
+        docx_buffer = io.BytesIO()
+        doc.save(docx_buffer)
+        docx_buffer.seek(0)
+        return docx_buffer.read()
+

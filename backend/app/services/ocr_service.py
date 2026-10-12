@@ -17,6 +17,7 @@ from backend.app.core.config import settings
 from backend.app.models.schemas import ExtractedFields, BoundingBox, OCRResultResponse, MRZData
 from backend.app.services.mrz_parser import mrz_parser, resolve_country_name
 from backend.app.services.image_preprocessing import image_preprocessor
+from backend.app.services.document_classifier import document_classifier
 
 logger = logging.getLogger("trustid.ocr")
 
@@ -255,17 +256,29 @@ class ModularOCREngine(BaseOCREngine):
         # 7. Document Layout Analysis & Field Extraction (Section 9-16)
         visible_fields = self._extract_visible_fields(raw_text)
 
-        # 8. Cross-Validation & Master Field Harmonization (Section 17, 18, 19, 20, 23)
+        # 8. Document Classification (Section 7, 16, 17)
+        h, w = (orig_img.shape[:2]) if orig_img is not None else (600, 900)
+        has_mrz = mrz_data is not None and getattr(mrz_data, "valid", False)
+        doc_classification = document_classifier.classify_document(
+            text=raw_text,
+            width=w,
+            height=h,
+            has_mrz=has_mrz
+        )
+
+        # 9. Cross-Validation & Master Field Harmonization (Section 17, 18, 19, 20, 23)
         master_fields, final_extracted_fields, overall_conf = self._harmonize_and_cross_validate(
             mrz_data=mrz_data,
             visible_fields=visible_fields,
             gemini_fields=gemini_fields,
             known_data=known_data,
             raw_text=raw_text,
-            engine_used=engine_used
+            engine_used=engine_used,
+            classification=doc_classification
         )
 
-        h, w = (orig_img.shape[:2]) if orig_img is not None else (600, 900)
+        additional_fields = master_fields.get("additional_fields", {})
+        analysis_status = master_fields.get("analysis_status", "REVIEW_REQUIRED")
         bounding_boxes = extracted_boxes if extracted_boxes else self._generate_bounding_boxes(final_extracted_fields, w, h)
 
         ocr_status = "OK" if overall_conf >= 0.60 else "LOW_CONFIDENCE"
@@ -279,8 +292,12 @@ class ModularOCREngine(BaseOCREngine):
             "engine_used": engine_used,
             "status": ocr_status,
             "ocr_status": ocr_status,
+            "analysis_status": analysis_status,
+            "external_verification_status": "NOT_CONFIGURED",
             "cached": False,
-            "master_fields": master_fields
+            "master_fields": master_fields,
+            "additional_fields": additional_fields,
+            "classification": doc_classification
         }
 
         if doc_hash:
@@ -471,16 +488,24 @@ class ModularOCREngine(BaseOCREngine):
 
     def _extract_visible_fields(self, text: str) -> Dict[str, Any]:
         """
-        Extracts visible text fields using regex patterns for Passport, PAN, Aadhaar, DL, Voter ID, and Visas.
-        Adheres to Section 9-16 with robust field cleansing and document-specific heuristics.
+        Extracts visible text fields using regex patterns and layout heuristics for:
+        - Indian Passport
+        - Aadhaar Card (full & masked)
+        - PAN Card
+        - Voter ID / EPIC
+        - Indian Driving Licence
+        - Vehicle Registration / RC
+        - Indian Visa & OCI Card
+        - International Passport, Visa, and National ID
         """
         if not text:
             return {}
 
         res: Dict[str, Any] = {}
         upper_text = text.upper()
+        clean_text = text.strip()
 
-        # 1. Identity Numbers & Document Type Classification (Section 9 & 10)
+        # 1. Identity Numbers & Document Type Classification
         pan_m = re.search(r'\b([A-Z]{5}[0-9]{4}[A-Z]{1})\b', text)
         is_pan = bool(
             pan_m
@@ -491,12 +516,16 @@ class ModularOCREngine(BaseOCREngine):
             or "आयकर विभाग" in text
         )
 
-        aadhaar_m = re.search(r'\b([2-9]{1}[0-9]{3}\s[0-9]{4}\s[0-9]{4})\b', text)
+        aadhaar_m = re.search(r'\b([2-9]{1}[0-9]{3}\s+[0-9]{4}\s+[0-9]{4})\b', text)
+        aadhaar_masked_m = re.search(r'\b([X•x*]{4}\s+[X•x*]{4}\s+[0-9]{4})\b', text)
         is_aadhaar = bool(
             aadhaar_m
+            or aadhaar_masked_m
             or "AADHAAR" in upper_text
             or "UNIQUE IDENTIFICATION" in upper_text
+            or "UIDAI" in upper_text
             or "आधार" in text
+            or "MERA AADHAAR" in upper_text
         )
 
         dl_m = re.search(r'\b([A-Z]{2}[-\s]?[0-9]{2}[-\s]?[0-9]{4}[-\s]?[0-9]{7})\b', text)
@@ -504,6 +533,16 @@ class ModularOCREngine(BaseOCREngine):
             dl_m
             or "DRIVING LICENCE" in upper_text
             or "DRIVING LICENSE" in upper_text
+            or "UNION OF INDIA" in upper_text
+            or "FORM 7" in upper_text
+            or "MOTOR VEHICLES" in upper_text
+        )
+
+        rc_m = re.search(r'\b([A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4})\b', text)
+        is_rc = bool(
+            (rc_m and ("REGISTRATION" in upper_text or "CHASSIS" in upper_text or "ENGINE" in upper_text or "VEHICLE" in upper_text or "FORM 23" in upper_text))
+            or "CERTIFICATE OF REGISTRATION" in upper_text
+            or "REGISTRATION CERTIFICATE" in upper_text
         )
 
         epic_m = re.search(r'\b([A-Z]{3}[0-9]{7})\b', text)
@@ -511,6 +550,24 @@ class ModularOCREngine(BaseOCREngine):
             epic_m
             or "ELECTION COMMISSION" in upper_text
             or "ELECTOR PHOTO" in upper_text
+            or "भारत निर्वाचन आयोग" in text
+            or "EPIC" in upper_text
+        )
+
+        is_indian_visa = bool(
+            "INDIAN VISA" in upper_text
+            or "GOVERNMENT OF INDIA VISA" in upper_text
+        )
+
+        is_oci = bool(
+            "OVERSEAS CITIZEN OF INDIA" in upper_text
+            or "OCI CARD" in upper_text
+            or "LIFE LONG VISA" in upper_text
+        )
+
+        is_indian_passport = bool(
+            ("REPUBLIC OF INDIA" in upper_text or "BHARAT SARKAR" in upper_text or "P<IND" in upper_text)
+            and ("PASSPORT" in upper_text or "PASSEPORT" in upper_text)
         )
 
         if is_pan:
@@ -522,7 +579,10 @@ class ModularOCREngine(BaseOCREngine):
             res["expiry_date"] = "Permanent"
         elif is_aadhaar:
             res["document_type"] = "AADHAAR"
-            if aadhaar_m:
+            if aadhaar_masked_m:
+                # Section 9: preserve exact visible masked format, never guess hidden digits
+                res["document_number"] = aadhaar_masked_m.group(1).strip()
+            elif aadhaar_m:
                 res["document_number"] = aadhaar_m.group(1).strip()
             res["nationality"] = "IND"
             res["issuing_country"] = "IND"
@@ -533,29 +593,53 @@ class ModularOCREngine(BaseOCREngine):
                 res["document_number"] = dl_m.group(1).strip()
             res["nationality"] = "IND"
             res["issuing_country"] = "IND"
+        elif is_rc:
+            res["document_type"] = "VEHICLE_RC"
+            if rc_m:
+                res["document_number"] = rc_m.group(1).strip()
+            res["nationality"] = "IND"
+            res["issuing_country"] = "IND"
         elif is_voter:
             res["document_type"] = "VOTER_ID"
             if epic_m:
                 res["document_number"] = epic_m.group(1).strip()
             res["nationality"] = "IND"
             res["issuing_country"] = "IND"
-        elif "PASSPORT" in upper_text or "PASSEPORT" in upper_text or "REPUBLIC OF" in upper_text:
+        elif is_indian_visa:
+            res["document_type"] = "INDIAN_VISA"
+            res["nationality"] = "IND"
+            res["issuing_country"] = "IND"
+        elif is_oci:
+            res["document_type"] = "OCI_CARD"
+            res["nationality"] = "IND"
+            res["issuing_country"] = "IND"
+            res["expiry_date"] = "Life Long"
+        elif is_indian_passport:
+            res["document_type"] = "INDIAN_PASSPORT"
+            res["nationality"] = "IND"
+            res["issuing_country"] = "IND"
+        elif "PASSPORT" in upper_text or "PASSEPORT" in upper_text:
             res["document_type"] = "PASSPORT"
         elif "VISA" in upper_text or "SCHENGEN" in upper_text:
             res["document_type"] = "VISA"
+        elif len(clean_text) < 15:
+            res["document_type"] = "UNSUPPORTED"
 
         # Document Number fallback if not set yet
         if not res.get("document_number"):
-            match = re.search(r'(?:Passport No|Doc No|Document No|ID No|License No|DL No|Number)[:\s]+([A-Z0-9\-\/]+)', text, re.I)
+            match = re.search(r'(?:Visa No|Visa Number|Passport No|Doc No|Document No|ID No|License No|DL No|Number)[:\s]+([A-Z0-9\-\/]+)', text, re.I)
             if match:
                 res["document_number"] = match.group(1).strip()
+            elif is_indian_passport:
+                pass_m = re.search(r'\b([A-Z]{1}[0-9]{7,8})\b', text)
+                if pass_m:
+                    res["document_number"] = pass_m.group(1).strip()
 
-        # 2. Date of Birth (Section 13)
-        dob_m = re.search(r'(?:Date of Birth|DOB|Birth|Born|तारीख)[:\s/]+([0-9]{2,4}[-/\.][0-9]{2}[-/\.][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4})', text, re.I)
+        # 2. Date of Birth (Section 13 & 24)
+        dob_m = re.search(r'(?:Date of Birth|DOB|Birth|Born|तारीख|जन्म\s*तिथि)[:\s/]+([0-9]{2,4}[-/\.][0-9]{2}[-/\.][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4})', text, re.I)
         if dob_m:
             res["date_of_birth"] = normalize_date_string(dob_m.group(1))
         else:
-            # Standalone date search
             date_matches = re.findall(r'\b(0[1-9]|[12][0-9]|3[01])[-/.](0[1-9]|1[0-2])[-/.](19[4-9][0-9]|20[0-2][0-9])\b', text)
             if date_matches:
                 d, m, y = date_matches[0]
@@ -563,24 +647,22 @@ class ModularOCREngine(BaseOCREngine):
             elif is_pan and any(p in text for p in ["2007/9047", "26072607", "20/07/2007", "20-07-2007"]):
                 res["date_of_birth"] = "2007-07-20"
             else:
-                # Common OCR misreads on Indian PAN dates
                 pan_dob_fix = re.search(r'\b(20)[-/.\s]?([01][0-9])[-/.\s]?(2007|20\d\d|19\d\d)\b', text)
                 if pan_dob_fix:
                     res["date_of_birth"] = f"{pan_dob_fix.group(3)}-{pan_dob_fix.group(2)}-{pan_dob_fix.group(1)}"
 
         # Date of Issue
-        doi_m = re.search(r'(?:Date of Issue|Issue Date|Issued|DOI|Valid From)[:\s]+([0-9]{2,4}[-/\.][0-9]{2}[-/\.][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4})', text, re.I)
+        doi_m = re.search(r'(?:Date of Issue|Issue Date|Issued|DOI|Valid From|जारी\s*करने\s*की\s*तिथि)[:\s]+([0-9]{2,4}[-/\.][0-9]{2}[-/\.][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4})', text, re.I)
         if doi_m:
             res["date_of_issue"] = normalize_date_string(doi_m.group(1))
 
         # Date of Expiry (Section 15)
-        if not is_pan and not is_aadhaar:
+        if not is_pan and not is_aadhaar and not is_oci:
             exp_m = re.search(r'(?:Date of Expiry|Expiry Date|Expiry|Valid Until|Valid Thru|Valid Till)[:\s]+([0-9]{2,4}[-/\.][0-9]{2}[-/\.][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4})', text, re.I)
             if exp_m:
                 res["expiry_date"] = normalize_date_string(exp_m.group(1))
 
         # 3. Holder Full Name & Father Name (Section 11)
-        # UI and system artifact stopwords that should never be treated as names
         ui_noise = {
             "CLEARTOENTER", "DOCUMENT TYPE", "OCR", "HOLDER FULL", "AI RISK", "RAPIDOCR",
             "PASSPORT", "NOT DETECTED", "-NOT DETECTED", "—NOT DETECTED", "EXPIRY DATE",
@@ -591,11 +673,9 @@ class ModularOCREngine(BaseOCREngine):
             "ANENT ACOEUNT NUMBER CAR", "ERMANENT ACCEUNT NUMBER CA", "NUMBER CAR", "NUMBER CARD"
         }
 
-        # Check explicit Name labels
-        name_m = re.search(r'(?:Surname|Nom|Given Names?|Full Name|Name|नाम|NAHE|NARE)[:\s/]+([A-Z\s]+)', text, re.I)
+        name_m = re.search(r'(?:Surname|Nom|Given Names?|Full Name|Holder Name|Holder|Name|नाम|NAHE|NARE)[:\s/]+([A-Z\s]+)', text, re.I)
         if name_m:
             cand = name_m.group(1).split('\n')[0].strip()
-            # Clean non-alphabetical noise
             cand = re.sub(r'[^A-Z\s]', '', cand.upper()).strip()
             if len(cand) > 3 and cand not in ui_noise and not cand.startswith("OF") and not cand.startswith("INDIA"):
                 res["holder_full_name"] = cand
@@ -615,26 +695,18 @@ class ModularOCREngine(BaseOCREngine):
                     valid_name_lines.append(l)
 
             if valid_name_lines:
-                # If PAN number is available, use 5th character (surname initial) to confirm holder or father
                 pan_no = res.get("document_number", "")
                 surname_initial = pan_no[4] if len(pan_no) >= 5 else ""
 
                 holder_cand = valid_name_lines[0]
                 father_cand = ""
                 for l in valid_name_lines[1:]:
-                    # Match by surname or middle name or PAN surname initial
                     h_words = holder_cand.split()
                     if any(w in l for w in h_words) or (surname_initial and any(w.startswith(surname_initial) for w in l.split())):
                         father_cand = l
                         break
 
-                # Standardize known Indian name OCR clippings (e.g. GORAN -> GORANI)
-                if not father_cand and "MAHESH JIVRAJ GORANI" in text.upper():
-                    father_cand = "MAHESH JIVRAJ GORANI"
-
-                if holder_cand.endswith("GORAN"):
-                    holder_cand = holder_cand + "I"
-                elif father_cand:
+                if father_cand:
                     f_words = father_cand.split()
                     h_words = holder_cand.split()
                     if f_words and h_words and f_words[-1].startswith(h_words[-1]) and len(f_words[-1]) > len(h_words[-1]):
@@ -646,26 +718,25 @@ class ModularOCREngine(BaseOCREngine):
                     res["father_name"] = father_cand
 
         # 4. Gender / Sex (Section 14)
-        gender_m = re.search(r'(?:Sex|Gender)[:\s]+(MALE|FEMALE|[MFX])', text, re.I)
+        gender_m = re.search(r'(?:Sex|Gender|लिंग)[:\s]+(MALE|FEMALE|[MFX]|पुरुष|महिला)', text, re.I)
         if gender_m:
             g_str = gender_m.group(1).upper()
-            res["gender"] = "Male" if g_str in ("M", "MALE") else ("Female" if g_str in ("F", "FEMALE") else "Unspecified")
-            res["gender_code"] = "M" if g_str in ("M", "MALE") else ("F" if g_str in ("F", "FEMALE") else "<")
+            res["gender"] = "Male" if (g_str in ("M", "MALE") or "पुरुष" in g_str) else ("Female" if (g_str in ("F", "FEMALE") or "महिला" in g_str) else "Unspecified")
+            res["gender_code"] = "M" if res["gender"] == "Male" else ("F" if res["gender"] == "Female" else "<")
         elif is_pan:
-            # Default to Male for known male given names like PRANAV
             first_name = (res.get("holder_full_name") or "").split()[0].upper() if res.get("holder_full_name") else ""
             if first_name in ("PRANAV", "MAHESH", "RAHUL", "AMIT", "VIKRAM", "RAJESH", "SANJAY", "ANIL", "SURESH"):
                 res["gender"] = "Male"
                 res["gender_code"] = "M"
 
         # 5. Nationality (Section 12)
-        nat_m = re.search(r'(?:Nationality)[:\s]+([A-Z]{3,15})', text, re.I)
+        nat_m = re.search(r'(?:Nationality|राष्ट्रीयता)[:\s]+([A-Z]{3,15})', text, re.I)
         if nat_m:
             cand_nat = nat_m.group(1).strip().upper()
             if cand_nat not in ("OCR", "TYPE", "NOT", "DETECTED", "HOLDER"):
                 res["nationality"] = cand_nat
         if not res.get("nationality"):
-            if "INDIA" in upper_text or "BHARAT" in upper_text or "GOVT. OF INDIA" in upper_text or is_pan or is_aadhaar:
+            if "INDIA" in upper_text or "BHARAT" in upper_text or "GOVT. OF INDIA" in upper_text or is_pan or is_aadhaar or is_dl or is_voter or is_rc or is_indian_passport:
                 res["nationality"] = "IND"
 
         # 6. Issuing Country / Authority (Section 16)
@@ -677,6 +748,67 @@ class ModularOCREngine(BaseOCREngine):
         if not res.get("issuing_country"):
             res["issuing_country"] = res.get("nationality", "IND")
 
+        # 7. Additional Visible Fields (Section 21 & 35)
+        # Father / Parent name
+        if not res.get("father_name"):
+            father_match = re.search(r'(?:Father\'?s? Name|Father|Parent|पिता|Husband\'?s? Name)[:\s/]+([A-Za-z\s]+)', text, re.I)
+            if father_match:
+                cand_f = father_match.group(1).split('\n')[0].strip()
+                cand_f = re.sub(r'[^A-Z\s]', '', cand_f.upper()).strip()
+                if len(cand_f) > 3 and cand_f not in ui_noise:
+                    res["father_name"] = cand_f
+
+        # Place of Birth & Place of Issue
+        pob_m = re.search(r'(?:Place of Birth|Birth Place|जन्म\s*स्थान)[:\s]+([A-Za-z\s]+)', text, re.I)
+        if pob_m:
+            res["place_of_birth"] = pob_m.group(1).split('\n')[0].strip()
+
+        poi_m = re.search(r'(?:Place of Issue|Issue Place|जारी\s*स्थान)[:\s]+([A-Za-z\s]+)', text, re.I)
+        if poi_m:
+            res["place_of_issue"] = poi_m.group(1).split('\n')[0].strip()
+
+        # Issuing Authority
+        auth_m = re.search(r'(?:Issuing Authority|Authority|प्राधिकरण)[:\s]+([A-Za-z0-9\s]+)', text, re.I)
+        if auth_m:
+            res["issuing_authority"] = auth_m.group(1).split('\n')[0].strip()
+
+        # Address
+        addr_m = re.search(r'(?:Address|Permanent Address|पता)[:\s]+([A-Za-z0-9\s,\.\-\/]+(?:PIN|Pin|Pincode|\d{6})[^\n]*)', text, re.I)
+        if addr_m:
+            res["address"] = addr_m.group(1).strip()
+
+        # Vehicle Class (Driving Licence / RC)
+        cov_matches = re.findall(r'\b(MCWG|LMV|MCWOG|HMV|HGMV|TRANS|3W|4W)\b', text, re.I)
+        if cov_matches:
+            res["vehicle_class"] = ", ".join(sorted(list(set(m.upper() for m in cov_matches))))
+
+        # Vehicle RC Specific Details
+        if is_rc:
+            eng_m = re.search(r'(?:Engine No|Eng No|Engine)[:\s]+([A-Z0-9]+)', text, re.I)
+            if eng_m:
+                res["engine_number"] = eng_m.group(1).strip()
+            chass_m = re.search(r'(?:Chassis No|Chassis|Vin)[:\s]+([A-Z0-9]+)', text, re.I)
+            if chass_m:
+                res["chassis_number"] = chass_m.group(1).strip()
+            fuel_m = re.search(r'(?:Fuel|Fuel Type)[:\s]+(PETROL|DIESEL|CNG|ELECTRIC|HYBRID)', text, re.I)
+            if fuel_m:
+                res["fuel_type"] = fuel_m.group(1).strip()
+
+        # Aadhaar VID
+        if is_aadhaar:
+            vid_m = re.search(r'\bVID\s*[:\s]?\s*([0-9]{4}\s+[0-9]{4}\s+[0-9]{4}\s+[0-9]{4})\b', text, re.I)
+            if vid_m:
+                res["vid"] = vid_m.group(1).strip()
+
+        # Visa Type & Entries
+        if is_indian_visa:
+            vtype_m = re.search(r'(?:Visa Type|Category)[:\s]+([A-Za-z0-9\s\-]+)', text, re.I)
+            if vtype_m:
+                res["visa_type"] = vtype_m.group(1).split('\n')[0].strip()
+            ent_m = re.search(r'(?:Entries|No\. of Entries)[:\s]+(SINGLE|MULTIPLE|DOUBLE|TRIPLE|[0-9]+)', text, re.I)
+            if ent_m:
+                res["entries"] = ent_m.group(1).strip().upper()
+
         return res
 
     def _harmonize_and_cross_validate(
@@ -686,13 +818,16 @@ class ModularOCREngine(BaseOCREngine):
         gemini_fields: Dict[str, Any],
         known_data: Dict[str, Any],
         raw_text: str,
-        engine_used: str
-    ) -> Tuple[Dict[str, Any], ExtractedFields, float]:
+        engine_used: str,
+        classification: Optional[Dict[str, Any]] = None
+    ) -> Tuple[Dict[str, Any], ExtractedFields, float, Dict[str, Any], str]:
         """
         Cross-validates MRZ vs Visible OCR vs Gemini and constructs Master Field Result (Section 23).
-        Extraction hierarchy: MRZ > OCR > Gemini > Fallback (Section 37).
+        Returns: (master_fields, extracted_fields_obj, overall_confidence, additional_fields, analysis_status)
         """
         kf = known_data.get("fields", {})
+        gemini_fields = gemini_fields or {}
+        cls_type = (classification or {}).get("document_type", "UNKNOWN")
 
         # 1. DOCUMENT TYPE (Section 9)
         doc_type_val = "UNKNOWN"
@@ -712,10 +847,28 @@ class ModularOCREngine(BaseOCREngine):
             doc_type_val = visible_fields["document_type"]
             doc_type_src = "OCR"
             doc_type_conf = 0.92
+        elif cls_type != "UNKNOWN":
+            doc_type_val = cls_type
+            doc_type_src = "DOCUMENT_CLASSIFIER"
+            doc_type_conf = classification.get("confidence", 0.85) if classification else 0.85
         elif isinstance(gemini_fields.get("document_type"), dict) and gemini_fields["document_type"].get("value"):
             doc_type_val = str(gemini_fields["document_type"]["value"]).upper()
             doc_type_src = "GEMINI"
             doc_type_conf = float(gemini_fields["document_type"].get("confidence", 0.85))
+
+        # Check for UNSUPPORTED / Non-document (Section 17)
+        if doc_type_val == "UNSUPPORTED" or (not mrz_data and len(raw_text.strip()) < 15 and not kf):
+            empty_mf = self._empty_master_fields()
+            empty_mf["document_type"] = {
+                "value": "UNSUPPORTED",
+                "source": "DOCUMENT_CLASSIFIER",
+                "confidence": 0.15,
+                "validation": "NOT_VERIFIED"
+            }
+            empty_mf["additional_fields"] = {}
+            empty_mf["analysis_status"] = "NOT_VERIFIED"
+            empty_fields = ExtractedFields()
+            return empty_mf, empty_fields, 0.0
 
         # 2. DOCUMENT NUMBER (Section 10)
         doc_num_val = ""
@@ -756,7 +909,7 @@ class ModularOCREngine(BaseOCREngine):
             doc_num_src = "GEMINI"
             doc_num_conf = 0.85
 
-        # 3. HOLDER FULL NAME (Section 11)
+        # 3. HOLDER FULL NAME (Section 11 & 25)
         name_val = ""
         name_src = "OCR"
         name_conf = 0.0
@@ -824,7 +977,7 @@ class ModularOCREngine(BaseOCREngine):
             nat_src = "OCR"
             nat_conf = 0.90
 
-        # 5. DATE OF BIRTH (Section 13)
+        # 5. DATE OF BIRTH (Section 13 & 24)
         dob_val = ""
         dob_src = "OCR"
         dob_conf = 0.0
@@ -938,7 +1091,7 @@ class ModularOCREngine(BaseOCREngine):
         iss_country_name = resolve_country_name(iss_val)
         exp_status = compute_expiry_status(exp_val)
 
-        # Master Field Result (Section 23)
+        # Master Field Result (Section 2 & 20)
         master_fields = {
             "document_type": {
                 "value": doc_type_val,
@@ -995,16 +1148,43 @@ class ModularOCREngine(BaseOCREngine):
             }
         }
 
+        # Additional Extracted Information (Section 21 & 35)
+        additional_fields: Dict[str, Any] = {}
+        extra_keys = [
+            "father_name", "place_of_birth", "place_of_issue", "date_of_issue",
+            "issuing_authority", "address", "vehicle_class", "engine_number",
+            "chassis_number", "fuel_type", "vid", "visa_type", "entries"
+        ]
+        for ek in extra_keys:
+            if ek in visible_fields and visible_fields[ek]:
+                additional_fields[ek] = {
+                    "value": str(visible_fields[ek]),
+                    "source": "OCR",
+                    "confidence": 0.90,
+                    "validation": "MATCH"
+                }
+
         # Overall confidence calculation (Section 18 & 19)
         valid_fields = [f for f in master_fields.values() if f["value"]]
         if not valid_fields:
             overall_confidence = 0.0 if not raw_text else 0.35
         else:
             avg_conf = sum(f["confidence"] for f in valid_fields) / float(len(valid_fields))
-            # Penalize overall confidence if MRZ checksum failed
             if mrz_data and not mrz_data.valid:
                 avg_conf = min(avg_conf, 0.65)
             overall_confidence = round(avg_conf, 2)
+
+        # Document Status Model (Section 18)
+        if doc_type_val == "UNSUPPORTED":
+            analysis_status = "NOT_VERIFIED"
+        elif exp_status == "EXPIRED":
+            analysis_status = "EXPIRED"
+        elif overall_confidence >= 0.85:
+            analysis_status = "VERIFIED"
+        elif overall_confidence >= 0.60:
+            analysis_status = "PARTIALLY_ANALYZED"
+        else:
+            analysis_status = "REVIEW_REQUIRED"
 
         extracted_fields_obj = ExtractedFields(
             name=name_val,
@@ -1016,6 +1196,9 @@ class ModularOCREngine(BaseOCREngine):
             gender=gender_code,
             issuing_country=iss_val
         )
+
+        master_fields["additional_fields"] = additional_fields
+        master_fields["analysis_status"] = analysis_status
 
         return master_fields, extracted_fields_obj, overall_confidence
 
@@ -1079,8 +1262,8 @@ class ModularOCREngine(BaseOCREngine):
 
     def _extract_fields(self, text: str, mrz_data: Optional[Any], known_data: Dict[str, Any], gemini_fields: Dict[str, Any]) -> ExtractedFields:
         vis = self._extract_visible_fields(text)
-        _, final_fields, _ = self._harmonize_and_cross_validate(mrz_data, vis, gemini_fields, known_data, text, "Direct")
-        return final_fields
+        res = self._harmonize_and_cross_validate(mrz_data, vis, gemini_fields, known_data, text, "Direct")
+        return res[1]
 
     def _compute_confidence(self, fields: ExtractedFields, mrz_data: Optional[Any], raw_text: str, engine_used: str) -> float:
         if not raw_text or len(raw_text.strip()) < 5:

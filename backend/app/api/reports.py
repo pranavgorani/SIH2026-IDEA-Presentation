@@ -460,19 +460,24 @@ def list_case_reports(case_id: str, db: Session = Depends(get_db)):
 # ==========================================
 # 8. GET /api/reports (Global Report Center)
 # ==========================================
-@router.get("/reports", summary="Global Report Center — List reports across cases with analytics")
-def get_global_reports(
-    risk_level: Optional[str] = Query(None),
-    document_type: Optional[str] = Query(None),
-    limit: int = 50,
-    offset: int = 0,
-    db: Session = Depends(get_db)
-):
+def _get_ledger_cases(
+    db: Session,
+    risk_level: Optional[str] = None,
+    document_type: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]:
     query = db.query(Case)
-    if risk_level:
+    if risk_level and risk_level.upper() != "ALL":
         query = query.filter(Case.risk_level == risk_level.upper())
-    if document_type:
+    if document_type and document_type.upper() != "ALL":
         query = query.filter(Case.document_type == document_type.upper())
+    if search and search.strip():
+        term = f"%{search.strip().lower()}%"
+        query = query.filter(
+            (Case.case_number.ilike(term)) | (Case.document_type.ilike(term))
+        )
 
     cases = query.order_by(Case.created_at.desc()).offset(offset).limit(limit).all()
 
@@ -481,18 +486,22 @@ def get_global_reports(
         hash_val = hashlib.sha256(f"{c.id}:{c.risk_score}".encode()).hexdigest()[:16]
         holder = "Official Credential Holder"
         ocr_inst = getattr(c, "ocr_result", None)
-        if ocr_inst and getattr(ocr_inst, "extracted_fields", None) and isinstance(ocr_inst.extracted_fields, dict):
-            holder = ocr_inst.extracted_fields.get("name") or holder
+        if ocr_inst:
+            if isinstance(ocr_inst, list) and ocr_inst:
+                ocr_inst = ocr_inst[0]
+            ef = getattr(ocr_inst, "extracted_fields", None)
+            if isinstance(ef, dict) and ef.get("name"):
+                holder = ef["name"]
 
         rev_dec = getattr(c, "review_decision", None)
-        dec_val = getattr(rev_dec, "decision", "APPROVED" if c.risk_level == "LOW" else "PENDING_REVIEW") if rev_dec else "APPROVED"
+        dec_val = getattr(rev_dec, "decision", "APPROVED" if (c.risk_level or "LOW") == "LOW" else "PENDING_REVIEW") if rev_dec else ("APPROVED" if (c.risk_level or "LOW") == "LOW" else "PENDING_REVIEW")
 
         items.append({
             "case_id": c.id,
             "case_number": c.case_number or f"CASE-{c.id[:8]}",
             "document_type": c.document_type or "PASSPORT",
             "holder_name": holder,
-            "risk_score": c.risk_score or 15.0,
+            "risk_score": c.risk_score if c.risk_score is not None else 15.0,
             "risk_level": c.risk_level or "LOW",
             "status": c.status or "COMPLETED",
             "decision": dec_val,
@@ -503,6 +512,20 @@ def get_global_reports(
             "docx_url": f"/api/cases/{c.id}/report/docx",
             "zip_url": f"/api/cases/{c.id}/report/zip",
         })
+
+    return items
+
+
+@router.get("/reports", summary="Global Report Center — List reports across cases with analytics")
+def get_global_reports(
+    risk_level: Optional[str] = Query(None),
+    document_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    items = _get_ledger_cases(db, risk_level=risk_level, document_type=document_type, search=search, limit=limit, offset=offset)
 
     # Summary analytics
     total_cases = db.query(Case).count()
@@ -531,6 +554,128 @@ def get_global_reports(
         },
         "reports": items
     }
+
+
+# =========================================================================
+# GLOBAL LEDGER EXPORT ENDPOINTS (PART 1 REQUIREMENTS)
+# =========================================================================
+
+@router.get("/reports/export/csv", summary="Export Report Ledger — CSV of filtered or complete report ledger")
+def export_reports_ledger_csv(
+    risk_level: Optional[str] = Query(None),
+    document_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    cases = _get_ledger_cases(db, risk_level=risk_level, document_type=document_type, search=search, limit=limit, offset=offset)
+    csv_bytes = ReportExportService.generate_ledger_csv_bytes(cases)
+    filename = f"TRUST-ID_Report_Ledger_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.get("/reports/export/pdf", summary="Export as PDF — Professional multi-record screening results summary")
+def export_reports_ledger_pdf(
+    risk_level: Optional[str] = Query(None),
+    document_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    cases = _get_ledger_cases(db, risk_level=risk_level, document_type=document_type, search=search, limit=limit, offset=offset)
+    filters = {"risk_level": risk_level or "ALL", "document_type": document_type or "ALL", "search": search or ""}
+    pdf_bytes = report_pdf_service.generate_ledger_pdf_bytes(cases, filters)
+    filename = f"TRUST-ID_Screening_Summary_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.get("/reports/export/docx", summary="Export as DOCX — Editable Microsoft Word summary of screening ledger")
+def export_reports_ledger_docx(
+    risk_level: Optional[str] = Query(None),
+    document_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    cases = _get_ledger_cases(db, risk_level=risk_level, document_type=document_type, search=search, limit=limit, offset=offset)
+    filters = {"risk_level": risk_level or "ALL", "document_type": document_type or "ALL", "search": search or ""}
+    docx_bytes = ReportExportService.generate_ledger_docx_bytes(cases, filters)
+    filename = f"TRUST-ID_Screening_Summary_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.docx"
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.get("/reports/export/all", summary="Download All Reports — Complete ZIP archive containing reports, ledger, and summaries")
+@router.get("/reports/export/zip", summary="Download All Reports ZIP alias")
+def export_reports_ledger_all_zip(
+    risk_level: Optional[str] = Query(None),
+    document_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    cases = _get_ledger_cases(db, risk_level=risk_level, document_type=document_type, search=search, limit=limit, offset=offset)
+    filters = {"risk_level": risk_level or "ALL", "document_type": document_type or "ALL", "search": search or ""}
+
+    # 1. Generate master ledger CSV
+    csv_bytes = ReportExportService.generate_ledger_csv_bytes(cases)
+
+    # 2. Generate executive summary PDF
+    pdf_bytes = report_pdf_service.generate_ledger_pdf_bytes(cases, filters)
+
+    # 3. Generate executive summary DOCX
+    docx_bytes = ReportExportService.generate_ledger_docx_bytes(cases, filters)
+
+    # 4. Pack into ZIP archive with descriptive filenames
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("TRUST-ID_Report_Ledger.csv", csv_bytes)
+        zf.writestr("TRUST-ID_Screening_Summary.pdf", pdf_bytes)
+        zf.writestr("TRUST-ID_Screening_Summary.docx", docx_bytes)
+
+        # Include individual case check matrix CSVs for top cases
+        for c in cases[:15]:
+            c_num = c.get("case_number", "CASE")
+            c_id = c.get("case_id")
+            case_obj = db.query(Case).filter(Case.id == c_id).first() if c_id else None
+            if case_obj:
+                try:
+                    c_checks = _get_or_run_case_checks(case_obj, db)
+                    c_csv = ReportExportService.generate_csv_bytes(
+                        {"id": case_obj.id, "case_number": case_obj.case_number, "document_type": case_obj.document_type},
+                        c_checks["checks"]
+                    )
+                    zf.writestr(f"cases/TRUST-ID_Checks_{c_num}.csv", c_csv)
+                except Exception:
+                    pass
+
+    zip_buffer.seek(0)
+    filename = f"TRUST-ID_All_Screening_Reports_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
+    return Response(
+        content=zip_buffer.read(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
 
 
 # ==========================================

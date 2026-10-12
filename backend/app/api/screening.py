@@ -862,17 +862,166 @@ async def run_screening_pipeline(
         elif isinstance(ocr_raw_res["mrz"], dict) and ocr_raw_res["mrz"].get("raw_mrz"):
             raw_mrz_list = ocr_raw_res["mrz"]["raw_mrz"]
 
-    final_doc_type = (master_fields.get("document_type", {}).get("value") if master_fields.get("document_type", {}).get("value") not in (None, "", "UNKNOWN") else None) or detected_doc_type
+    if document_type_hint and document_type_hint != "AUTO_DETECT":
+        final_doc_type = document_type_hint
+    else:
+        final_doc_type = (master_fields.get("document_type", {}).get("value") if master_fields.get("document_type", {}).get("value") not in (None, "", "UNKNOWN") else None) or detected_doc_type
+    is_unsupported = (final_doc_type == "UNSUPPORTED")
+
+    scan_id = f"SCAN-{utc_now().strftime('%Y%m%d')}-{case_id[:6].upper()}-01"
+    raw_ai_prov = tamper_res.signals.get("ai_provider", "LOCAL_CV_FALLBACK")
+    ai_provider_display = "GEMINI + LOCAL OCR/CV" if ("GEMINI" in str(raw_ai_prov).upper() and tamper_res.signals.get("ai_status") == "available") else "LOCAL OCR/CV"
+
+    if is_unsupported:
+        analysis_status = "NOT_VERIFIED"
+        doc_payload = {
+            "type": "UNSUPPORTED",
+            "number": "",
+            "holder_name": "",
+            "nationality": "",
+            "date_of_birth": "",
+            "gender": "",
+            "expiry_date": "",
+            "issuing_country": "",
+            "confidence": 0.0
+        }
+        field_conf_payload = {
+            "document_type": 0.0,
+            "document_number": 0.0,
+            "holder_name": 0.0,
+            "nationality": 0.0,
+            "date_of_birth": 0.0,
+            "gender": 0.0,
+            "expiry_date": 0.0,
+            "issuing_country": 0.0
+        }
+        sources_payload = {
+            "document_type": "NONE",
+            "document_number": "NONE",
+            "holder_name": "NONE",
+            "nationality": "NONE",
+            "date_of_birth": "NONE",
+            "gender": "NONE",
+            "expiry_date": "NONE",
+            "issuing_country": "NONE"
+        }
+        additional_fields_payload = {}
+        unsupported_reason = "Document type could not be confidently recognized or supported."
+    else:
+        analysis_status = ocr_raw_res.get("analysis_status") or (
+            "VERIFIED" if float(ocr_raw_res.get("confidence", 0)) >= 0.85 else "PARTIALLY_ANALYZED"
+        )
+        doc_payload = {
+            "type": final_doc_type,
+            "number": master_fields.get("document_number", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "document_number", ""),
+            "holder_name": master_fields.get("holder_full_name", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "name", ""),
+            "nationality": master_fields.get("nationality", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "nationality", ""),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "date_of_birth", ""),
+            "gender": master_fields.get("gender", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "gender", ""),
+            "expiry_date": master_fields.get("expiry_date", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "date_of_expiry", ""),
+            "issuing_country": master_fields.get("issuing_country", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "issuing_country", ""),
+            "confidence": doc_confidence
+        }
+        field_conf_payload = {
+            "document_type": master_fields.get("document_type", {}).get("confidence", doc_confidence),
+            "document_number": master_fields.get("document_number", {}).get("confidence", 0.0),
+            "holder_name": master_fields.get("holder_full_name", {}).get("confidence", 0.0),
+            "nationality": master_fields.get("nationality", {}).get("confidence", 0.0),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("confidence", 0.0),
+            "gender": master_fields.get("gender", {}).get("confidence", 0.0),
+            "expiry_date": master_fields.get("expiry_date", {}).get("confidence", 0.0),
+            "issuing_country": master_fields.get("issuing_country", {}).get("confidence", 0.0)
+        }
+        sources_payload = {
+            "document_type": master_fields.get("document_type", {}).get("source", "OCR"),
+            "document_number": master_fields.get("document_number", {}).get("source", "OCR"),
+            "holder_name": master_fields.get("holder_full_name", {}).get("source", "OCR"),
+            "nationality": master_fields.get("nationality", {}).get("source", "OCR"),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("source", "OCR"),
+            "gender": master_fields.get("gender", {}).get("source", "OCR"),
+            "expiry_date": master_fields.get("expiry_date", {}).get("source", "OCR"),
+            "issuing_country": master_fields.get("issuing_country", {}).get("source", "OCR")
+        }
+        additional_fields_payload = ocr_raw_res.get("additional_fields", {})
+        unsupported_reason = None
+
+    # Construct Part 3 structured OCR output schema
+    structured_fields = {}
+    for f_key in ["surname", "given_names", "document_number", "nationality", "date_of_birth", "expiry_date", "holder_full_name", "gender", "issuing_country"]:
+        raw_entry = master_fields.get(f_key)
+        src_val = raw_entry if isinstance(raw_entry, dict) else {}
+        val_str = src_val.get("value")
+        val_status = src_val.get("validation", "NOT_VERIFIED")
+        if not val_str:
+            status_label = "NOT_PRESENT" if is_unsupported else "NOT_FOUND"
+        elif val_status == "MISMATCH":
+            status_label = "REVIEW"
+        elif val_status in ("MATCH", "MATCHED"):
+            status_label = "MATCHED"
+        elif val_status == "VERIFIED":
+            status_label = "VERIFIED"
+        else:
+            status_label = "NOT_VERIFIED"
+
+        structured_fields[f_key] = {
+            "value": val_str,
+            "normalized_value": val_str,
+            "confidence": src_val.get("confidence", 0.0),
+            "source": src_val.get("source", "VIZ"),
+            "status": status_label
+        }
+
+    iss_entry = master_fields.get("issuing_country")
+    iss_val_str = iss_entry.get("value") if isinstance(iss_entry, dict) else None
+    doc_num_entry = master_fields.get("document_number")
+    doc_num_val_match = (doc_num_entry.get("validation") == "MATCH") if isinstance(doc_num_entry, dict) else None
+
+    structured_ocr_payload = {
+        "case_id": case_id,
+        "document_type": final_doc_type,
+        "issuing_country": iss_val_str,
+        "classification_confidence": doc_confidence,
+        "overall_ocr_confidence": float(ocr_raw_res.get("confidence", 0.0)),
+        "extraction_status": final_status,
+        "fields": structured_fields,
+        "mrz_validation": {
+            "present": bool(ocr_raw_res.get("mrz")),
+            "format_valid": bool(getattr(ocr_raw_res.get("mrz"), "valid", False)) if ocr_raw_res.get("mrz") else None,
+            "check_digits_valid": bool(getattr(ocr_raw_res.get("mrz"), "checksum_composite", False)) if ocr_raw_res.get("mrz") else None,
+            "viz_mrz_match": doc_num_val_match,
+            "errors": []
+        },
+        "quality_checks": {
+            "image_quality": getattr(quality_res, "quality_score", 0.95),
+            "document_classification": detected_doc_type,
+            "field_completeness": round(len([k for k, v in master_fields.items() if isinstance(v, dict) and v.get("value")]) / 8.0, 2)
+        },
+        "validation_results": checks_data.get("checks", []),
+        "warnings": [c["message"] for c in checks_data.get("checks", []) if c.get("status") in ("WARNING", "FAIL")],
+        "processing_metadata": {
+            "ocr_engine": ocr_raw_res.get("ocr_engine_used", "RapidOCR (PaddleOCR ONNX Engine)"),
+            "processing_time_ms": ocr_ms,
+            "model_version": "TRUST-ID-OCR-v2.5"
+        }
+    }
 
     return {
         "success": True,
         "request_id": request_id,
         "case_id": case_id,
         "case_number": case_number,
+        "scan_id": scan_id,
         "status": final_status,
         "screening_status": "completed",
+        "analysis_status": analysis_status,
+        "external_verification_status": "NOT_CONFIGURED",
+        "external_verification_provider": "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
+        "unsupported": is_unsupported,
+        "unsupported_reason": unsupported_reason,
         "verification_mode": verification_mode,
         "ai_status": ai_status_val,
+        "ai_provider": raw_ai_prov,
+        "ai_provider_display": ai_provider_display,
         "cached": bool(ocr_raw_res.get("cached", False)),
         "timing": {
             "upload_ms": upload_ms,
@@ -883,40 +1032,15 @@ async def run_screening_pipeline(
             "db_ms": db_ms,
             "total_ms": total_ms
         },
+        "structured_ocr": structured_ocr_payload,
         "database_saved": db_save_successful,
-        "document": {
-            "type": final_doc_type,
-            "number": master_fields.get("document_number", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "document_number", ""),
-            "holder_name": master_fields.get("holder_full_name", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "name", ""),
-            "nationality": master_fields.get("nationality", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "nationality", ""),
-            "date_of_birth": master_fields.get("date_of_birth", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "date_of_birth", ""),
-            "gender": master_fields.get("gender", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "gender", ""),
-            "expiry_date": master_fields.get("expiry_date", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "date_of_expiry", ""),
-            "issuing_country": master_fields.get("issuing_country", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "issuing_country", ""),
-            "confidence": doc_confidence
-        },
-        "field_confidence": {
-            "document_type": master_fields.get("document_type", {}).get("confidence", doc_confidence),
-            "document_number": master_fields.get("document_number", {}).get("confidence", 0.0),
-            "holder_name": master_fields.get("holder_full_name", {}).get("confidence", 0.0),
-            "nationality": master_fields.get("nationality", {}).get("confidence", 0.0),
-            "date_of_birth": master_fields.get("date_of_birth", {}).get("confidence", 0.0),
-            "gender": master_fields.get("gender", {}).get("confidence", 0.0),
-            "expiry_date": master_fields.get("expiry_date", {}).get("confidence", 0.0),
-            "issuing_country": master_fields.get("issuing_country", {}).get("confidence", 0.0)
-        },
-        "sources": {
-            "document_type": master_fields.get("document_type", {}).get("source", "OCR"),
-            "document_number": master_fields.get("document_number", {}).get("source", "OCR"),
-            "holder_name": master_fields.get("holder_full_name", {}).get("source", "OCR"),
-            "nationality": master_fields.get("nationality", {}).get("source", "OCR"),
-            "date_of_birth": master_fields.get("date_of_birth", {}).get("source", "OCR"),
-            "gender": master_fields.get("gender", {}).get("source", "OCR"),
-            "expiry_date": master_fields.get("expiry_date", {}).get("source", "OCR"),
-            "issuing_country": master_fields.get("issuing_country", {}).get("source", "OCR")
-        },
-        "fields_detail": master_fields,
-        "raw_mrz": raw_mrz_list,
+        "document": doc_payload,
+        "field_confidence": field_conf_payload,
+        "sources": sources_payload,
+        "basic_fields": master_fields if not is_unsupported else {},
+        "additional_fields": additional_fields_payload,
+        "fields_detail": master_fields if not is_unsupported else {},
+        "raw_mrz": raw_mrz_list if not is_unsupported else [],
         "raw_ocr_text": ocr_raw_res.get("raw_text", ""),
         "mrz_validation": {
             "detected": bool(ocr_raw_res.get("mrz")),

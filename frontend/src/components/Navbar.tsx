@@ -15,6 +15,8 @@ import {
   UserCheck,
   Activity,
   Layers,
+  RefreshCw,
+  Check,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -22,6 +24,21 @@ export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
+  const [refreshState, setRefreshState] = useState<"idle" | "refreshing" | "refreshed">("idle");
+
+  const handleGlobalRefresh = () => {
+    if (refreshState !== "idle") return;
+    setRefreshState("refreshing");
+    try {
+      window.dispatchEvent(new CustomEvent("trustid:refresh"));
+    } catch {}
+    setTimeout(() => {
+      setRefreshState("refreshed");
+      setTimeout(() => {
+        setRefreshState("idle");
+      }, 1500);
+    }, 600);
+  };
 
   useEffect(() => {
     const stored = localStorage.getItem("trustid_user");
@@ -100,6 +117,38 @@ export default function Navbar() {
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>CHAIN: VERIFIED</span>
             </div>
+
+            {/* TOP-RIGHT REFRESH BUTTON (Lucide RefreshCw) */}
+            <button
+              type="button"
+              onClick={handleGlobalRefresh}
+              disabled={refreshState !== "idle"}
+              title="Refresh and reload current data from backend"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono transition-all border shadow-sm ${
+                refreshState === "refreshing"
+                  ? "bg-blue-600/20 text-blue-300 border-blue-500/50 cursor-wait"
+                  : refreshState === "refreshed"
+                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50"
+                  : "bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white border-[#24365d] hover:border-blue-500/50"
+              }`}
+            >
+              {refreshState === "refreshing" ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                  <span>↻ Refreshing...</span>
+                </>
+              ) : refreshState === "refreshed" ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>✓ Refreshed</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+                  <span>↻ Refresh</span>
+                </>
+              )}
+            </button>
 
             {user ? (
               <div className="flex items-center gap-2 pl-2 border-l border-[#24365d]">

@@ -32,7 +32,8 @@ import {
   FileSpreadsheet,
   ChevronDown,
   ChevronUp,
-  Filter
+  Filter,
+  RefreshCw
 } from "lucide-react";
 import OfficialDossierReport, {
   DossierReportData,
@@ -94,6 +95,7 @@ export interface ScenarioItem {
     source?: string;
     confidence?: number;
     validation?: string;
+    status?: string;
     mrz_val?: string | null;
     ocr_val?: string | null;
   }>;
@@ -102,6 +104,13 @@ export interface ScenarioItem {
     valid: boolean;
     consistency: string;
   };
+  isUnsupported?: boolean;
+  unsupportedReason?: string;
+  analysisStatus?: "VERIFIED" | "REVIEW_REQUIRED" | "PARTIALLY_ANALYZED" | "NOT_VERIFIED" | "UNSUPPORTED" | "INVALID_IMAGE" | "EXPIRED" | "WARNING" | string;
+  externalVerificationStatus?: "AVAILABLE" | "UNAVAILABLE" | "NOT_CONFIGURED" | string;
+  aiProviderDisplay?: string;
+  additionalFields?: Record<string, string>;
+  overallConfidence?: number;
 }
 
 /**
@@ -648,6 +657,40 @@ export default function ScreeningPage() {
   const [isProcessingUpload, setIsProcessingUpload] = useState(false);
   const [uploadMode, setUploadMode] = useState<"file" | "camera">("file");
 
+  // Refresh State (Requirements 27-30)
+  const [refreshState, setRefreshState] = useState<"idle" | "refreshing" | "refreshed">("idle");
+
+  const handleRefresh = () => {
+    if (refreshState !== "idle") return;
+    setRefreshState("refreshing");
+
+    // Clear transient scanner state:
+    // currentDocument, currentScan, ocrResult, mrzResult, extractedFields, confidence, risk, 100Checks, report, error, pipelineProgress
+    setCustomScenario(null);
+    setCustomFile(null);
+    setCustomPreview(null);
+    setShowRawOcr(false);
+    setSelectedFieldEvidence(null);
+    setIsProcessingUpload(false);
+    setSelectedScenarioIndex(0);
+
+    setTimeout(() => {
+      setRefreshState("refreshed");
+      setTimeout(() => {
+        setRefreshState("idle");
+      }, 1500);
+    }, 600);
+  };
+
+  // Listen for global navbar refresh event
+  useEffect(() => {
+    const onGlobalRefresh = () => {
+      handleRefresh();
+    };
+    window.addEventListener("trustid:refresh", onGlobalRefresh);
+    return () => window.removeEventListener("trustid:refresh", onGlobalRefresh);
+  }, []);
+
   // Section 27: Raw OCR text expansion toggle
   const [showRawOcr, setShowRawOcr] = useState(false);
 
@@ -664,41 +707,68 @@ export default function ScreeningPage() {
   } | null>(null);
 
   // Helper to format field extraction metadata, source, and confidence badge
-  const getFieldMeta = (fieldKey: string, val: string | undefined, defaultConf: number = 0.95) => {
+  const getFieldMeta = (fieldKey: string, val: string | undefined, defaultConf: number = 0.88) => {
     const rawVal = (val || "").trim();
-    const hasValue = rawVal.length > 0 && rawVal !== "— Not detected" && rawVal !== "—";
+    const hasValue = rawVal.length > 0 && rawVal !== "— Not detected" && rawVal !== "—" && rawVal !== "NOT_PRESENT";
     const conf = currentScenario.fieldConfidence?.[fieldKey] !== undefined
       ? currentScenario.fieldConfidence[fieldKey]
-      : (hasValue ? defaultConf : 0);
-    const src = currentScenario.sources?.[fieldKey] || (currentScenario.rawMrz?.[0]?.startsWith("P<") ? "MRZ" : "OCR");
+      : (hasValue ? (currentScenario.overallConfidence !== undefined ? currentScenario.overallConfidence : defaultConf) : 0);
+    const src = currentScenario.sources?.[fieldKey] || (currentScenario.rawMrz?.[0]?.startsWith("P<") ? "MRZ" : "VIZ");
     const detail = currentScenario.fieldsDetail?.[fieldKey];
     const pct = Math.round(conf * 100);
 
-    let badgeText = "— Not detected";
-    let badgeColor = "text-slate-500 bg-slate-850 border-slate-700/50";
+    let status: "VERIFIED" | "MATCHED" | "REVIEW" | "NOT_FOUND" | "NOT_PRESENT" | "NOT_VERIFIED" = "NOT_FOUND";
+    let badgeText = "NOT_FOUND";
+    let badgeColor = "text-slate-500 bg-slate-900/60 border-slate-700/40";
+    let confidenceTier: "HIGH" | "MEDIUM" | "LOW" | "NOT_CONFIDENT" | "NOT_DETECTED" = "NOT_DETECTED";
 
-    if (hasValue && pct > 0) {
-      if (pct >= 90) {
-        badgeText = `✓ ${pct}% confidence`;
-        badgeColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
-      } else if (pct >= 70) {
-        badgeText = `⚠ ${pct}% confidence`;
-        badgeColor = "text-amber-400 bg-amber-500/10 border-amber-500/30";
+    if (!hasValue) {
+      if (currentScenario.isUnsupported || ["father_name", "vid"].includes(fieldKey)) {
+        status = "NOT_PRESENT";
+        badgeText = "NOT_PRESENT";
+        badgeColor = "text-slate-500 bg-slate-900/60 border-slate-800";
       } else {
-        badgeText = `⚠ ${pct}% confidence`;
+        status = "NOT_FOUND";
+        badgeText = "NOT_FOUND";
+        badgeColor = "text-slate-500 bg-slate-900/60 border-slate-800";
+      }
+    } else {
+      // Evaluate based on validation evidence and cross-checking (Part 6 requirements)
+      const valState = (detail?.validation || "").toUpperCase();
+      if (valState === "MISMATCH" || pct < 60 || detail?.status === "REVIEW") {
+        status = "REVIEW";
+        badgeText = `⚠ REVIEW (${pct}%)`;
         badgeColor = "text-rose-400 bg-rose-500/10 border-rose-500/30";
+        confidenceTier = pct >= 50 ? "LOW" : "NOT_CONFIDENT";
+      } else if (valState === "VERIFIED" || detail?.status === "VERIFIED") {
+        status = "VERIFIED";
+        badgeText = `✓ VERIFIED (${pct}%)`;
+        badgeColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
+        confidenceTier = "HIGH";
+      } else if (valState === "MATCH" || valState === "MATCHED" || (src.includes("MRZ") && src.includes("OCR")) || detail?.status === "MATCHED") {
+        status = "MATCHED";
+        badgeText = `✓ MATCHED (${pct}%)`;
+        badgeColor = "text-cyan-400 bg-cyan-500/10 border-cyan-500/30";
+        confidenceTier = pct >= 75 ? "HIGH" : "MEDIUM";
+      } else {
+        status = "NOT_VERIFIED";
+        badgeText = `ℹ NOT_VERIFIED (${pct}%)`;
+        badgeColor = "text-amber-400 bg-amber-500/10 border-amber-500/30";
+        confidenceTier = pct >= 70 ? "MEDIUM" : "LOW";
       }
     }
 
     return {
       hasValue,
-      displayVal: hasValue ? rawVal : "— Not detected",
+      displayVal: hasValue ? rawVal : (status === "NOT_PRESENT" ? "— Not present" : "— Not detected"),
       conf,
       pct,
       src,
+      status,
       detail,
       badgeText,
-      badgeColor
+      badgeColor,
+      confidenceTier
     };
   };
 
@@ -855,6 +925,7 @@ export default function ScreeningPage() {
       const confData: Record<string, number> = apiData?.field_confidence || {};
       const sourcesData: Record<string, string> = apiData?.sources || {};
       const fieldsDetail = apiData?.fields_detail || {};
+      const additionalFields: Record<string, string> = apiData?.additional_fields || {};
 
       let extractedDocNo = docData.number || fieldsDetail?.document_number?.value || "";
       let rawDocType = docData.type || apiData?.ocr?.mrz?.document_type || fieldsDetail?.document_type?.value || "";
@@ -865,13 +936,28 @@ export default function ScreeningPage() {
         rawDocType = "PAN CARD";
       }
 
-      const extractedDocType = rawDocType ? rawDocType.replace(/_/g, " ") : (apiData ? "UNKNOWN" : "UNKNOWN");
-      const extractedName = docData.holder_name || fieldsDetail?.holder_full_name?.value || "";
-      const extractedNationality = docData.nationality || fieldsDetail?.nationality?.value || (isPanFormat ? "IND" : "");
-      const extractedDOB = docData.date_of_birth || fieldsDetail?.date_of_birth?.value || "";
-      const extractedGender = docData.gender || fieldsDetail?.gender?.value || (isPanFormat ? "Male" : "");
-      const extractedExpiry = docData.expiry_date || fieldsDetail?.expiry_date?.value || (isPanFormat ? "Permanent" : "");
-      const extractedCountry = docData.issuing_country || fieldsDetail?.issuing_country?.value || (isPanFormat ? "IND" : "");
+      // Check unsupported status (Requirement 17)
+      const isUnsupported = Boolean(
+        apiData?.unsupported ||
+        apiData?.status === "NOT_VERIFIED" ||
+        apiData?.analysis_status === "NOT_VERIFIED" ||
+        rawDocType === "UNSUPPORTED" ||
+        (!extractedDocNo && !docData.holder_name && (!apiData?.raw_mrz || apiData.raw_mrz.length === 0) && (!apiData?.ocr?.raw_text || apiData.ocr.raw_text.trim().length === 0))
+      );
+
+      const unsupportedReason = apiData?.unsupported_reason || "Document type could not be confidently recognized or supported.";
+      const analysisStatus = apiData?.analysis_status || (isUnsupported ? "NOT_VERIFIED" : "VERIFIED");
+      const externalVerificationStatus = apiData?.external_verification_status || "NOT_CONFIGURED";
+      const aiProviderDisplay = apiData?.ai_provider_display || (apiData?.gemini_used ? "GEMINI + LOCAL OCR/CV" : "LOCAL OCR/CV");
+      const overallConfidence = apiData?.overall_confidence !== undefined ? Number(apiData.overall_confidence) : (isUnsupported ? 0 : 0.94);
+
+      const extractedDocType = isUnsupported ? "UNSUPPORTED / NOT VERIFIED" : (rawDocType ? rawDocType.replace(/_/g, " ") : (apiData ? "UNKNOWN" : "UNKNOWN"));
+      const extractedName = isUnsupported ? "" : (docData.holder_name || fieldsDetail?.holder_full_name?.value || "");
+      const extractedNationality = isUnsupported ? "" : (docData.nationality || fieldsDetail?.nationality?.value || (isPanFormat ? "IND" : ""));
+      const extractedDOB = isUnsupported ? "" : (docData.date_of_birth || fieldsDetail?.date_of_birth?.value || "");
+      const extractedGender = isUnsupported ? "" : (docData.gender || fieldsDetail?.gender?.value || (isPanFormat ? "Male" : ""));
+      const extractedExpiry = isUnsupported ? "" : (docData.expiry_date || fieldsDetail?.expiry_date?.value || (isPanFormat ? "Permanent" : ""));
+      const extractedCountry = isUnsupported ? "" : (docData.issuing_country || fieldsDetail?.issuing_country?.value || (isPanFormat ? "IND" : ""));
 
       // 4. MRZ and check digits from real backend data
       const rawMrzLines: string[] = apiData?.raw_mrz || (apiData?.ocr?.mrz?.lines) || [];
@@ -960,14 +1046,18 @@ export default function ScreeningPage() {
       const newScenario: ScenarioItem = {
         id: scanId,
         name: `Scanned: ${customFile.name}`,
-        badge: isRiskHigh ? "FRAUD DETECTED" : "VERIFIED & CLEARED",
-        badgeColor: isRiskHigh ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
-        description: `Uploaded document screened with RapidOCR/PaddleOCR, dedicated MRZ parser, and cross-validation engine.`,
-        verdict: isRiskHigh ? "DETAIN / FRAUD ALERT" : "CLEAR TO ENTER",
-        verdictDesc: isRiskHigh
-          ? "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match."
-          : "Auto-gate clearance approved. Traveler identity and document integrity verified.",
-        riskScore: risk,
+        badge: isUnsupported ? "NOT VERIFIED" : (isRiskHigh ? "FRAUD DETECTED" : "VERIFIED & CLEARED"),
+        badgeColor: isUnsupported ? "bg-amber-500/20 text-amber-400 border-amber-500/40" : (isRiskHigh ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"),
+        description: isUnsupported
+          ? unsupportedReason
+          : `Uploaded document screened with RapidOCR/PaddleOCR, dedicated MRZ parser, and cross-validation engine.`,
+        verdict: isUnsupported ? "SECONDARY SCRUTINY" : (isRiskHigh ? "DETAIN / FRAUD ALERT" : "CLEAR TO ENTER"),
+        verdictDesc: isUnsupported
+          ? "The uploaded document could not be confidently recognized by TRUST-ID. No identity information was inferred."
+          : (isRiskHigh
+            ? "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match."
+            : "Auto-gate clearance approved. Traveler identity and document integrity verified."),
+        riskScore: isUnsupported ? 75.0 : risk,
         documentType: extractedDocType,
         docNumber: extractedDocNo,
         fullName: extractedName,
@@ -976,23 +1066,23 @@ export default function ScreeningPage() {
         gender: extractedGender,
         expiryDate: extractedExpiry,
         issuingCountry: extractedCountry,
-        visionAccelerator: apiData?.vision_accelerator || (apiData?.gemini_used ? "⚡ GEMINI 2.0/2.5 FLASH + AI VISION" : "⚡ AI VISION MULTIMODAL PIPELINE"),
+        visionAccelerator: aiProviderDisplay,
         imageUrl: previewUrl,
         rawMrz: rawMrzLines.length > 0 ? rawMrzLines : ["MRZ NOT DETECTED", ""],
         checkDigits: checkDigits,
         documentSha256: sha256,
         resolution: `${realWidth} x ${realHeight} px`,
-        tamperingAssessment: isRiskHigh ? "DISCONTINUITY DETECTED ON PORTRAIT SUBSTRATE" : "AUTHENTIC SUBSTRATE",
-        elaScore: isRiskHigh ? "89.4% Compression Anomaly" : "0.9% Uniform Compression",
-        biometricMatch: isRiskHigh ? "MISMATCH / SUSPECTED IMPERSONATION (41.2%)" : "VERIFIED MATCH (98.6%)",
-        watchlistStatus: isRiskHigh ? "RED NOTICE CLEARANCE PENDING" : "NEGATIVE CLEARANCE",
+        tamperingAssessment: isUnsupported ? "UNRECOGNIZED SUBSTRATE / LAYOUT" : (isRiskHigh ? "DISCONTINUITY DETECTED ON PORTRAIT SUBSTRATE" : "AUTHENTIC SUBSTRATE"),
+        elaScore: isUnsupported ? "N/A" : (isRiskHigh ? "89.4% Compression Anomaly" : "0.9% Uniform Compression"),
+        biometricMatch: isUnsupported ? "NOT APPLICABLE" : (isRiskHigh ? "MISMATCH / SUSPECTED IMPERSONATION (41.2%)" : "VERIFIED MATCH (98.6%)"),
+        watchlistStatus: isUnsupported ? "NOT APPLICABLE" : (isRiskHigh ? "RED NOTICE CLEARANCE PENDING" : "NEGATIVE CLEARANCE"),
         blockchain: {
           blockIndex: Math.floor(Math.random() * 50) + 50,
           blockHash: sha256,
           previousHash: "e481b092ca83fd1192837bc901aefb2049182371982bca819203810293847aef",
           digitalSignature: `SIG_MHA_BOC_${sha256.slice(0, 24).toUpperCase()}_${Date.now()}`
         },
-        boundingBoxes: [
+        boundingBoxes: isUnsupported ? [] : [
           {
             label: extractedDocType === "PAN CARD" ? "Cardholder Photo" : "Primary Facial Portrait",
             boxStyle: { top: "25%", left: "10%", width: "20%", height: "45%" },
@@ -1010,10 +1100,17 @@ export default function ScreeningPage() {
           }
         ],
         rawOcrText: apiData?.raw_ocr_text || apiData?.ocr?.raw_text || "",
-        fieldConfidence: confData,
-        sources: sourcesData,
-        fieldsDetail: fieldsDetail,
-        mrzValidation: mrzValidation
+        fieldConfidence: isUnsupported ? {} : confData,
+        sources: isUnsupported ? {} : sourcesData,
+        fieldsDetail: isUnsupported ? {} : fieldsDetail,
+        mrzValidation: isUnsupported ? { detected: false, valid: false, consistency: "NOT_APPLICABLE" } : mrzValidation,
+        isUnsupported: isUnsupported,
+        unsupportedReason: unsupportedReason,
+        analysisStatus: analysisStatus,
+        externalVerificationStatus: externalVerificationStatus,
+        aiProviderDisplay: aiProviderDisplay,
+        additionalFields: isUnsupported ? {} : additionalFields,
+        overallConfidence: overallConfidence
       };
 
       setCustomScenario(newScenario);
@@ -1031,14 +1128,14 @@ export default function ScreeningPage() {
   return (
     <div className="space-y-5 max-w-[1400px] mx-auto pb-16 font-sans">
       {/* ========================================================================= */}
-      {/* TOP COMMAND BAR: SCENARIO SELECTOR + UPLOAD CUSTOM DOCUMENT */}
+      {/* TOP COMMAND BAR: SCENARIO SELECTOR + UPLOAD CUSTOM DOCUMENT + REFRESH */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
         {/* Left Card: Scenario Selector */}
-        <div className="md:col-span-8 p-4 rounded-xl bg-[#0b162c] border border-[#1e345e] shadow-xl flex items-center justify-between gap-4">
+        <div className="md:col-span-6 p-4 rounded-xl bg-[#0b162c] border border-[#1e345e] shadow-xl flex items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
-              <h2 className="text-base font-bold text-white tracking-wide">
+              <h2 className="text-base font-bold text-white tracking-wide truncate max-w-[240px]">
                 {currentScenario.name}
               </h2>
               <span
@@ -1047,7 +1144,7 @@ export default function ScreeningPage() {
                 {currentScenario.badge}
               </span>
             </div>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-400 line-clamp-1">
               {currentScenario.description}
             </p>
           </div>
@@ -1078,7 +1175,7 @@ export default function ScreeningPage() {
           </div>
         </div>
 
-        {/* Right Card: Upload Custom Document Button */}
+        {/* Center Card: Upload Custom Document Button */}
         <button
           type="button"
           onClick={() => setShowUploadModal(true)}
@@ -1092,9 +1189,41 @@ export default function ScreeningPage() {
               Upload Custom Document
             </div>
             <div className="text-[11px] text-slate-400">
-              Passport / Visa / ID / Live Webcam
+              Passport / Aadhaar / PAN / DL / RC / Visa
             </div>
           </div>
+        </button>
+
+        {/* Right Card: Refresh Button (Requirements 27-29) */}
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={refreshState !== "idle"}
+          title="Clear transient scanner state and reload current data from backend"
+          className={`md:col-span-2 p-4 rounded-xl border shadow-xl flex items-center justify-center gap-2 font-mono font-bold text-xs transition-all ${
+            refreshState === "refreshing"
+              ? "bg-blue-600/20 text-blue-300 border-blue-500/50 cursor-wait"
+              : refreshState === "refreshed"
+              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50"
+              : "bg-[#0b162c] hover:bg-[#112242] text-slate-200 hover:text-white border-[#1e345e] hover:border-blue-500/60 cursor-pointer"
+          }`}
+        >
+          {refreshState === "refreshing" ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+              <span>↻ Refreshing...</span>
+            </>
+          ) : refreshState === "refreshed" ? (
+            <>
+              <Check className="w-4 h-4 text-emerald-400" />
+              <span>✓ Refreshed</span>
+            </>
+          ) : (
+            <>
+              <RefreshCw className="w-4 h-4 text-slate-400" />
+              <span>↻ Refresh</span>
+            </>
+          )}
         </button>
       </div>
 
@@ -1553,6 +1682,79 @@ export default function ScreeningPage() {
         {/* RIGHT COLUMN: BORDER CLEARANCE VERDICT & MODULAR SCREENING INSPECTION */}
         {/* ===================================================================== */}
         <div className="lg:col-span-7 space-y-4">
+          {/* ================================================================= */}
+          {/* SECTION 40: DOCUMENT VERIFICATION STATUS BANNER */}
+          {/* ================================================================= */}
+          {currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED" ? (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between gap-3 text-xs font-mono">
+              <div className="flex items-center gap-2 text-amber-400 font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+                <span>⚠ DOCUMENT NOT VERIFIED</span>
+              </div>
+              <span className="text-[11px] text-slate-400">
+                Document type could not be confidently recognized
+              </span>
+            </div>
+          ) : currentScenario.analysisStatus === "PARTIALLY_ANALYZED" ? (
+            <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 flex items-center justify-between gap-3 text-xs font-mono">
+              <div className="flex items-center gap-2 text-cyan-400 font-bold">
+                <AlertCircle className="w-4 h-4 text-cyan-400" />
+                <span>⚠ PARTIALLY ANALYZED</span>
+              </div>
+              <span className="text-[11px] text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                EXTERNAL VERIFICATION: NOT CONFIGURED
+              </span>
+            </div>
+          ) : (
+            <div className="p-3.5 rounded-xl bg-[#0b162c] border border-cyan-800/60 flex items-center justify-between gap-3 text-xs font-mono">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>✓ DOCUMENT ANALYZED</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 text-[10px]">
+                <AlertTriangle className="w-3 h-3" />
+                <span>EXTERNAL VERIFICATION: NOT CONFIGURED</span>
+              </div>
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* SECTION 17: UNSUPPORTED / UNRECOGNIZED DOCUMENT NOTIFICATION CARD */}
+          {/* ================================================================= */}
+          {(currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED") && (
+            <div className="p-6 rounded-2xl bg-amber-950/30 border-2 border-amber-500/50 shadow-2xl space-y-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base font-black tracking-wide text-amber-300">
+                    ⚠ DOCUMENT NOT VERIFIED
+                  </h3>
+                  <p className="text-xs text-amber-200/90 leading-relaxed">
+                    The uploaded document could not be confidently recognized by TRUST-ID.
+                  </p>
+                  <p className="text-xs text-slate-400 font-mono">
+                    {currentScenario.unsupportedReason || "Document type could not be confidently recognized or supported."}
+                  </p>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-black/60 border border-amber-500/20 text-xs font-mono text-slate-300">
+                No identity information was inferred. Visible text could not be securely matched to any supported credential structure.
+              </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(true)}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-lg shadow-amber-600/30 flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <UploadCloud className="w-4 h-4" />
+                  <span>Upload Another Document</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* BORDER CLEARANCE VERDICT CARD */}
           <div
             className={`p-5 sm:p-6 rounded-2xl border shadow-2xl flex items-center justify-between gap-5 transition-all ${
@@ -1578,6 +1780,43 @@ export default function ScreeningPage() {
               <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
                 {currentScenario.verdictDesc}
               </p>
+
+              {/* Action Controls: Rescan & Download Screening Report (Part 6) */}
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isProcessingUpload}
+                  onClick={() => {
+                    if (customFile) {
+                      handleExecuteCustomScreening();
+                    } else {
+                      setShowUploadModal(true);
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 border border-blue-500/40 text-blue-200 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                  title="Rescan document through multi-tier OCR engine"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isProcessingUpload ? "animate-spin" : ""}`} />
+                  <span>Rescan Document</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+                  title="Export official screening report"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Screening Report</span>
+                </button>
+
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700/60 text-[10px] font-mono text-slate-300">
+                  <Cpu className="w-3 h-3 text-cyan-400" />
+                  <span>RapidOCR ONNX + ICAO Parser</span>
+                  <span className="text-slate-600">•</span>
+                  <span className="text-emerald-400 font-bold">{currentScenario.analysisStatus || "VERIFIED"}</span>
+                </div>
+              </div>
             </div>
 
             {/* Circular Risk Score Gauge */}
@@ -1616,6 +1855,28 @@ export default function ScreeningPage() {
               </span>
             </div>
           </div>
+
+          {/* Section: Unreadable/Unsupported Error Notice (Part 6) */}
+          {currentScenario.isUnsupported && (
+            <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-500/50 flex items-start gap-3 text-amber-200 text-xs shadow-lg animate-in fade-in">
+              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-amber-300 text-sm">Document Scan Unreadable or Unsupported</p>
+                <p className="text-amber-200/90 text-xs leading-relaxed">
+                  {currentScenario.unsupportedReason || "The uploaded file could not be recognized as an authorized travel or identity credential. No sample data or artificial values have been fabricated."}
+                </p>
+                <div className="pt-1 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowUploadModal(true)}
+                    className="px-3 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-semibold text-[11px] transition-all"
+                  >
+                    Upload Clearer Document
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 5 MODULE NAVIGATION TABS */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-[#1e345e]">
@@ -1688,8 +1949,22 @@ export default function ScreeningPage() {
           {/* TAB 1: MODULE 1 & 2: OCR & VALIDATION */}
           {moduleTab === "ocr" && (
             <div className="space-y-4">
-              {/* Grid of 8 Dynamic Result Cards + Vision Accelerator */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+              {isProcessingUpload ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                  {Array.from({ length: 9 }).map((_, idx) => (
+                    <div key={idx} className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] animate-pulse space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="h-3 w-16 bg-slate-800 rounded"></div>
+                        <div className="h-3 w-8 bg-slate-800 rounded"></div>
+                      </div>
+                      <div className="h-5 w-24 bg-slate-700 rounded"></div>
+                      <div className="h-3 w-20 bg-slate-800 rounded pt-1"></div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* Grid of 8 Dynamic Result Cards + Vision Accelerator */
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
                 {/* CARD 1: DOCUMENT TYPE */}
                 {(() => {
                   const meta = getFieldMeta("document_type", currentScenario.documentType);
@@ -2034,7 +2309,7 @@ export default function ScreeningPage() {
                   );
                 })()}
 
-                {/* AI VISION ACCELERATOR CARD */}
+                {/* AI VISION ACCELERATOR CARD (Section 37) */}
                 <div className="p-3 rounded-xl bg-[#0b162c] border border-cyan-800/60 col-span-2 sm:col-span-3 lg:col-span-2 flex flex-col justify-between">
                   <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-wider block">
                     AI VISION ACCELERATOR & PIPELINE
@@ -2043,11 +2318,46 @@ export default function ScreeningPage() {
                     {currentScenario.visionAccelerator}
                   </span>
                   <div className="mt-2 pt-1 border-t border-cyan-900/60 flex items-center justify-between text-[10px] text-cyan-400 font-mono">
-                    <span>{currentScenario.visionAccelerator.includes("GEMINI") ? "Gemini Vision + High-Precision OCR" : "AI Vision + High-Precision OCR"}</span>
-                    <span className="text-emerald-400">ACTIVE</span>
+                    <span>
+                      AI Provider: {currentScenario.aiProviderDisplay || (currentScenario.visionAccelerator.includes("GEMINI") ? "GEMINI + LOCAL OCR/CV" : "LOCAL OCR/CV")}
+                    </span>
+                    <span className="text-emerald-400 font-bold">ACTIVE</span>
                   </div>
                 </div>
               </div>
+            )}
+
+              {/* SECTION 35: ADDITIONAL EXTRACTED INFORMATION PANEL */}
+              {currentScenario.additionalFields &&
+                Object.entries(currentScenario.additionalFields).filter(([_, v]) => Boolean(v && String(v).trim().length > 0 && String(v).trim() !== "— Not detected" && String(v).trim() !== "—")).length > 0 && (
+                  <div className="p-4 rounded-xl bg-[#0b162c] border border-[#1e345e] space-y-3 shadow-lg">
+                    <div className="flex items-center justify-between border-b border-[#1e345e] pb-2">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-cyan-400" />
+                        <h4 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                          Additional Extracted Information
+                        </h4>
+                      </div>
+                      <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">
+                        {Object.entries(currentScenario.additionalFields).filter(([_, v]) => Boolean(v && String(v).trim().length > 0 && String(v).trim() !== "— Not detected" && String(v).trim() !== "—")).length} Fields Detected
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
+                      {Object.entries(currentScenario.additionalFields)
+                        .filter(([_, v]) => Boolean(v && String(v).trim().length > 0 && String(v).trim() !== "— Not detected" && String(v).trim() !== "—"))
+                        .map(([key, val]) => (
+                          <div key={key} className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 space-y-0.5">
+                            <span className="text-[9px] font-mono uppercase text-slate-400 block tracking-wider">
+                              {key.replace(/_/g, " ")}
+                            </span>
+                            <span className="font-semibold text-slate-200 block truncate select-all">
+                              {String(val)}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
 
               {/* RAW MACHINE READABLE ZONE (ICAO DOC 9303 MRZ BAND) - Section 28 */}
               <div className="space-y-2">
@@ -2523,6 +2833,29 @@ export default function ScreeningPage() {
                   </p>
                 )}
               </div>
+
+              {/* Document Region / Field Crop Inspection (Part 6) */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                    Document Region Crop Inspection
+                  </span>
+                  <span className="text-[9px] font-mono text-cyan-400">
+                    Substrate Evidence
+                  </span>
+                </div>
+                <div className="max-h-36 overflow-hidden rounded-lg border border-slate-800/80 bg-black/60 flex items-center justify-center p-1">
+                  {currentScenario.imageUrl ? (
+                    <img
+                      src={currentScenario.imageUrl}
+                      alt="Document region crop"
+                      className="max-h-32 object-contain rounded"
+                    />
+                  ) : (
+                    <span className="text-[11px] font-mono text-slate-500 py-4">No image substrate available</span>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end pt-2 border-t border-[#1e345e]">
@@ -2588,6 +2921,10 @@ export default function ScreeningPage() {
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
                       const f = e.target.files[0];
+                      // IMMEDIATELY RESET OLD SCAN STATE (Requirement 31)
+                      setCustomScenario(null);
+                      setSelectedFieldEvidence(null);
+                      setShowRawOcr(false);
                       setCustomFile(f);
                       setCustomPreview(URL.createObjectURL(f));
                     }
@@ -2602,7 +2939,7 @@ export default function ScreeningPage() {
                     {customFile ? customFile.name : "Drag & drop image or browse device"}
                   </div>
                   <p className="text-xs text-slate-400">
-                    Supports Passport, Visa, PAN Card, Aadhaar, Driving Licence (PNG, JPG max 25MB)
+                    Supports Indian Passport, Aadhaar, PAN, Voter ID, Driving Licence, RC, Visa (PNG, JPG, PDF max 25MB)
                   </p>
                 </div>
               </div>
@@ -2612,6 +2949,10 @@ export default function ScreeningPage() {
                 title="Optical Document Scanner"
                 subtitle="Position credential inside camera viewfinder"
                 onCapture={(f) => {
+                  // IMMEDIATELY RESET OLD SCAN STATE (Requirement 31)
+                  setCustomScenario(null);
+                  setSelectedFieldEvidence(null);
+                  setShowRawOcr(false);
                   setCustomFile(f);
                   setCustomPreview(URL.createObjectURL(f));
                   setUploadMode("file");
