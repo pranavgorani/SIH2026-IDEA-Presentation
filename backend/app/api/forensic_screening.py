@@ -13,6 +13,7 @@ router = APIRouter(prefix="/idfse", tags=["Forensic Screening Engine (AG-IDFSE)"
 )
 async def screen_document_idfse(
     file: Optional[UploadFile] = File(None, description="Front image of identity credential"),
+    live_person_file: Optional[UploadFile] = File(None, description="Optional live checkpoint selfie / webcam portrait"),
     document_type_hint: Optional[str] = Form(None, description="PASSPORT, VISA, NATIONAL_ID, or DRIVING_LICENSE"),
     raw_text: Optional[str] = Form(None, description="Optional pre-extracted OCR text string"),
     raw_mrz: Optional[str] = Form(None, description="Optional raw MRZ string (lines separated by newline)"),
@@ -27,12 +28,17 @@ async def screen_document_idfse(
     - Spatial & Geometric Alignment (Border quad, aspect ratio, skew angle, glare).
     - Zonal Scanning (VIZ, MRZ baseline, face & ghost face detection).
     - Pixel Forensics (ELA, edge splicing, typography anomalies, digital stamps).
+    - Biometric Matching & Liveness Verification against presented individual.
     - Check digits (7-3-1 weights) and VIZ vs MRZ consistency check.
     - Temporal validity check.
     """
     image_bytes = None
     if file:
         image_bytes = await file.read()
+
+    live_bytes = None
+    if live_person_file:
+        live_bytes = await live_person_file.read()
 
     mrz_lines = []
     if raw_mrz:
@@ -47,6 +53,7 @@ async def screen_document_idfse(
 
     result = ag_idfse_engine.screen_document(
         image_input=image_bytes,
+        live_person_input=live_bytes,
         raw_text_override=raw_text,
         mrz_override=mrz_lines,
         viz_override=parsed_viz,

@@ -401,30 +401,53 @@ All synthetic datasets and demonstration imagery are generated solely for academ
 
 ## 17. Forensic Screening Engine (AG-IDFSE)
 
-TRUST-ID features the **Identity & Travel Document Forensic Screening Engine (AG-IDFSE)** designed for border security, civil identity verification, and anti-fraud document auditing.
+TRUST-ID features the **Identity & Travel Document Forensic Screening Engine (AG-IDFSE)** designed for border security checkpoints, civil identity verification, and anti-fraud document auditing.
 
-### 17.1 Allowed Document Taxonomy
+### 17.1 Supported Document Taxonomy & Standards
 1. **Passports (ICAO Doc 9303 TD3 standard):** 2-line Machine Readable Zone (MRZ), 44 characters per line.
 2. **Visas & Permits (ICAO MRVA / MRVB standard):** Machine-readable visa entry stickers, paper consular stamps, and e-visas (36 or 44 characters per line).
 3. **National Identity Cards (ICAO TD1 / TD2 standard):** Identity smartcards, citizen cards, and resident permits (3 lines x 30 characters or 2 lines x 36 characters).
 4. **Driver’s Licenses & Transit Authorizations (ISO/IEC 18013):** Standard driving credentials with photo portraits and official licensing categories.
 
-*Unsupported credentials (e.g., student IDs, utility bills, handwritten notes, invoices) are immediately rejected with:*
+*Unsupported credentials (e.g., student IDs, utility bills, handwritten notes, invoices) are rejected gracefully with:*
 ```json
 {"status": "REJECTED_UNSUPPORTED_DOCUMENT"}
 ```
 
-### 17.2 Three-Layer Forensic Scan Architecture
-- **Layer A (Spatial & Geometric Alignment):** Quadrilateral border contour extraction, normalized corner coordinates, aspect ratio validation against TD3 (1.420), TD1 (1.585), TD2 (1.419), and ISO 18013 (1.585), skew angle estimation, specular glare hotspot detection, and perspective warp measurement.
-- **Layer B (Zonal Scanning):** Visual Inspection Zone (VIZ) biographical headers and seal detection, OCR-B font baseline and chevron (`<`) padding integrity, primary facial photo bounding box (`[ymin, xmin, ymax, xmax]`), ghost/secondary portrait identification, and security stamp/seal bleed analysis.
-- **Layer C (Pixel Forensics & Tampering Flags):** JPEG Error Level Analysis (ELA) compression disparity, gradient discontinuity and halo artifact detection around photo borders (`photo_edge_anomaly_score`, `photo_replacement_detected`), typography/kerning baseline anomalies, and digital stamp clone artifacts.
+### 17.2 Four Mandatory Architectural Modules
+- **Module 1: Pre-Processing & OCR Extraction:**
+  - *Geometric Rectification:* Contour detection via OpenCV (`findContours`, `approxPolyDP`) and 4-point perspective transform (`warpPerspective`) to deskew and normalize credentials into standard rectangular aspect ratio.
+  - *Zonal Partitioning:* Bottom 20–25% cropped for MRZ, top 75–80% for VIZ, and primary face cropped via Haar Cascade / coordinate localization.
+  - *Extraction Pipeline:* Extracts Document Number, Surname, Given Names, Nationality, Issuing Country, DOB, Expiry Date, and Gender.
+- **Module 2: Rule Engine & Mathematical Validation:**
+  - *ICAO 9303 Check Digit Calculator:* Weight sequence `[7, 3, 1, 7, 3, 1...]` validating Document Number, DOB, Expiration Date, and Master Composite Checksum (`PASS` / `FAIL`).
+  - *Cross-Zone Parity Check (VIZ vs. MRZ):* Fuzzy string comparison (Levenshtein distance / RapidFuzz) generating `viz_mrz_cross_match_score`. Any character disparity sets `PHYSICAL_TAMPER_FLAG = True`.
+  - *Temporal Constraints:* Asserts $\text{DOB} < \text{Today}$, $\text{Expiry} > \text{Issue}$, and flags $\text{Expiry} < \text{Today}$ as `EXPIRED_DOCUMENT`.
+- **Module 3: Forensic Tampering Detection (Core AI Innovation):**
+  - *Error Level Analysis (ELA):* In-memory JPEG Q90 recompression difference $\Delta = |I_{\text{orig}} - I_{\text{recompressed}}| \times 15$ with localized mean/max intensities in portrait and date zones to flag photo splicing (`ela_tamper_score`).
+  - *Photo Boundary Discontinuity:* Sobel/Laplacian gradient inspection around portrait border detecting cut-and-paste artifacts (`photo_splice_detected`).
+  - *Character Baseline & Kerning Consistency:* Linear regression residuals in critical date areas catching single-digit alterations (`typography_anomaly_detected`).
+- **Module 4: Biometric Matching & Anti-Spoofing:**
+  - *Face Embeddings:* Document portrait vs. checkpoint live presenter capture comparison with cosine distance threshold $\le 0.40$ (Similarity $\ge 0.60$) for biometric confirmation.
+  - *Liveness Detection (PAD):* Eye Aspect Ratio (EAR) and high-frequency frequency domain texture analysis to prevent paper portrait and screen replay attacks.
 
-### 17.3 ICAO Doc 9303 Check-Digit & Consistency Rules
-- **7-3-1 Weight Verification:** Mathematical checksum validation for Document Number, Date of Birth, Expiration Date, and Master Composite Checksum.
-- **VIZ vs. MRZ Consistency Cross-Match:** Cross-verifies surname, given names, date of birth, document number, and expiry date. Character mismatches trigger a `HIGH_SEVERITY_TAMPERING_ALERT`.
-- **Temporal Validity:** Enforces chronological sanity (DOB in the past, expiry date strictly greater than issue date, and flags `DOCUMENT_EXPIRED`).
+### 17.3 Unified Explainable Threat Scoring Matrix
+The normalized threat score (0 to 100) is computed as:
+$$\text{Threat Score} = (30 \times \text{MRZ\_Fail}) + (25 \times \text{VIZ\_Mismatch}) + (25 \times \text{Forensic\_ELA\_Anomaly}) + (20 \times \text{Biometric\_Mismatch})$$
 
-### 17.4 AG-IDFSE API Endpoints
-- `POST /api/idfse/screen` or `POST /idfse/screen`: Ingests document image or raw credentials and returns the standardized AG-IDFSE forensic screening report.
-- `POST /api/idfse/validate-mrz` or `POST /idfse/validate-mrz`: Standalone ICAO 9303 mathematical check-digit calculator and parser.
+- 🟢 **CLEARED (0 - 25):** Low risk. All check digits pass, biometric match confirmed, no forensic anomalies detected.
+- 🟡 **SECONDARY_REVIEW (26 - 65):** Moderate risk. Expiration warnings, minor VIZ-MRZ optical discrepancy, or low-confidence face match.
+- 🔴 **DENIED_FRAUD (66 - 100):** Severe threat. Altered check digit, spliced photo detected via ELA, or complete facial identity impersonation.
+
+### 17.4 Standalone Zero-Cost Checkpoint Running Options
+- **FastAPI Endpoint:** `POST /api/idfse/screen` (supports both document scan and live selfie webcam stream)
+- **Interactive Checkpoint App:**
+  ```bash
+  # Run as Streamlit GUI
+  streamlit run backend/app/checkpoint_app.py
+
+  # Or run via CLI
+  python -m backend.app.checkpoint_app --doc /path/to/passport.jpg --live /path/to/selfie.jpg
+  ```
+
 

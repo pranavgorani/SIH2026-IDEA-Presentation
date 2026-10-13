@@ -232,3 +232,117 @@ def test_api_endpoint_idfse_screen_rejected():
     response = client.post("/api/idfse/screen", data=payload)
     assert response.status_code == 200
     assert response.json() == {"status": "REJECTED_UNSUPPORTED_DOCUMENT"}
+
+
+def test_strict_section4_json_schema():
+    """Section 4: Verifies strict adherence to specified JSON Output Schema."""
+    mrz_lines = [
+        "P<GBRSMITH<<JOHN<DOE<<<<<<<<<<<<<<<<<<<<<<<",
+        "L898902C36GBR8806152M2806148<<<<<<<<<<<<<<0"
+    ]
+    viz = {
+        "document_number": "L898902C3",
+        "surname": "SMITH",
+        "given_names": "JOHN DOE",
+        "nationality": "GBR",
+        "issuing_country": "GBR",
+        "date_of_birth": "1988-06-15",
+        "gender": "M",
+        "expiry_date": "2028-06-14"
+    }
+
+    result = ag_idfse_engine.screen_document(
+        mrz_override=mrz_lines,
+        viz_override=viz,
+        document_type_hint="PASSPORT"
+    )
+
+    # 1. document_classification
+    assert "document_classification" in result
+    assert result["document_classification"]["type"] == "PASSPORT"
+    assert result["document_classification"]["standard"] == "ICAO_TD3"
+    assert isinstance(result["document_classification"]["confidence"], float)
+
+    # 2. extracted_identity
+    assert "extracted_identity" in result
+    ext = result["extracted_identity"]
+    assert ext["document_number"] == "L898902C3"
+    assert ext["surname"] == "SMITH"
+    assert ext["given_names"] == "JOHN DOE"
+    assert ext["nationality"] == "GBR"
+    assert ext["issuing_country"] == "GBR"
+    assert ext["date_of_birth"] == "1988-06-15"
+    assert ext["gender"] == "M"
+    assert ext["expiry_date"] == "2028-06-14"
+
+    # 3. mrz_validation
+    assert "mrz_validation" in result
+    mrz = result["mrz_validation"]
+    assert mrz["mrz_detected"] is True
+    assert mrz["check_digit_doc_number"] in ["PASS", "FAIL"]
+    assert mrz["check_digit_dob"] in ["PASS", "FAIL"]
+    assert mrz["check_digit_expiry"] in ["PASS", "FAIL"]
+    assert mrz["composite_checksum"] in ["PASS", "FAIL"]
+    assert isinstance(mrz["viz_mrz_cross_match_score"], float)
+
+    # 4. forensic_analysis
+    assert "forensic_analysis" in result
+    forensic = result["forensic_analysis"]
+    assert isinstance(forensic["ela_tamper_score"], float)
+    assert isinstance(forensic["photo_splice_detected"], bool)
+    assert isinstance(forensic["typography_anomaly_detected"], bool)
+    assert isinstance(forensic["flagged_regions"], list)
+
+    # 5. biometric_verification
+    assert "biometric_verification" in result
+    bio = result["biometric_verification"]
+    assert isinstance(bio["face_match"], bool)
+    assert isinstance(bio["similarity_score"], float)
+    assert isinstance(bio["liveness_confirmed"], bool)
+
+    # 6. final_decision
+    assert "final_decision" in result
+    decision = result["final_decision"]
+    assert isinstance(decision["risk_score"], int)
+    assert decision["status"] in ["CLEARED", "SECONDARY_REVIEW", "DENIED_FRAUD"]
+    assert isinstance(decision["reasons"], list)
+    assert len(decision["reasons"]) > 0
+
+
+def test_geometric_rectification_and_zonal_partitioning():
+    """Module 1: Geometric Rectification & Zonal Partitioning."""
+    import numpy as np
+    # Synthetic document image
+    img = np.ones((500, 800, 3), dtype=np.uint8) * 220
+    warped, was_rectified, corners = ag_idfse_engine.rectify_document(img)
+    assert len(corners) == 4
+
+    zones = ag_idfse_engine.partition_zones(img)
+    assert "mrz" in zones
+    assert "viz" in zones
+    assert zones["mrz"].shape[0] == int(500 * 0.25)
+    assert zones["viz"].shape[0] == int(500 * 0.80)
+
+
+def test_threat_scoring_matrix_thresholds():
+    """Section 3: Unified Threat Scoring Matrix formula."""
+    # Low risk (clean) -> CLEARED (0 - 25)
+    score1, dec1 = ag_idfse_engine.calculate_threat_score(
+        mrz_fail=0.0, viz_mismatch=0.0, forensic_ela=0.0, biometric_mismatch=0.0
+    )
+    assert dec1 == "CLEARED"
+    assert score1 <= 25
+
+    # Moderate risk (expiry or minor mismatch) -> SECONDARY_REVIEW (26 - 65)
+    score2, dec2 = ag_idfse_engine.calculate_threat_score(
+        mrz_fail=0.0, viz_mismatch=0.80, forensic_ela=0.40, biometric_mismatch=0.0
+    )
+    assert dec2 == "SECONDARY_REVIEW"
+    assert 26 <= score2 <= 65
+
+    # Severe threat (MRZ fail + splice + biometric mismatch) -> DENIED_FRAUD (66 - 100)
+    score3, dec3 = ag_idfse_engine.calculate_threat_score(
+        mrz_fail=1.0, viz_mismatch=0.80, forensic_ela=1.0, biometric_mismatch=1.0
+    )
+    assert dec3 == "DENIED_FRAUD"
+    assert score3 >= 66
