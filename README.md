@@ -1,17 +1,65 @@
-# TRUST-ID: AI-Powered Fake Identity & Document Screening Platform
+# Nyaya-Tula AI — Automated Forensic Document Screening & Clearance Support
 
-> **Problem Statement ID:** SIH26188  
-> **Problem Statement Title:** AI-Based Fake Identity & Document Screening System  
-> **Problem Creator:** Ministry of Home Affairs (MHA), Government of India  
-> **Hackathon Theme:** Blockchain & Cybersecurity  
-> **Category:** Software  
-> **Official Tagline:** *"Detect. Verify. Explain. Secure."*
+[![CI](https://github.com/pranavgorani/SIH2026-IDEA-Presentation/actions/workflows/ci.yml/badge.svg)](https://github.com/pranavgorani/SIH2026-IDEA-Presentation/actions/workflows/ci.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-16.3-black.svg?logo=next.js&logoColor=white)](https://nextjs.org)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB.svg?logo=python&logoColor=white)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> **न्याय-तुला AI (Scales of Justice)**: An enterprise-grade, explainable AI platform for automated border clearance, identity credential authentication, tampering forensics, and audit trail ledger generation.
+> 
+> **Smart India Hackathon (SIH) 2026** | **Problem Statement:** SIH26188 (AI-Based Fake Identity & Document Screening System) | **Ministry of Home Affairs (MHA)**
+
+---
+
+## ⚡ The 30-Second Pitch
+
+- **What it does:** End-to-end, zero-cost AI identity document screening with structured extraction across Indian & international credentials (Passport, Aadhaar, PAN, Voter ID, Driving Licence, Vehicle RC, Visa).
+- **What makes it different:** Strict evidence-based explainability—blurry scans trigger `RESCAN REQUIRED` with an unavailable (`N/A`) risk score rather than false accusations of fraud; successful OCR is strictly decoupled from unconfigured external government registries.
+- **Who it helps:** Frontline immigration authorities, consular visa officers, and law enforcement inspectors by dramatically reducing manual inspection queues while preserving human oversight for adverse decisions.
+
+---
+
+## ⚖️ Workflow Comparison
+
+| Capability | Conventional Manual / Legacy OCR | Nyaya-Tula AI System |
+| :--- | :--- | :--- |
+| **Document Text Extraction** | Generic OCR with frequent orientation failure | Multi-orientation deskewed pipeline with document-specific regex & geometry |
+| **Identity Field Validation** | Manual inspection of numbers and dates | Configurable document-specific checks + ICAO 7-3-1 check digit mathematics |
+| **Tampering & Forensics** | Visual eyeball check under white light | Error Level Analysis (ELA), edge boundary gradients, and noise consistency |
+| **Risk Score Generation** | Arbitrary default scores or black-box rating | Traceable risk factors; null (`N/A`) when image is unreadable (no fake 35.0 scores) |
+| **Audit Ledger** | Fragmented system log files | Canonical SHA-256 hash-chained tamper-evident block records |
+| **Human Adjudication** | Ad-hoc supervisory review | Enforced Human-in-the-Loop review for all secondary-scrutiny cases |
+
+---
+
+## 🏛️ System Architecture
+
+```mermaid
+flowchart TD
+    A[Document Upload] --> B[Preprocessing & Multi-Orientation Check]
+    B --> C[Document Classification Engine]
+    C -->|Supported Credential| D[OCR & Field Extraction]
+    C -->|Low Resolution / Blur| CR[NEEDS_RESCAN]
+    C -->|Unsupported Format| CU[UNSUPPORTED]
+    D --> E[Document-Specific Validation]
+    E --> F[Forensic Tampering Analysis]
+    D --> G[Facial Biometric Comparison]
+    E --> H[Explainable Risk Scoring Engine]
+    F --> H
+    G --> H
+    CR --> H
+    CU --> H
+    H --> I[Human Review Dashboard]
+    I --> J[Screening Dossier Export CSV / Excel / PDF]
+    I --> K[Cryptographic SHA-256 Audit Ledger]
+```
 
 ---
 
 ## 1. Executive Summary & Project Overview
 
-**TRUST-ID** is an enterprise-grade document forensics and identity screening platform architected specifically for national border control checkpoints, immigration authorities, consular visa officers, and law enforcement investigators.
+**Nyaya-Tula AI** is an enterprise-grade document forensics and identity screening platform architected specifically for national border control checkpoints, immigration authorities, consular visa officers, and law enforcement investigators.
 
 Modern identity fraud has evolved beyond crude physical alterations into sophisticated digital manipulations: high-resolution image inpainting, synthetic portrait splicing, deepfake facial substitutions, and altered biographical typography. Conventional rule-based gates and black-box AI algorithms fail because they either produce brittle false positives or make unexplainable decisions that cannot withstand legal scrutiny.
 

@@ -216,12 +216,12 @@ class ModularOCREngine(BaseOCREngine):
             except Exception:
                 pass
 
-        # 4. Multi-Tier OCR: Run Primary Local OCR on preprocessed image
+        # 4. Multi-Tier OCR: Run Primary Local OCR on preprocessed image with orientation awareness
         mrz_text_lines: List[str] = []
         if not raw_text:
             target_img = preprocessed_img if preprocessed_img is not None else orig_img
             if target_img is not None:
-                raw_text, engine_used, extracted_boxes = self._run_local_ocr(target_img)
+                raw_text, engine_used, extracted_boxes = self._run_local_ocr_with_rotations(target_img, orig_img)
 
             # Dedicated MRZ Region OCR: run on bottom ROI
             if mrz_roi_img is not None:
@@ -304,6 +304,47 @@ class ModularOCREngine(BaseOCREngine):
             _cache_put(doc_hash, result)
 
         return result
+
+    def _run_local_ocr_with_rotations(self, target_img: np.ndarray, orig_img: Optional[np.ndarray] = None) -> Tuple[str, str, List[BoundingBox]]:
+        """
+        Runs local OCR with orientation recovery and perspective fallback:
+        1. Checks preprocessed/warped image.
+        2. If extracted text is under 15 characters, falls back to unwarped image.
+        3. If still under 15 characters, attempts 90°, 180°, and 270° rotations.
+        """
+        raw_text, engine_used, extracted_boxes = self._run_local_ocr(target_img)
+        if len(raw_text.strip()) >= 15:
+            return raw_text, engine_used, extracted_boxes
+
+        # If warped target_img had insufficient text, try unwarped original image
+        if orig_img is not None and orig_img is not target_img:
+            orig_text, orig_engine, orig_boxes = self._run_local_ocr(orig_img)
+            if len(orig_text.strip()) > len(raw_text.strip()):
+                raw_text, engine_used, extracted_boxes = orig_text, f"{orig_engine} (Unwarped)", orig_boxes
+                if len(raw_text.strip()) >= 20:
+                    return raw_text, engine_used, extracted_boxes
+
+        # Try 90, 180, 270 degree rotations for mobile phone camera captures
+        candidate_img = orig_img if (orig_img is not None and len(raw_text.strip()) < 10) else target_img
+        rotations = [
+            (cv2.ROTATE_90_CLOCKWISE, "90° Rotation"),
+            (cv2.ROTATE_180, "180° Rotation"),
+            (cv2.ROTATE_90_COUNTERCLOCKWISE, "270° Rotation")
+        ]
+        for rot_code, rot_name in rotations:
+            try:
+                rotated = cv2.rotate(candidate_img, rot_code)
+                r_text, r_engine, r_boxes = self._run_local_ocr(rotated)
+                if len(r_text.strip()) > len(raw_text.strip()):
+                    raw_text = r_text
+                    engine_used = f"{r_engine} ({rot_name})"
+                    extracted_boxes = r_boxes
+                    if len(raw_text.strip()) >= 25:
+                        break
+            except Exception:
+                pass
+
+        return raw_text, engine_used, extracted_boxes
 
     def _run_local_ocr(self, img: np.ndarray) -> Tuple[str, str, List[BoundingBox]]:
         """
@@ -856,17 +897,21 @@ class ModularOCREngine(BaseOCREngine):
             doc_type_src = "GEMINI"
             doc_type_conf = float(gemini_fields["document_type"].get("confidence", 0.85))
 
-        # Check for UNSUPPORTED / Non-document (Section 17)
+        # Check for UNSUPPORTED / Non-document / Insufficient text
         if doc_type_val == "UNSUPPORTED" or (not mrz_data and len(raw_text.strip()) < 15 and not kf):
             empty_mf = self._empty_master_fields()
+            is_insufficient = (not mrz_data and len(raw_text.strip()) < 15 and not kf)
+            doc_type_label = "UNKNOWN" if is_insufficient else "UNSUPPORTED"
             empty_mf["document_type"] = {
-                "value": "UNSUPPORTED",
+                "value": doc_type_label,
                 "source": "DOCUMENT_CLASSIFIER",
-                "confidence": 0.15,
-                "validation": "NOT_VERIFIED"
+                "confidence": 0.05 if is_insufficient else 0.15,
+                "validation": "NOT_DETECTED"
             }
             empty_mf["additional_fields"] = {}
-            empty_mf["analysis_status"] = "NOT_VERIFIED"
+            status_label = "NEEDS_RESCAN" if is_insufficient else "UNSUPPORTED"
+            empty_mf["analysis_status"] = status_label
+            empty_mf["processing_status"] = status_label
             empty_fields = ExtractedFields()
             return empty_mf, empty_fields, 0.0
 
@@ -1174,17 +1219,25 @@ class ModularOCREngine(BaseOCREngine):
                 avg_conf = min(avg_conf, 0.65)
             overall_confidence = round(avg_conf, 2)
 
-        # Document Status Model (Section 18)
+        # Document Status Model (Section 18 & Phase 3)
         if doc_type_val == "UNSUPPORTED":
-            analysis_status = "NOT_VERIFIED"
+            analysis_status = "UNSUPPORTED"
+            processing_status = "UNSUPPORTED"
+        elif doc_type_val == "UNKNOWN":
+            analysis_status = "NEEDS_RESCAN"
+            processing_status = "NEEDS_RESCAN"
         elif exp_status == "EXPIRED":
             analysis_status = "EXPIRED"
+            processing_status = "COMPLETED"
         elif overall_confidence >= 0.85:
             analysis_status = "VERIFIED"
+            processing_status = "COMPLETED"
         elif overall_confidence >= 0.60:
             analysis_status = "PARTIALLY_ANALYZED"
+            processing_status = "PARTIAL"
         else:
             analysis_status = "REVIEW_REQUIRED"
+            processing_status = "NEEDS_REVIEW"
 
         extracted_fields_obj = ExtractedFields(
             name=name_val,
@@ -1199,6 +1252,7 @@ class ModularOCREngine(BaseOCREngine):
 
         master_fields["additional_fields"] = additional_fields
         master_fields["analysis_status"] = analysis_status
+        master_fields["processing_status"] = processing_status
 
         return master_fields, extracted_fields_obj, overall_confidence
 

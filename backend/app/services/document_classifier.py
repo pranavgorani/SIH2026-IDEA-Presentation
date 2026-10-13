@@ -16,7 +16,7 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
 
     INDIAN_PASSPORT_PATTERNS = [
         r'\bREPUBLIC\s+OF\s+INDIA\b', r'\bPASSPORT\b', r'\bBHARAT\s+SARKAR\b',
-        r'\bP<IND\b', r'\bP<', r'\bINDIAN\s+PASSPORT\b'
+        r'\bP<IND\b', r'\bP<', r'\bINDIAN\s+PASSPORT\b', r'\bPASSEPORT\b'
     ]
 
     PAN_PATTERNS = [
@@ -24,29 +24,41 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
         r'\bPERMANENT\s+ACCOUNT\s+NUMBER\b',
         r'\bINCOME\s*TAX\s*DEPARTMENT\b',
         r'\bINCOMETAXDEPARTMENT\b',
+        r'\bINCOME\s*TAX\b',
         r'आयकर\s*विभाग',
-        r'स्थायी\s*लेखा'
+        r'स्थायी\s*लेखा',
+        r'\bPAN\s*CARD\b'
     ]
 
     AADHAAR_PATTERNS = [
         r'\bAADHAAR\b', r'\bUNIQUE\s+IDENTIFICATION\b', r'\bUIDAI\b',
-        r'आधार', r'मेरा\s*आधार', r'\b[2-9]{1}[0-9]{3}\s+[0-9]{4}\s+[0-9]{4}\b',
-        r'\b[X•]{4}\s+[X•]{4}\s+[0-9]{4}\b', r'\bVID\b'
+        r'आधार', r'मेरा\s*आधार', r'मेरी\s*पहचान',
+        r'\b[2-9]{1}[0-9]{3}\s+[0-9]{4}\s+[0-9]{4}\b',
+        r'\b[2-9]{1}[0-9]{3}[-\s][0-9]{4}[-\s][0-9]{4}\b',
+        r'\b[2-9]{1}[0-9]{11}\b',
+        r'\b[X•\*x]{4}\s*[X•\*x]{4}\s*[0-9]{4}\b',
+        r'\bVID\b', r'\bENROLMENT\s*NO\b', r'HELP@UIDAI'
     ]
 
     VOTER_ID_PATTERNS = [
         r'\b[A-Z]{3}[0-9]{7}\b',
         r'\bELECTION\s+COMMISSION\s+OF\s+INDIA\b',
         r'\bELECTOR\s+PHOTO\s+IDENTITY\s+CARD\b',
+        r'\bEPIC\s*NO\b',
         r'\bEPIC\b',
-        r'भारत\s*निर्वाचन\s*आयोग'
+        r'भारत\s*निर्वाचन\s*आयोग',
+        r'\bELECTORAL\s+ROLL\b',
+        r'\bASSEMBLY\s+CONSTITUENCY\b'
     ]
 
     DRIVING_LICENSE_PATTERNS = [
         r'\b[A-Z]{2}[-\s]?[0-9]{2}[-\s]?[0-9]{4}[-\s]?[0-9]{7}\b',
+        r'\b[A-Z]{2}[0-9]{13,15}\b',
         r'\bDRIVING\s+LICENCE\b', r'\bDRIVING\s+LICENSE\b',
+        r'\bDL\s*NO\b',
         r'\bFORM\s*7\b', r'\bUNION\s+OF\s+INDIA\b',
-        r'\bMOTOR\s+VEHICLES?\s+ACT\b', r'\bAUTHORISED\s+TO\s+DRIVE\b'
+        r'\bMOTOR\s+VEHICLES?\s+ACT\b', r'\bAUTHORISED\s+TO\s+DRIVE\b',
+        r'\bTRANSPORT\s+DEPARTMENT\b', r'\bSARATHI\b', r'\bPARIVAHAN\b'
     ]
 
     VEHICLE_RC_PATTERNS = [
@@ -80,14 +92,16 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
         text_clean = text.strip()
         text_upper = text_clean.upper()
 
-        # 0. Check for Empty, Blurry, or Non-Document text
+        # 0. Check for Empty, Blurry, or Insufficient text (< 15 chars)
         if len(text_clean) < 15 and not has_mrz:
             return {
-                "document_type": "UNSUPPORTED",
-                "confidence": 0.10,
+                "document_type": "UNKNOWN",
+                "confidence": 0.05,
                 "status": "NOT_VERIFIED",
+                "classifier_status": "NEEDS_RESCAN",
+                "processing_status": "NEEDS_RESCAN",
                 "supported": False,
-                "explanation": "Insufficient textual content or features detected. Document type could not be confidently recognized."
+                "explanation": "Insufficient legible textual content detected in document scan. Image may be blurry, low contrast, or poorly illuminated. Rescan requested."
             }
 
         # Check for Indian PAN Card specific pattern (Strongest signal)
@@ -98,6 +112,8 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
                 "document_type": "PAN_CARD",
                 "confidence": 0.98 if pan_num else 0.88,
                 "status": "RECOGNIZED",
+                "classifier_status": "COMPLETED",
+                "processing_status": "COMPLETED",
                 "supported": True,
                 "country": "IND",
                 "explanation": "Indian Permanent Account Number (PAN) Card identified from income tax typography and PAN syntax."
@@ -110,6 +126,8 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
                 "document_type": "AADHAAR",
                 "confidence": 0.95,
                 "status": "RECOGNIZED",
+                "classifier_status": "COMPLETED",
+                "processing_status": "COMPLETED",
                 "supported": True,
                 "country": "IND",
                 "explanation": "Indian Aadhaar National Identity Document identified from UIDAI layout and format."
@@ -225,10 +243,12 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
         # If none of the recognized document patterns match:
         return {
             "document_type": "UNSUPPORTED",
-            "confidence": 0.30,
+            "confidence": 0.20,
             "status": "NOT_VERIFIED",
+            "classifier_status": "UNSUPPORTED",
+            "processing_status": "UNSUPPORTED",
             "supported": False,
-            "explanation": "Document type could not be confidently recognized or supported by TRUST-ID."
+            "explanation": "Document type could not be confidently recognized as a supported identity credential."
         }
 
 class DocumentClassifier:

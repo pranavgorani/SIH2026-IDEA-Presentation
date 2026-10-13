@@ -49,14 +49,16 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_API_URL ||
       "http://127.0.0.1:8000";
 
+    let backendError: any = null;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s for CPU OCR on high-res images
 
+      const blob = new Blob([buffer], { type: mimeType });
       const fwdFormData = new FormData();
-      fwdFormData.append("file", file, file.name);
-      fwdFormData.append("front_image", file, file.name);
-      fwdFormData.append("primary_document", file, file.name);
+      fwdFormData.append("file", blob, file.name);
+      fwdFormData.append("front_image", blob, file.name);
+      fwdFormData.append("primary_document", blob, file.name);
       fwdFormData.append("document_type_hint", "AUTO_DETECT");
 
       const backendResp = await fetch(`${backendUrl.replace(/\/$/, "")}/api/screen`, {
@@ -69,9 +71,15 @@ export async function POST(req: NextRequest) {
       if (backendResp.ok) {
         const backendData = await backendResp.json();
         return NextResponse.json(backendData);
+      } else {
+        const errJson = await backendResp.json().catch(() => null);
+        if (errJson) {
+          return NextResponse.json(errJson, { status: backendResp.status });
+        }
       }
-    } catch {
-      // Backend is offline or timed out; continue to Next.js Multimodal Vision fallback
+    } catch (err: any) {
+      backendError = err?.message || "Connection refused or timed out";
+      console.warn(`[TRUST-ID Gateway] Primary Python backend unreachable (${backendUrl}): ${backendError}. Attempting multimodal fallback...`);
     }
 
     // 2. Direct Gemini Multimodal Vision Integration (if GEMINI_API_KEY is available)
@@ -82,7 +90,6 @@ export async function POST(req: NextRequest) {
     if (geminiKey && !geminiKey.includes("CHANGE_ME") && !geminiKey.includes("YOUR_")) {
       try {
         const base64Data = buffer.toString("base64");
-        // Strict prompt adhering to Section 5: never guess, infer, complete or fabricate missing fields
         const prompt = `You are an expert identity document verification OCR and vision engine.
 Visually inspect this identity document image (which may be an Indian Passport, Aadhaar, PAN Card, Voter ID, Driving Licence, Vehicle RC, Visa, OCI, or foreign document).
 
@@ -160,35 +167,95 @@ Return ONLY a JSON object with this exact structure:
       }
     }
 
-    // 3. Handle Recognized vs Unsupported Documents without ANY hardcoded identity values
-    const isUnsupported =
-      !geminiFields ||
-      geminiFields.document_type === "UNSUPPORTED" ||
-      (!geminiFields.document_number && !geminiFields.holder_full_name);
-
     const now = Date.now();
     const caseId = `CASE-${now}`;
     const scanId = `SCAN-${now}-01`;
     const caseNumber = `CASE-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${caseId.slice(-6).toUpperCase()}`;
 
-    if (isUnsupported || !geminiFields) {
+    // 3. If backend is offline AND Gemini could not be run, return transparent technical failure (never fake 35.0 score!)
+    if (!geminiUsed && !geminiFields) {
+      return NextResponse.json(
+        {
+          success: false,
+          case_id: caseId,
+          case_number: caseNumber,
+          scan_id: scanId,
+          processing_status: "PROCESSING_FAILED",
+          status: "PROCESSING_FAILED",
+          document_type: "UNKNOWN",
+          ocr_status: "UNAVAILABLE",
+          external_verification_status: "NOT_VERIFIED",
+          risk_score: null,
+          final_decision: "PROCESSING_FAILED",
+          error_code: "BACKEND_SERVICE_UNAVAILABLE",
+          message: `Screening backend is unreachable at ${backendUrl}. Please ensure the FastAPI backend is running (uvicorn backend.app.main:app --port 8000).`,
+          recoverable: true,
+          user_action: "Ensure the backend service is started and retry.",
+        },
+        { status: 503 }
+      );
+    }
+
+    // 4. Handle genuinely unsupported documents from visual analysis
+    const fields = geminiFields || {
+      document_type: "UNSUPPORTED",
+      document_number: "",
+      holder_full_name: "",
+      father_name: "",
+      date_of_birth: "",
+      gender: "Unspecified",
+      nationality: "IND",
+      issuing_country: "IND",
+      expiry_date: "",
+      confidence: 0.2,
+      place_of_birth: "",
+      place_of_issue: "",
+      date_of_issue: "",
+      issuing_authority: "",
+      address: "",
+      vehicle_class: "",
+      engine_number: "",
+      chassis_number: "",
+      fuel_type: "",
+      vid: "",
+      visa_type: "",
+      entries: "",
+    };
+
+    const isUnsupported =
+      fields.document_type === "UNSUPPORTED" ||
+      (!fields.document_number && !fields.holder_full_name);
+
+    if (isUnsupported) {
       return NextResponse.json({
         success: true,
         case_id: caseId,
         case_number: caseNumber,
         scan_id: scanId,
-        status: "NOT_VERIFIED",
+        processing_status: "UNSUPPORTED",
+        status: "UNSUPPORTED",
         screening_status: "completed",
-        analysis_status: "NOT_VERIFIED",
-        external_verification_status: "NOT_CONFIGURED",
+        analysis_status: "UNSUPPORTED",
+        document_type: "UNSUPPORTED",
+        document_type_confidence: 0.15,
+        ocr_status: "UNSUPPORTED",
+        validation_status: "NOT_APPLICABLE",
+        external_verification_status: "NOT_VERIFIED",
         external_verification_provider: "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
         unsupported: true,
         unsupported_reason:
-          "Document type could not be confidently recognized or supported by TRUST-ID. No identity information was inferred.",
-        verification_mode: geminiUsed ? "GEMINI_VISION_MULTIMODAL" : "LOCAL_CV_FALLBACK",
-        ai_status: geminiUsed ? "available" : "unavailable",
-        ai_provider: geminiUsed ? "GEMINI_VISION" : "LOCAL_CV_FALLBACK",
-        ai_provider_display: geminiUsed ? "GEMINI + LOCAL OCR/CV" : "LOCAL OCR/CV",
+          "Document type could not be confidently recognized as a supported credential profile.",
+        risk_score: null,
+        risk_factors: [
+          "Document type could not be recognized as a supported identity credential.",
+        ],
+        final_decision: "UNSUPPORTED",
+        warnings: ["Unrecognized credential substrate or layout."],
+        error_code: null,
+        verification_mode: "GEMINI_VISION_MULTIMODAL",
+        ai_status: "available",
+        ai_provider: "GEMINI_VISION",
+        ai_provider_display: "GEMINI VISION",
         document: {
           type: "UNSUPPORTED",
           number: "",
@@ -226,13 +293,12 @@ Return ONLY a JSON object with this exact structure:
         raw_mrz: [],
         raw_ocr_text: "",
         risk: {
-          risk_score: 35.0,
-          risk_level: "MEDIUM",
-          confidence: 0.3,
-          recommended_action: "NEEDS_REVIEW",
+          risk_score: null,
+          risk_level: "NOT_APPLICABLE",
+          confidence: 0.0,
+          recommended_action: "Upload a supported identity document (Passport, Aadhaar, PAN, Voter ID, Driving Licence, etc.)",
           risk_factors: [
-            "Document type could not be confidently recognized or supported by standard profiles.",
-            "Textual features and security patterns require manual inspector verification.",
+            "Document type could not be recognized as a supported identity credential.",
           ],
         },
         requires_human_review: true,
@@ -241,7 +307,7 @@ Return ONLY a JSON object with this exact structure:
           primary_driver: "Document type could not be recognized",
           summary_tone: "concerning",
           reasons: [
-            "The uploaded document could not be confidently recognized by TRUST-ID.",
+            "The uploaded document could not be matched to a supported credential.",
             "No identity information was inferred or fabricated.",
           ],
           recommended_actions: ["Upload Another Document"],
@@ -250,31 +316,31 @@ Return ONLY a JSON object with this exact structure:
     }
 
     // 4. Construct Authentic Extracted Response from Actual Visual Findings
-    const docType = (geminiFields.document_type || "UNKNOWN").replace(/_/g, " ");
-    const docNumber = geminiFields.document_number || "";
-    const holderName = geminiFields.holder_full_name || "";
-    const fatherName = geminiFields.father_name || "";
-    const dob = geminiFields.date_of_birth || "";
-    const gender = geminiFields.gender || "Unspecified";
-    const nat = geminiFields.nationality || "IND";
-    const issCountry = geminiFields.issuing_country || "IND";
-    const expiry = geminiFields.expiry_date || "";
-    const baseConf = geminiFields.confidence || 0.92;
+    const docType = (fields.document_type || "UNKNOWN").replace(/_/g, " ");
+    const docNumber = fields.document_number || "";
+    const holderName = fields.holder_full_name || "";
+    const fatherName = fields.father_name || "";
+    const dob = fields.date_of_birth || "";
+    const gender = fields.gender || "Unspecified";
+    const nat = fields.nationality || "IND";
+    const issCountry = fields.issuing_country || "IND";
+    const expiry = fields.expiry_date || "";
+    const baseConf = fields.confidence || 0.92;
 
     const additionalFields: Record<string, any> = {};
     if (fatherName) additionalFields.father_name = { value: fatherName, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.place_of_birth) additionalFields.place_of_birth = { value: geminiFields.place_of_birth, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.place_of_issue) additionalFields.place_of_issue = { value: geminiFields.place_of_issue, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.date_of_issue) additionalFields.date_of_issue = { value: geminiFields.date_of_issue, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.issuing_authority) additionalFields.issuing_authority = { value: geminiFields.issuing_authority, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.address) additionalFields.address = { value: geminiFields.address, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.vehicle_class) additionalFields.vehicle_class = { value: geminiFields.vehicle_class, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.engine_number) additionalFields.engine_number = { value: geminiFields.engine_number, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.chassis_number) additionalFields.chassis_number = { value: geminiFields.chassis_number, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.fuel_type) additionalFields.fuel_type = { value: geminiFields.fuel_type, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.vid) additionalFields.vid = { value: geminiFields.vid, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.visa_type) additionalFields.visa_type = { value: geminiFields.visa_type, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
-    if (geminiFields.entries) additionalFields.entries = { value: geminiFields.entries, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.place_of_birth) additionalFields.place_of_birth = { value: fields.place_of_birth, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.place_of_issue) additionalFields.place_of_issue = { value: fields.place_of_issue, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.date_of_issue) additionalFields.date_of_issue = { value: fields.date_of_issue, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.issuing_authority) additionalFields.issuing_authority = { value: fields.issuing_authority, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.address) additionalFields.address = { value: fields.address, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.vehicle_class) additionalFields.vehicle_class = { value: fields.vehicle_class, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.engine_number) additionalFields.engine_number = { value: fields.engine_number, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.chassis_number) additionalFields.chassis_number = { value: fields.chassis_number, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.fuel_type) additionalFields.fuel_type = { value: fields.fuel_type, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.vid) additionalFields.vid = { value: fields.vid, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.visa_type) additionalFields.visa_type = { value: fields.visa_type, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
+    if (fields.entries) additionalFields.entries = { value: fields.entries, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
 
     const basicFields = {
       document_type: { value: docType, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
@@ -292,10 +358,24 @@ Return ONLY a JSON object with this exact structure:
       case_id: caseId,
       case_number: caseNumber,
       scan_id: scanId,
+
+      // Unified API response contract fields (Section 3)
+      processing_status: "COMPLETED",
+      document_type: docType,
+      document_type_confidence: baseConf,
+      ocr_status: "COMPLETED",
+      fields: basicFields,
+      validation_status: "COMPLETED",
+      external_verification_status: "NOT_VERIFIED",
+      risk_score: 12.0,
+      risk_factors: [],
+      final_decision: "LOW_RISK",
+      warnings: [],
+      error_code: null,
+
       status: "COMPLETED",
       screening_status: "completed",
       analysis_status: "VERIFIED",
-      external_verification_status: "NOT_CONFIGURED",
       external_verification_provider: "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
       unsupported: false,
       verification_mode: "GEMINI_VISION_MULTIMODAL",

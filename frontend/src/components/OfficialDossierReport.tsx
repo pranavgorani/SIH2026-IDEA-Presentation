@@ -8,8 +8,8 @@ export interface DossierReportData {
   screeningTime?: string;
   checkpoint?: string;
   officerId?: string;
-  decision?: "CLEAR TO ENTER" | "DETAIN / FRAUD ALERT" | "SECONDARY SCRUTINY";
-  riskScore?: number;
+  decision?: "CLEAR TO ENTER" | "DETAIN / FRAUD ALERT" | "SECONDARY SCRUTINY" | "RESCAN REQUIRED" | "DOCUMENT UNRECOGNIZED" | "PROCESSING ERROR" | string;
+  riskScore?: number | null;
   totalScreened?: number;
   clearanceRate?: number;
   tamperingIntercepted?: number;

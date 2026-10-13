@@ -867,14 +867,17 @@ async def run_screening_pipeline(
         final_doc_type = document_type_hint
     else:
         final_doc_type = (master_fields.get("document_type", {}).get("value") if master_fields.get("document_type", {}).get("value") not in (None, "", "UNKNOWN") else None) or detected_doc_type
+
     is_unsupported = (final_doc_type == "UNSUPPORTED")
+    is_needs_rescan = (final_doc_type in ("UNKNOWN", None, "") and (not ocr_raw_res.get("raw_text") or len(ocr_raw_res.get("raw_text", "").strip()) < 15))
 
     scan_id = f"SCAN-{utc_now().strftime('%Y%m%d')}-{case_id[:6].upper()}-01"
     raw_ai_prov = tamper_res.signals.get("ai_provider", "LOCAL_CV_FALLBACK")
     ai_provider_display = "GEMINI + LOCAL OCR/CV" if ("GEMINI" in str(raw_ai_prov).upper() and tamper_res.signals.get("ai_status") == "available") else "LOCAL OCR/CV"
 
     if is_unsupported:
-        analysis_status = "NOT_VERIFIED"
+        processing_status = "UNSUPPORTED"
+        analysis_status = "UNSUPPORTED"
         doc_payload = {
             "type": "UNSUPPORTED",
             "number": "",
@@ -907,8 +910,47 @@ async def run_screening_pipeline(
             "issuing_country": "NONE"
         }
         additional_fields_payload = {}
-        unsupported_reason = "Document type could not be confidently recognized or supported."
+        unsupported_reason = "Document type could not be confidently recognized as a supported credential."
+    elif is_needs_rescan:
+        processing_status = "NEEDS_RESCAN"
+        analysis_status = "NEEDS_RESCAN"
+        doc_payload = {
+            "type": "UNKNOWN",
+            "number": "",
+            "holder_name": "",
+            "nationality": "",
+            "date_of_birth": "",
+            "gender": "",
+            "expiry_date": "",
+            "issuing_country": "",
+            "confidence": 0.0
+        }
+        field_conf_payload = {
+            "document_type": 0.0,
+            "document_number": 0.0,
+            "holder_name": 0.0,
+            "nationality": 0.0,
+            "date_of_birth": 0.0,
+            "gender": 0.0,
+            "expiry_date": 0.0,
+            "issuing_country": 0.0
+        }
+        sources_payload = {
+            "document_type": "NONE",
+            "document_number": "NONE",
+            "holder_name": "NONE",
+            "nationality": "NONE",
+            "date_of_birth": "NONE",
+            "gender": "NONE",
+            "expiry_date": "NONE",
+            "issuing_country": "NONE"
+        }
+        additional_fields_payload = {}
+        unsupported_reason = "Insufficient legible text detected. Document rescan recommended."
     else:
+        processing_status = master_fields.get("processing_status") or (
+            "COMPLETED" if float(ocr_raw_res.get("confidence", 0)) >= 0.85 else "PARTIAL"
+        )
         analysis_status = ocr_raw_res.get("analysis_status") or (
             "VERIFIED" if float(ocr_raw_res.get("confidence", 0)) >= 0.85 else "PARTIALLY_ANALYZED"
         )
@@ -1006,17 +1048,58 @@ async def run_screening_pipeline(
         }
     }
 
+    # Determine unified contract values per Section 3
+    if is_unsupported or is_needs_rescan:
+        contract_risk_score = None
+        contract_risk_level = "NOT_APPLICABLE"
+        contract_decision = "UNSUPPORTED" if is_unsupported else "NEEDS_RESCAN"
+        contract_ocr_status = "UNSUPPORTED" if is_unsupported else "NEEDS_RESCAN"
+        contract_val_status = "NOT_APPLICABLE"
+        contract_risk_factors = [unsupported_reason]
+    else:
+        contract_risk_score = risk_assessment.risk_score
+        contract_risk_level = risk_assessment.risk_level
+        contract_decision = getattr(risk_assessment, "final_decision", None) or (
+            "LOW_RISK" if risk_assessment.risk_level == "LOW" else ("NEEDS_REVIEW" if risk_assessment.risk_level == "MEDIUM" else "HIGH_RISK")
+        )
+        conf_val = float(ocr_raw_res.get("confidence", 0))
+        contract_ocr_status = "COMPLETED" if conf_val >= 0.80 else ("PARTIAL" if conf_val >= 0.50 else "LOW_CONFIDENCE")
+        contract_val_status = "COMPLETED" if validation_res.valid else ("PARTIAL" if validation_res.failed_count == 0 else "FAILED")
+        contract_risk_factors = risk_assessment.risk_factors
+
+    serialized_risk = serialize_model(risk_assessment) or {}
+    if is_unsupported or is_needs_rescan:
+        serialized_risk["risk_score"] = None
+        serialized_risk["risk_level"] = "NOT_APPLICABLE"
+        serialized_risk["recommended_action"] = unsupported_reason
+        serialized_risk["final_decision"] = contract_decision
+
     return {
         "success": True,
         "request_id": request_id,
         "case_id": case_id,
         "case_number": case_number,
         "scan_id": scan_id,
+
+        # Standard Unified API Response Contract (Section 3 & Phase 1)
+        "processing_status": processing_status,
+        "document_type": final_doc_type if not (is_unsupported or is_needs_rescan) else ("UNSUPPORTED" if is_unsupported else "UNKNOWN"),
+        "document_type_confidence": doc_confidence if not (is_unsupported or is_needs_rescan) else 0.0,
+        "ocr_status": contract_ocr_status,
+        "fields": structured_fields,
+        "validation_status": contract_val_status,
+        "external_verification_status": "NOT_VERIFIED",
+        "external_verification_provider": "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
+        "risk_score": contract_risk_score,
+        "risk_factors": contract_risk_factors,
+        "final_decision": contract_decision,
+        "warnings": [c["message"] for c in checks_data.get("checks", []) if c.get("status") in ("WARNING", "FAIL")],
+        "error_code": None,
+
+        # Detailed pipeline telemetry and stage data
         "status": final_status,
         "screening_status": "completed",
         "analysis_status": analysis_status,
-        "external_verification_status": "NOT_CONFIGURED",
-        "external_verification_provider": "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
         "unsupported": is_unsupported,
         "unsupported_reason": unsupported_reason,
         "verification_mode": verification_mode,
@@ -1053,7 +1136,7 @@ async def run_screening_pipeline(
         "forensics": serialize_model(tamper_res),
         "identity": serialize_model(face_res),
         "records": serialize_model(record_res),
-        "risk": serialize_model(risk_assessment),
+        "risk": serialized_risk,
         "explanation": narrative_report,
         "pipeline": pipeline_stages,
         "stages": pipeline_stages,
@@ -1082,12 +1165,10 @@ async def run_screening_pipeline(
         "report_hash": report_hash,
 
         # Backward compatibility fields for frontend UI
-        "document_type": detected_doc_type,
-        "risk_level": risk_assessment.risk_level,
-        "risk_score": risk_assessment.risk_score,
-        "confidence": risk_assessment.confidence,
-        "requires_human_review": (risk_assessment.risk_level in ("HIGH", "MEDIUM")),
-        "recommendation": risk_assessment.recommended_action,
+        "risk_level": contract_risk_level,
+        "confidence": doc_confidence if not (is_unsupported or is_needs_rescan) else 0.0,
+        "requires_human_review": (contract_risk_level in ("HIGH", "MEDIUM", "CRITICAL")),
+        "recommendation": contract_decision if (is_unsupported or is_needs_rescan) else risk_assessment.recommended_action,
         "summary": narrative_report
     }
 

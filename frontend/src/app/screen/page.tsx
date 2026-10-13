@@ -49,9 +49,9 @@ export interface ScenarioItem {
   badge: string;
   badgeColor: string;
   description: string;
-  verdict: "CLEAR TO ENTER" | "DETAIN / FRAUD ALERT" | "SECONDARY SCRUTINY";
+  verdict: "CLEAR TO ENTER" | "DETAIN / FRAUD ALERT" | "SECONDARY SCRUTINY" | "RESCAN REQUIRED" | "DOCUMENT UNRECOGNIZED" | "PROCESSING ERROR";
   verdictDesc: string;
-  riskScore: number;
+  riskScore: number | null;
   documentType: string;
   docNumber: string;
   fullName: string;
@@ -213,7 +213,7 @@ export function getScenario100Checks(scenario: ScenarioItem): CheckItem[] {
     ]}
   ];
 
-  const isDetain = scenario.verdict === "DETAIN / FRAUD ALERT" || scenario.riskScore >= 70;
+  const isDetain = scenario.verdict === "DETAIN / FRAUD ALERT" || (scenario.riskScore !== null && scenario.riskScore >= 70);
   const isSecondary = scenario.verdict === "SECONDARY SCRUTINY";
   const allChecks: CheckItem[] = [];
 
@@ -236,7 +236,7 @@ export function getScenario100Checks(scenario: ScenarioItem): CheckItem[] {
           msg = "High-frequency localized compression discontinuity detected in portrait bounding zone.";
         } else if (num === 91 || num === 92) {
           status = "FAIL";
-          msg = "Composite risk score exceeds security clearance threshold (Risk: " + scenario.riskScore + "/100).";
+          msg = `Composite risk score exceeds security clearance threshold (Risk: ${scenario.riskScore !== null ? scenario.riskScore : "N/A"}/100).`;
         } else if (num === 98 && scenario.watchlistStatus.includes("RED NOTICE")) {
           status = "FAIL";
           msg = "Positive match identified on INTERPOL Stolen and Lost Travel Documents (SLTD) database.";
@@ -936,22 +936,52 @@ export default function ScreeningPage() {
         rawDocType = "PAN CARD";
       }
 
-      // Check unsupported status (Requirement 17)
+      // Distinct pipeline states: Case A, Case B, Case C, Case D
+      const processingStatus: string = apiData?.processing_status || (apiData?.status === "PROCESSING_FAILED" ? "PROCESSING_FAILED" : "COMPLETED");
+      const isProcessingFailed = processingStatus === "PROCESSING_FAILED" || Boolean(apiData?.error_code);
+      const isNeedsRescan = processingStatus === "NEEDS_RESCAN" || apiData?.ocr_status === "NEEDS_RESCAN";
       const isUnsupported = Boolean(
+        isProcessingFailed ||
+        isNeedsRescan ||
+        processingStatus === "UNSUPPORTED" ||
         apiData?.unsupported ||
-        apiData?.status === "NOT_VERIFIED" ||
-        apiData?.analysis_status === "NOT_VERIFIED" ||
         rawDocType === "UNSUPPORTED" ||
+        rawDocType === "UNKNOWN" ||
         (!extractedDocNo && !docData.holder_name && (!apiData?.raw_mrz || apiData.raw_mrz.length === 0) && (!apiData?.ocr?.raw_text || apiData.ocr.raw_text.trim().length === 0))
       );
 
-      const unsupportedReason = apiData?.unsupported_reason || "Document type could not be confidently recognized or supported.";
-      const analysisStatus = apiData?.analysis_status || (isUnsupported ? "NOT_VERIFIED" : "VERIFIED");
+      const isPartial = processingStatus === "PARTIAL" || apiData?.validation_status === "PARTIAL";
+
+      const unsupportedReason = apiData?.unsupported_reason || (
+        isProcessingFailed
+          ? (apiData?.error || "Processing failed during ingestion pipeline. Please retry.")
+          : isNeedsRescan
+          ? "Scan resolution or contrast is insufficient for confident character extraction. Please rescan."
+          : "Document type could not be confidently recognized or supported."
+      );
+
+      const analysisStatus = isProcessingFailed
+        ? "PROCESSING_FAILED"
+        : isNeedsRescan
+        ? "NEEDS_RESCAN"
+        : isUnsupported
+        ? "NOT_VERIFIED"
+        : isPartial
+        ? "PARTIALLY_ANALYZED"
+        : "VERIFIED";
+
       const externalVerificationStatus = apiData?.external_verification_status || "NOT_CONFIGURED";
       const aiProviderDisplay = apiData?.ai_provider_display || (apiData?.gemini_used ? "GEMINI + LOCAL OCR/CV" : "LOCAL OCR/CV");
       const overallConfidence = apiData?.overall_confidence !== undefined ? Number(apiData.overall_confidence) : (isUnsupported ? 0 : 0.94);
 
-      const extractedDocType = isUnsupported ? "UNSUPPORTED / NOT VERIFIED" : (rawDocType ? rawDocType.replace(/_/g, " ") : (apiData ? "UNKNOWN" : "UNKNOWN"));
+      const extractedDocType = isProcessingFailed
+        ? "PROCESSING ERROR"
+        : isNeedsRescan
+        ? "RESCAN REQUIRED"
+        : isUnsupported
+        ? "UNRECOGNIZED / UNSUPPORTED"
+        : (rawDocType ? rawDocType.replace(/_/g, " ") : "IDENTIFIED CREDENTIAL");
+
       const extractedName = isUnsupported ? "" : (docData.holder_name || fieldsDetail?.holder_full_name?.value || "");
       const extractedNationality = isUnsupported ? "" : (docData.nationality || fieldsDetail?.nationality?.value || (isPanFormat ? "IND" : ""));
       const extractedDOB = isUnsupported ? "" : (docData.date_of_birth || fieldsDetail?.date_of_birth?.value || "");
@@ -1039,25 +1069,64 @@ export default function ScreeningPage() {
         }
       }
 
-      const risk = apiData?.risk_score !== undefined ? Number(apiData.risk_score) : (apiData?.risk?.risk_score !== undefined ? Number(apiData.risk.risk_score) : 12.0);
-      const isRiskHigh = risk >= 50.0;
-      const scanId = apiData?.scan_id || `SCAN-${Date.now().toString(36).toUpperCase()}`;
+      // Explicitly separate risk score: null when unrecognized/failed/rescan
+      const rawRisk = apiData?.risk_score !== undefined && apiData?.risk_score !== null
+        ? Number(apiData.risk_score)
+        : (apiData?.risk?.risk_score !== undefined && apiData?.risk?.risk_score !== null
+            ? Number(apiData.risk.risk_score)
+            : null);
+
+      const effectiveRiskScore: number | null = (isUnsupported || isNeedsRescan || isProcessingFailed)
+        ? null
+        : (rawRisk !== null ? rawRisk : 12.0);
+
+      const isRiskHigh = effectiveRiskScore !== null && effectiveRiskScore >= 50.0;
+      const scanId = apiData?.scan_id || apiData?.case_id || `SCAN-${Date.now().toString(36).toUpperCase()}`;
+
+      // Final verdict decision
+      let verdict: ScenarioItem["verdict"] = "CLEAR TO ENTER";
+      let verdictDesc = "Clearance approved. Credential syntax and physical substrate integrity validated.";
+      let badge = "VERIFIED & CLEARED";
+      let badgeColor = "bg-emerald-500/20 text-emerald-400 border-emerald-500/40";
+
+      if (isProcessingFailed) {
+        verdict = "PROCESSING ERROR";
+        verdictDesc = `Technical error (${apiData?.error_code || "ERR_INGEST_FAILURE"}): ${unsupportedReason}`;
+        badge = "PROCESSING ERROR";
+        badgeColor = "bg-rose-500/20 text-rose-400 border-rose-500/40";
+      } else if (isNeedsRescan) {
+        verdict = "RESCAN REQUIRED";
+        verdictDesc = "Image quality, lighting, or orientation is insufficient for verification. Please rescan with higher resolution.";
+        badge = "RESCAN REQUIRED";
+        badgeColor = "bg-amber-500/20 text-amber-400 border-amber-500/40";
+      } else if (isUnsupported) {
+        verdict = "DOCUMENT UNRECOGNIZED";
+        verdictDesc = "Document type could not be matched to supported credential formats. Manual physical inspection required.";
+        badge = "UNRECOGNIZED";
+        badgeColor = "bg-amber-500/20 text-amber-400 border-amber-500/40";
+      } else if (isPartial) {
+        verdict = "SECONDARY SCRUTINY";
+        verdictDesc = "Document recognized but certain fields require human verification before border clearance.";
+        badge = "PARTIALLY ANALYZED";
+        badgeColor = "bg-cyan-500/20 text-cyan-400 border-cyan-500/40";
+      } else if (isRiskHigh) {
+        verdict = "DETAIN / FRAUD ALERT";
+        verdictDesc = "MANDATORY HUMAN REVIEW: Elevated risk indicators or unresolved field inconsistencies recorded in screening pipeline.";
+        badge = "HIGH RISK / REVIEW";
+        badgeColor = "bg-rose-500/20 text-rose-400 border-rose-500/40";
+      }
 
       const newScenario: ScenarioItem = {
         id: scanId,
         name: `Scanned: ${customFile.name}`,
-        badge: isUnsupported ? "NEEDS REVIEW" : (isRiskHigh ? "HIGH RISK / REVIEW" : "VERIFIED & CLEARED"),
-        badgeColor: isUnsupported ? "bg-amber-500/20 text-amber-400 border-amber-500/40" : (isRiskHigh ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"),
+        badge: badge,
+        badgeColor: badgeColor,
         description: isUnsupported
           ? unsupportedReason
           : `Uploaded document screened with RapidOCR/PaddleOCR, dedicated MRZ parser, and cross-validation engine.`,
-        verdict: isUnsupported ? "SECONDARY SCRUTINY" : (isRiskHigh ? "DETAIN / FRAUD ALERT" : "CLEAR TO ENTER"),
-        verdictDesc: isUnsupported
-          ? "The uploaded document requires manual inspection. Document type could not be confidently matched to automated clearance profiles."
-          : (isRiskHigh
-            ? "MANDATORY HUMAN REVIEW: Elevated risk indicators or unresolved field inconsistencies recorded in screening pipeline."
-            : "Clearance approved. Credential syntax and physical substrate integrity validated."),
-        riskScore: isUnsupported ? 35.0 : risk,
+        verdict: verdict,
+        verdictDesc: verdictDesc,
+        riskScore: effectiveRiskScore,
         documentType: extractedDocType,
         docNumber: extractedDocNo,
         fullName: extractedName,
@@ -1123,7 +1192,7 @@ export default function ScreeningPage() {
     }
   };
 
-  const isDetain = currentScenario.verdict === "DETAIN / FRAUD ALERT" || currentScenario.riskScore >= 70;
+  const isDetain = currentScenario.verdict === "DETAIN / FRAUD ALERT" || (currentScenario.riskScore !== null && currentScenario.riskScore >= 70);
 
   return (
     <div className="space-y-5 max-w-[1400px] mx-auto pb-16 font-sans">
@@ -1683,66 +1752,114 @@ export default function ScreeningPage() {
         {/* ===================================================================== */}
         <div className="lg:col-span-7 space-y-4">
           {/* ================================================================= */}
-          {/* SECTION 40: DOCUMENT VERIFICATION STATUS BANNER */}
+          {/* SECTION 40: DOCUMENT VERIFICATION STATUS BANNER (CASES A, B, C, D) */}
           {/* ================================================================= */}
-          {currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED" ? (
+          {currentScenario.analysisStatus === "PROCESSING_FAILED" ? (
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/40 flex items-center justify-between gap-3 text-xs font-mono">
+              <div className="flex items-center gap-2 text-rose-400 font-bold">
+                <AlertCircle className="w-4 h-4 text-rose-400" />
+                <span>⚠ PROCESSING ERROR</span>
+              </div>
+              <span className="text-[11px] text-rose-300">
+                {currentScenario.unsupportedReason || "Pipeline execution encountered an internal error"}
+              </span>
+            </div>
+          ) : currentScenario.analysisStatus === "NEEDS_RESCAN" ? (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between gap-3 text-xs font-mono">
+              <div className="flex items-center gap-2 text-amber-400 font-bold">
+                <RotateCcw className="w-4 h-4 text-amber-400" />
+                <span>⚠ RESCAN REQUIRED</span>
+              </div>
+              <span className="text-[11px] text-slate-400">
+                Resolution or lighting insufficient for reliable recognition
+              </span>
+            </div>
+          ) : currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED" ? (
             <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between gap-3 text-xs font-mono">
               <div className="flex items-center gap-2 text-amber-400 font-bold">
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
-                <span>⚠ DOCUMENT NOT VERIFIED</span>
+                <span>⚠ DOCUMENT TYPE NOT RECOGNIZED</span>
               </div>
               <span className="text-[11px] text-slate-400">
-                Document type could not be confidently recognized
+                Credential format not matched to automated clearance profiles
               </span>
             </div>
           ) : currentScenario.analysisStatus === "PARTIALLY_ANALYZED" ? (
             <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 flex items-center justify-between gap-3 text-xs font-mono">
               <div className="flex items-center gap-2 text-cyan-400 font-bold">
                 <AlertCircle className="w-4 h-4 text-cyan-400" />
-                <span>⚠ PARTIALLY ANALYZED</span>
+                <span>✓ DOCUMENT RECOGNIZED (PARTIAL OCR)</span>
               </div>
               <span className="text-[11px] text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                EXTERNAL VERIFICATION: NOT CONFIGURED
+                EXTERNAL VERIFICATION: NOT CONFIGURED (NOT VERIFIED)
               </span>
             </div>
           ) : (
             <div className="p-3.5 rounded-xl bg-[#0b162c] border border-cyan-800/60 flex items-center justify-between gap-3 text-xs font-mono">
               <div className="flex items-center gap-2 text-emerald-400 font-bold">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>✓ DOCUMENT ANALYZED</span>
+                <span>✓ DOCUMENT ANALYZED &amp; RECOGNIZED</span>
               </div>
               <div className="flex items-center gap-1.5 text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 text-[10px]">
                 <AlertTriangle className="w-3 h-3" />
-                <span>EXTERNAL VERIFICATION: NOT CONFIGURED</span>
+                <span>EXTERNAL VERIFICATION: NOT CONFIGURED (NOT VERIFIED)</span>
               </div>
             </div>
           )}
 
           {/* ================================================================= */}
-          {/* SECTION 17: UNSUPPORTED / UNRECOGNIZED DOCUMENT NOTIFICATION CARD */}
+          {/* SECTION 17: UNRECOGNIZED / RESCAN / ERROR NOTIFICATION CARD */}
           {/* ================================================================= */}
-          {(currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED") && (
-            <div className="p-6 rounded-2xl bg-amber-950/30 border-2 border-amber-500/50 shadow-2xl space-y-4">
+          {(currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED" || currentScenario.analysisStatus === "NEEDS_RESCAN" || currentScenario.analysisStatus === "PROCESSING_FAILED") && (
+            <div className={`p-6 rounded-2xl border-2 shadow-2xl space-y-4 ${
+              currentScenario.analysisStatus === "PROCESSING_FAILED"
+                ? "bg-rose-950/30 border-rose-500/50"
+                : "bg-amber-950/30 border-amber-500/50"
+            }`}>
               <div className="flex items-start gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <AlertTriangle className="w-6 h-6" />
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 border ${
+                  currentScenario.analysisStatus === "PROCESSING_FAILED"
+                    ? "bg-rose-500/20 text-rose-400 border-rose-500/40"
+                    : "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                }`}>
+                  {currentScenario.analysisStatus === "PROCESSING_FAILED" ? (
+                    <AlertCircle className="w-6 h-6" />
+                  ) : currentScenario.analysisStatus === "NEEDS_RESCAN" ? (
+                    <RotateCcw className="w-6 h-6" />
+                  ) : (
+                    <AlertTriangle className="w-6 h-6" />
+                  )}
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-base font-black tracking-wide text-amber-300">
-                    ⚠ DOCUMENT NOT VERIFIED
+                  <h3 className={`text-base font-black tracking-wide ${
+                    currentScenario.analysisStatus === "PROCESSING_FAILED" ? "text-rose-300" : "text-amber-300"
+                  }`}>
+                    {currentScenario.analysisStatus === "PROCESSING_FAILED"
+                      ? "⚠ INGESTION / PROCESSING ERROR"
+                      : currentScenario.analysisStatus === "NEEDS_RESCAN"
+                      ? "⚠ SCAN RESOLUTION INSUFFICIENT (RESCAN REQUIRED)"
+                      : "⚠ DOCUMENT TYPE NOT RECOGNIZED"}
                   </h3>
-                  <p className="text-xs text-amber-200/90 leading-relaxed">
-                    The uploaded document could not be confidently recognized by TRUST-ID.
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {currentScenario.analysisStatus === "PROCESSING_FAILED"
+                      ? "A processing exception occurred. No fraudulent activity has been asserted. Safe retry is available."
+                      : currentScenario.analysisStatus === "NEEDS_RESCAN"
+                      ? "The uploaded image does not contain enough sharp character edges for reliable text extraction."
+                      : "The uploaded file could not be securely matched to any supported credential format (Passport, Aadhaar, PAN, Voter ID, Driving Licence)."}
                   </p>
                   <p className="text-xs text-slate-400 font-mono">
-                    {currentScenario.unsupportedReason || "Document type could not be confidently recognized or supported."}
+                    Reason: {currentScenario.unsupportedReason || "Format unrecognized or unreadable text."}
                   </p>
                 </div>
               </div>
-              <div className="p-3 rounded-lg bg-black/60 border border-amber-500/20 text-xs font-mono text-slate-300">
-                No identity information was inferred. Visible text could not be securely matched to any supported credential structure.
+              <div className="p-3 rounded-lg bg-black/60 border border-slate-700/40 text-xs font-mono text-slate-300">
+                {currentScenario.analysisStatus === "PROCESSING_FAILED"
+                  ? "System integrity protected. No artificial risk score or fabricated identity attributes were generated."
+                  : currentScenario.analysisStatus === "NEEDS_RESCAN"
+                  ? "Please align document flat in even lighting without glare or blur, then click Rescan."
+                  : "No identity information was inferred. Risk score is unavailable (N/A) to prevent biased scoring."}
               </div>
-              <div>
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(true)}
@@ -1750,6 +1867,20 @@ export default function ScreeningPage() {
                 >
                   <UploadCloud className="w-4 h-4" />
                   <span>Upload Another Document</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customFile) {
+                      handleExecuteCustomScreening();
+                    } else {
+                      setShowUploadModal(true);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer border border-slate-700"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Rescan Document</span>
                 </button>
               </div>
             </div>
@@ -1830,23 +1961,25 @@ export default function ScreeningPage() {
                     fill="none"
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   />
-                  <path
-                    className={isDetain ? "text-rose-500" : "text-emerald-400"}
-                    strokeDasharray={`${Math.min(100, Math.max(5, currentScenario.riskScore))}, 100`}
-                    strokeWidth="3.5"
-                    strokeLinecap="round"
-                    stroke="currentColor"
-                    fill="none"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
+                  {currentScenario.riskScore !== null && (
+                    <path
+                      className={isDetain ? "text-rose-500" : "text-emerald-400"}
+                      strokeDasharray={`${Math.min(100, Math.max(5, currentScenario.riskScore))}, 100`}
+                      strokeWidth="3.5"
+                      strokeLinecap="round"
+                      stroke="currentColor"
+                      fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                  )}
                 </svg>
                 <div className="absolute text-center">
                   <span
-                    className={`font-mono font-black text-xl ${
-                      isDetain ? "text-rose-400" : "text-emerald-300"
+                    className={`font-mono font-black ${currentScenario.riskScore !== null ? "text-xl" : "text-base"} ${
+                      isDetain ? "text-rose-400" : (currentScenario.riskScore === null ? "text-slate-500" : "text-emerald-300")
                     }`}
                   >
-                    {currentScenario.riskScore.toFixed(1)}
+                    {currentScenario.riskScore !== null ? currentScenario.riskScore.toFixed(1) : "N/A"}
                   </span>
                 </div>
               </div>

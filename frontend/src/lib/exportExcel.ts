@@ -20,7 +20,7 @@ export interface ExportData {
   checkpoint: string;
   officerId: string;
   decision: string;
-  riskScore: number;
+  riskScore: number | null;
   documentType: string;
   documentNumber: string;
   fullName: string;
@@ -133,8 +133,8 @@ export function exportAnalysisToExcel(data: ExportData) {
    </Row>
    <Row>
     <Cell ss:StyleID="SubHeader"><Data ss:Type="String">Border Clearance Verdict</Data></Cell>
-    <Cell ss:StyleID="${data.riskScore >= 70 ? "HighRisk" : "LowRisk"}">
-     <Data ss:Type="String">${escapeXml(data.decision)} (RISK: ${data.riskScore}/100)</Data>
+    <Cell ss:StyleID="${data.riskScore !== null && data.riskScore >= 70 ? "HighRisk" : "LowRisk"}">
+     <Data ss:Type="String">${escapeXml(data.decision)} (RISK: ${data.riskScore !== null ? data.riskScore : "N/A"}/100)</Data>
     </Cell>
    </Row>
    <Row><Cell><Data ss:Type="String"/></Cell></Row>
@@ -269,7 +269,7 @@ export function exportAnalysisToCsv(data: ExportData) {
     `"SCREENING TIME","${data.screeningTime}"`,
     `"OFFICER ID","${data.officerId}"`,
     `"VERDICT","${data.decision}"`,
-    `"RISK SCORE","${data.riskScore} / 100"`,
+    `"RISK SCORE","${data.riskScore !== null ? data.riskScore : "N/A"} / 100"`,
     `"DOCUMENT NUMBER","${data.documentNumber}"`,
     `"HOLDER FULL NAME","${data.fullName}"`,
     `"NATIONALITY","${data.nationality}"`,
