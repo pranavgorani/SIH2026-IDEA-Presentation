@@ -90,6 +90,11 @@ class DocumentCheckEngine:
         risk = risk_data or {}
         audit = audit_data or {}
 
+        # Resolve document type
+        doc_type_raw = str(q.get("document_type") or doc_cls.get("document_type") or kwargs.get("document_type") or "PASSPORT").upper().replace(" ", "_")
+        no_expiry_types = {"PAN_CARD", "PAN", "AADHAAR", "AADHAAR_CARD", "VOTER_ID", "EPIC"}
+        is_expiry_applicable = doc_type_raw not in no_expiry_types
+
         # =====================================================================
         # CATEGORY A: DOCUMENT INTEGRITY (CHK-001 - CHK-015)
         # =====================================================================
@@ -402,7 +407,22 @@ class DocumentCheckEngine:
         field_check("CHK-020", "Nationality extracted", "nationality", "HIGH")
         field_check("CHK-021", "Date of birth extracted", "date_of_birth", "HIGH")
         field_check("CHK-022", "Date of issue extracted", "date_of_issue", "MEDIUM")
-        field_check("CHK-023", "Date of expiry extracted", "date_of_expiry", "HIGH")
+        if not is_expiry_applicable:
+            checks.append({
+                "check_id": "CHK-023",
+                "category": "OCR_TEXT_EXTRACTION",
+                "name": "Date of expiry extracted",
+                "description": "Verifies extraction of date of expiry from credential face",
+                "status": "NOT_APPLICABLE",
+                "severity": "LOW",
+                "confidence": 1.0,
+                "evidence": f"Document type '{doc_type_raw}' does not possess an expiry date.",
+                "value": "N/A",
+                "expected_value": "N/A",
+                "message": "Expiry date extraction is NOT_APPLICABLE for this credential type."
+            })
+        else:
+            field_check("CHK-023", "Date of expiry extracted", "date_of_expiry", "HIGH")
         field_check("CHK-024", "Gender extracted", "sex", "LOW")
 
         # CHK-025: Text-region consistency
@@ -481,8 +501,12 @@ class DocumentCheckEngine:
         })
 
         # CHK-030: Text extraction completeness
-        found_count = sum(1 for k in ["name", "document_number", "nationality", "date_of_birth", "date_of_expiry"] if fields.get(k))
-        comp_ok = found_count >= 3
+        core_keys = ["name", "document_number", "nationality", "date_of_birth"]
+        if is_expiry_applicable:
+            core_keys.append("date_of_expiry")
+        found_count = sum(1 for k in core_keys if fields.get(k))
+        comp_threshold = 3 if len(core_keys) >= 4 else 2
+        comp_ok = found_count >= comp_threshold
         checks.append({
             "check_id": "CHK-030",
             "category": "OCR_TEXT_EXTRACTION",
@@ -491,9 +515,9 @@ class DocumentCheckEngine:
             "status": "PASS" if comp_ok else "WARNING",
             "severity": "HIGH",
             "confidence": 0.95,
-            "evidence": f"Extracted {found_count} of 5 core identity fields",
-            "value": f"{found_count}/5",
-            "expected_value": ">= 3/5",
+            "evidence": f"Extracted {found_count} of {len(core_keys)} core identity fields",
+            "value": f"{found_count}/{len(core_keys)}",
+            "expected_value": f">= {comp_threshold}/{len(core_keys)}",
             "message": "Extraction meets completeness threshold." if comp_ok else "Incomplete text extraction from credential."
         })
 
@@ -608,19 +632,34 @@ class DocumentCheckEngine:
         # CHK-037: Expiry-date format valid
         exp_val = fields.get("date_of_expiry")
         exp_format_ok = bool(exp_val and any(c.isdigit() for c in str(exp_val)))
-        checks.append({
-            "check_id": "CHK-037",
-            "category": "FIELD_LOGICAL_VALIDATION",
-            "name": "Expiry-date format valid",
-            "description": "Verifies expiry date syntax",
-            "status": "PASS" if exp_format_ok else "WARNING",
-            "severity": "HIGH",
-            "confidence": 0.90,
-            "evidence": f"Expiry date syntax: '{exp_val or 'N/A'}'",
-            "value": str(exp_val or "Missing"),
-            "expected_value": "Valid date string",
-            "message": "Expiry date format verified." if exp_format_ok else "Expiry date syntax invalid or missing."
-        })
+        if not is_expiry_applicable:
+            checks.append({
+                "check_id": "CHK-037",
+                "category": "FIELD_LOGICAL_VALIDATION",
+                "name": "Expiry-date format valid",
+                "description": "Verifies expiry date syntax",
+                "status": "NOT_APPLICABLE",
+                "severity": "LOW",
+                "confidence": 1.0,
+                "evidence": f"Document type '{doc_type_raw}' does not possess an expiry date.",
+                "value": "N/A",
+                "expected_value": "N/A",
+                "message": "Expiry date format check is NOT_APPLICABLE for this credential type."
+            })
+        else:
+            checks.append({
+                "check_id": "CHK-037",
+                "category": "FIELD_LOGICAL_VALIDATION",
+                "name": "Expiry-date format valid",
+                "description": "Verifies expiry date syntax",
+                "status": "PASS" if exp_format_ok else "WARNING",
+                "severity": "HIGH",
+                "confidence": 0.90,
+                "evidence": f"Expiry date syntax: '{exp_val or 'N/A'}'",
+                "value": str(exp_val or "Missing"),
+                "expected_value": "Valid date string",
+                "message": "Expiry date format verified." if exp_format_ok else "Expiry date syntax invalid or missing."
+            })
 
         # CHK-038: DOB is logically valid
         checks.append({
@@ -638,19 +677,34 @@ class DocumentCheckEngine:
         })
 
         # CHK-039: Issue date before expiry
-        checks.append({
-            "check_id": "CHK-039",
-            "category": "FIELD_LOGICAL_VALIDATION",
-            "name": "Issue date before expiry",
-            "description": "Chronological check: credential issue date must precede expiration",
-            "status": "FAIL" if chron_fail else "PASS",
-            "severity": "HIGH",
-            "confidence": 0.95,
-            "evidence": "Chronological sequence: issue < expiry",
-            "value": "Conforming" if not chron_fail else "Chronological paradox",
-            "expected_value": "Issue date < Expiry date",
-            "message": "Issue date chronologically precedes expiry date." if not chron_fail else "Issue date is after expiry date."
-        })
+        if not is_expiry_applicable:
+            checks.append({
+                "check_id": "CHK-039",
+                "category": "FIELD_LOGICAL_VALIDATION",
+                "name": "Issue date before expiry",
+                "description": "Chronological check: credential issue date must precede expiration",
+                "status": "NOT_APPLICABLE",
+                "severity": "LOW",
+                "confidence": 1.0,
+                "evidence": f"Document type '{doc_type_raw}' does not possess an expiry date.",
+                "value": "N/A",
+                "expected_value": "N/A",
+                "message": "Expiry chronology check is NOT_APPLICABLE for this credential type."
+            })
+        else:
+            checks.append({
+                "check_id": "CHK-039",
+                "category": "FIELD_LOGICAL_VALIDATION",
+                "name": "Issue date before expiry",
+                "description": "Chronological check: credential issue date must precede expiration",
+                "status": "FAIL" if chron_fail else "PASS",
+                "severity": "HIGH",
+                "confidence": 0.95,
+                "evidence": "Chronological sequence: issue < expiry",
+                "value": "Conforming" if not chron_fail else "Chronological paradox",
+                "expected_value": "Issue date < Expiry date",
+                "message": "Issue date chronologically precedes expiry date." if not chron_fail else "Issue date is after expiry date."
+            })
 
         # CHK-040: DOB before issue date
         checks.append({
@@ -668,19 +722,34 @@ class DocumentCheckEngine:
         })
 
         # CHK-041: Expiry status
-        checks.append({
-            "check_id": "CHK-041",
-            "category": "FIELD_LOGICAL_VALIDATION",
-            "name": "Expiry status",
-            "description": "Validates that credential has not passed its expiration date",
-            "status": "FAIL" if is_expired else "PASS",
-            "severity": "CRITICAL",
-            "confidence": 0.98,
-            "evidence": f"Expiry date: '{exp_val or 'N/A'}' compared to UTC today",
-            "value": "EXPIRED" if is_expired else "CURRENT",
-            "expected_value": "CURRENT (Non-expired)",
-            "message": "Document is valid and non-expired." if not is_expired else "DOCUMENT IS EXPIRED. Inadmissible for travel/clearance."
-        })
+        if not is_expiry_applicable:
+            checks.append({
+                "check_id": "CHK-041",
+                "category": "FIELD_LOGICAL_VALIDATION",
+                "name": "Expiry status",
+                "description": "Validates that credential has not passed its expiration date",
+                "status": "NOT_APPLICABLE",
+                "severity": "LOW",
+                "confidence": 1.0,
+                "evidence": f"Document type '{doc_type_raw}' does not possess an expiry date (lifetime/permanent).",
+                "value": "PERMANENT",
+                "expected_value": "PERMANENT",
+                "message": "Document is a permanent/lifetime credential without expiration date."
+            })
+        else:
+            checks.append({
+                "check_id": "CHK-041",
+                "category": "FIELD_LOGICAL_VALIDATION",
+                "name": "Expiry status",
+                "description": "Validates that credential has not passed its expiration date",
+                "status": "FAIL" if is_expired else "PASS",
+                "severity": "CRITICAL",
+                "confidence": 0.98,
+                "evidence": f"Expiry date: '{exp_val or 'N/A'}' compared to UTC today",
+                "value": "EXPIRED" if is_expired else "CURRENT",
+                "expected_value": "CURRENT (Non-expired)",
+                "message": "Document is valid and non-expired." if not is_expired else "DOCUMENT IS EXPIRED. Inadmissible for travel/clearance."
+            })
 
         # CHK-042: Gender field consistency
         checks.append({
@@ -728,7 +797,7 @@ class DocumentCheckEngine:
         })
 
         # CHK-045: Overall field validation
-        val_summary_ok = not is_expired and not chron_fail and comp_ok
+        val_summary_ok = (not is_expired if is_expiry_applicable else True) and not chron_fail and comp_ok
         checks.append({
             "check_id": "CHK-045",
             "category": "FIELD_LOGICAL_VALIDATION",

@@ -440,7 +440,8 @@ async def run_screening_pipeline(
             validation=validation_res,
             tampering=tamper_res,
             face=face_res,
-            record=record_res
+            record=record_res,
+            document_type=detected_doc_type
         )
         logger.info(f"RISK_COMPLETE: score={risk_assessment.risk_score} level={risk_assessment.risk_level}")
         log_stage_completion("RISK_ASSESSMENT", {

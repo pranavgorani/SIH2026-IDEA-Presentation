@@ -438,7 +438,8 @@ def run_demo_scenario(preset_id: str, db: Session = Depends(get_db)):
     )
     risk_res = risk_engine.evaluate(
         quality=quality_res, ocr=ocr_resp_obj, validation=val_res,
-        tampering=tamper_res, face=face_res, record=rec_res
+        tampering=tamper_res, face=face_res, record=rec_res,
+        document_type=case.document_type
     )
     db.add(RiskAssessment(
         id=generate_uuid(), case_id=case_id,

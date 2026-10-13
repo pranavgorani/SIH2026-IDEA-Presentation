@@ -2,11 +2,13 @@ import re
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional
 from backend.app.models.schemas import ExtractedFields, MRZData, ValidationCheck, ValidationSummary
+from backend.app.services.document_validators import validator_registry
 
 class ValidationService:
     """
     Validation engine ensuring syntactic, chronological, and cross-field integrity.
     Never throws 500 exceptions on missing fields; records informative UNAVAILABLE / INFO checks.
+    Applies dedicated document-type specific validators (PAN, Aadhaar, Passport, DL, Voter ID).
     """
     def validate_document_data(
         self,
@@ -16,6 +18,7 @@ class ValidationService:
     ) -> ValidationSummary:
         checks: List[ValidationCheck] = []
         today = date.today()
+        doc_type_clean = (document_type or "PASSPORT").strip().upper().replace(" ", "_")
 
         # Helper to parse dates safely
         def parse_date(date_str: Optional[str]) -> Optional[date]:
@@ -28,14 +31,28 @@ class ValidationService:
                     continue
             return None
 
+        # Determine if document type has an expiry date
+        no_expiry_types = {"PAN_CARD", "PAN", "AADHAAR", "AADHAAR_CARD", "VOTER_ID", "EPIC"}
+        is_expiry_applicable = doc_type_clean not in no_expiry_types
+
         # 1. Field-by-Field Presence & Extraction Status
-        for field_key, field_label, field_val in [
-            ("name", "Full Name", fields.name),
-            ("document_number", "Document Number", fields.document_number),
-            ("date_of_birth", "Date of Birth", fields.date_of_birth),
-            ("date_of_expiry", "Validity Period", fields.date_of_expiry),
-        ]:
-            if not field_val or not str(field_val).strip():
+        field_specs = [
+            ("name", "Full Name", fields.name, True),
+            ("document_number", "Document Number", fields.document_number, True),
+            ("date_of_birth", "Date of Birth", fields.date_of_birth, True),
+            ("date_of_expiry", "Validity Period", fields.date_of_expiry, is_expiry_applicable),
+        ]
+
+        for field_key, field_label, field_val, is_app in field_specs:
+            if not is_app:
+                checks.append(ValidationCheck(
+                    name=f"Field Extraction Check: {field_label}",
+                    status="NOT_APPLICABLE",
+                    severity="LOW",
+                    message=f"{field_label} is not applicable for {document_type} credential type.",
+                    evidence={"field": field_key, "status": "NOT_APPLICABLE", "severity": "LOW"}
+                ))
+            elif not field_val or not str(field_val).strip():
                 checks.append(ValidationCheck(
                     name=f"Field Extraction Check: {field_label}",
                     status="UNAVAILABLE",
@@ -57,7 +74,16 @@ class ValidationService:
 
         # 2. Date of Birth Format & Sanity
         if fields.date_of_birth and str(fields.date_of_birth).strip():
-            if not parsed_dob:
+            dob_str = str(fields.date_of_birth).strip()
+            # Allow year only for Aadhaar
+            if "AADHAAR" in doc_type_clean and re.match(r'^(19|20)\d{2}$', dob_str):
+                checks.append(ValidationCheck(
+                    name="Date of Birth Format Check",
+                    status="PASS",
+                    severity="LOW",
+                    message=f"Date of birth adheres to valid birth year representation ('{dob_str}')."
+                ))
+            elif not parsed_dob:
                 checks.append(ValidationCheck(
                     name="Date of Birth Format Check",
                     status="FAIL",
@@ -80,8 +106,16 @@ class ValidationService:
                 evidence={"field": "date_of_birth", "status": "UNAVAILABLE", "severity": "INFO"}
             ))
 
-        # 3. Expiry Check
-        if parsed_expiry:
+        # 3. Expiry Check (Only evaluated for applicable document types)
+        if not is_expiry_applicable:
+            checks.append(ValidationCheck(
+                name="Document Expiry Check",
+                status="NOT_APPLICABLE",
+                severity="LOW",
+                message=f"Document expiry check is NOT_APPLICABLE for {document_type} (permanent/lifetime credential).",
+                evidence={"field": "date_of_expiry", "status": "NOT_APPLICABLE", "severity": "LOW"}
+            ))
+        elif parsed_expiry:
             if parsed_expiry < today:
                 checks.append(ValidationCheck(
                     name="Document Expiry Check",
@@ -130,7 +164,7 @@ class ValidationService:
                 message="Date of birth is after or identical to document issue date.",
                 evidence={"dob": parsed_dob.isoformat(), "issue": parsed_issue.isoformat()}
             ))
-        elif parsed_issue and parsed_expiry and parsed_issue >= parsed_expiry:
+        elif is_expiry_applicable and parsed_issue and parsed_expiry and parsed_issue >= parsed_expiry:
             checks.append(ValidationCheck(
                 name="Chronological Sanity Check",
                 status="FAIL",
@@ -156,14 +190,36 @@ class ValidationService:
         # 5. Document Number Format Validation
         doc_num = (fields.document_number or "").strip()
         if doc_num:
-            if len(doc_num) < 5 or len(doc_num) > 20:
+            if "AADHAAR" in doc_type_clean and re.match(r'^[X•x*]{4}\s+[X•x*]{4}\s+[0-9]{4}$', doc_num):
+                checks.append(ValidationCheck(
+                    name="Document Number Format",
+                    status="PASS",
+                    severity="LOW",
+                    message="Masked Aadhaar format verified (XXXX XXXX 1234)."
+                ))
+            elif "PAN" in doc_type_clean:
+                if re.match(r'^[A-Z]{5}[0-9]{4}[A-Z]$', doc_num.upper()):
+                    checks.append(ValidationCheck(
+                        name="Document Number Format",
+                        status="PASS",
+                        severity="LOW",
+                        message=f"PAN identifier syntax verified (5 letters, 4 digits, 1 letter)."
+                    ))
+                else:
+                    checks.append(ValidationCheck(
+                        name="Document Number Format",
+                        status="WARNING",
+                        severity="MEDIUM",
+                        message=f"PAN format inconsistency: '{doc_num}' deviates from AAAAA9999A syntax."
+                    ))
+            elif len(doc_num) < 5 or len(doc_num) > 25:
                 checks.append(ValidationCheck(
                     name="Document Number Format",
                     status="WARNING",
                     severity="MEDIUM",
-                    message=f"Document number '{doc_num}' length ({len(doc_num)}) deviates from standard standard pattern (5-20 characters)."
+                    message=f"Document number '{doc_num}' length ({len(doc_num)}) deviates from standard pattern (5-25 characters)."
                 ))
-            elif not re.match(r'^[A-Z0-9\-_]+$', doc_num, re.I):
+            elif not re.match(r'^[A-Z0-9\-_•* ]+$', doc_num, re.I):
                 checks.append(ValidationCheck(
                     name="Document Number Format",
                     status="FAIL",
@@ -185,8 +241,11 @@ class ValidationService:
                 message="Document number check skipped — identifier unavailable."
             ))
 
-        # 6. MRZ vs Visual Cross-Check Consistency
-        if mrz_data and hasattr(mrz_data, "valid"):
+        # 6. MRZ vs Visual Cross-Check Consistency (Only if MRZ is applicable)
+        mrz_applicable_types = {"PASSPORT", "INDIAN_PASSPORT", "VISA", "INDIAN_VISA"}
+        is_mrz_expected = doc_type_clean in mrz_applicable_types
+
+        if mrz_data and hasattr(mrz_data, "valid") and getattr(mrz_data, "raw_mrz", None):
             mrz_mismatches = []
             if mrz_data.passport_number and doc_num:
                 mrz_doc = mrz_data.passport_number.replace('<', '').strip()
@@ -234,7 +293,22 @@ class ValidationService:
                     severity="LOW",
                     message="Visual fields match MRZ parsed values with 100% correlation."
                 ))
-        # 7. Nationality Code Validation (ISO 3166-1 alpha-3 code)
+        elif not is_mrz_expected:
+            checks.append(ValidationCheck(
+                name="MRZ Checksum Validation",
+                status="NOT_APPLICABLE",
+                severity="LOW",
+                message=f"MRZ validation is NOT_APPLICABLE for {document_type} credential type."
+            ))
+        else:
+            checks.append(ValidationCheck(
+                name="MRZ Checksum Validation",
+                status="WARNING",
+                severity="MEDIUM",
+                message=f"{document_type} typically features an ICAO MRZ zone which was not detected."
+            ))
+
+        # 7. Nationality Code Validation
         nat = (fields.nationality or "").strip().upper()
         if nat:
             if re.match(r'^[A-Z]{3}$', nat):
@@ -266,12 +340,12 @@ class ValidationService:
                 message="Nationality code check skipped — field unavailable."
             ))
 
-        # 8. Duplicate Fields Check (Cross-Field Redundancy Anomaly)
+        # 8. Duplicate Fields Check (Anomaly check)
         val_map = {
             "Name": fields.name,
             "Document Number": fields.document_number,
             "DOB": fields.date_of_birth,
-            "Expiry": fields.date_of_expiry,
+            "Expiry": fields.date_of_expiry if is_expiry_applicable else None,
             "Nationality": fields.nationality
         }
         clean_vals = {k: str(v).strip().upper() for k, v in val_map.items() if v and len(str(v).strip()) > 3}
@@ -297,36 +371,20 @@ class ValidationService:
                 message="Distinct credential fields possess independent, non-duplicated values."
             ))
 
-        # 9. Document Type Consistency Check
-        if document_type.upper() == "PASSPORT":
-            if mrz_data and mrz_data.valid:
-                checks.append(ValidationCheck(
-                    name="Document Type Consistency",
-                    status="PASS",
-                    severity="LOW",
-                    message="Passport document structure and MRZ format are mutually consistent."
-                ))
-            else:
-                checks.append(ValidationCheck(
-                    name="Document Type Consistency",
-                    status="WARNING" if not mrz_data else "FAIL",
-                    severity="MEDIUM",
-                    message="Document classified as Passport but standard TD3 MRZ layout is missing or unverified."
-                ))
-        elif document_type.upper() == "VISA":
-            checks.append(ValidationCheck(
-                name="Document Type Consistency",
-                status="PASS",
-                severity="LOW",
-                message="Visa credential conforms to expected layout parameters."
-            ))
-        else:
-            checks.append(ValidationCheck(
-                name="Document Type Consistency",
-                status="PASS",
-                severity="LOW",
-                message=f"Document format consistent with declared {document_type} credential type."
-            ))
+        # 9. Document-Specific Validator Integration from Registry
+        specific_validator = validator_registry.get_validator(document_type)
+        if specific_validator:
+            specific_checks = specific_validator.validate(fields, mrz_data)
+            existing_names = {c.name for c in checks}
+            for sc in specific_checks:
+                if sc.name in existing_names:
+                    # Update existing check with document-specific logic
+                    for i, ec in enumerate(checks):
+                        if ec.name == sc.name:
+                            checks[i] = sc
+                            break
+                else:
+                    checks.append(sc)
 
         # Calculate Summary
         passed = sum(1 for c in checks if c.status == "PASS")

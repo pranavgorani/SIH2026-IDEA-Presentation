@@ -1039,25 +1039,25 @@ export default function ScreeningPage() {
         }
       }
 
-      const risk = apiData?.risk_score !== undefined ? Number(apiData.risk_score) : 4.5;
-      const isRiskHigh = risk >= 70;
+      const risk = apiData?.risk_score !== undefined ? Number(apiData.risk_score) : (apiData?.risk?.risk_score !== undefined ? Number(apiData.risk.risk_score) : 12.0);
+      const isRiskHigh = risk >= 50.0;
       const scanId = apiData?.scan_id || `SCAN-${Date.now().toString(36).toUpperCase()}`;
 
       const newScenario: ScenarioItem = {
         id: scanId,
         name: `Scanned: ${customFile.name}`,
-        badge: isUnsupported ? "NOT VERIFIED" : (isRiskHigh ? "FRAUD DETECTED" : "VERIFIED & CLEARED"),
+        badge: isUnsupported ? "NEEDS REVIEW" : (isRiskHigh ? "HIGH RISK / REVIEW" : "VERIFIED & CLEARED"),
         badgeColor: isUnsupported ? "bg-amber-500/20 text-amber-400 border-amber-500/40" : (isRiskHigh ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"),
         description: isUnsupported
           ? unsupportedReason
           : `Uploaded document screened with RapidOCR/PaddleOCR, dedicated MRZ parser, and cross-validation engine.`,
         verdict: isUnsupported ? "SECONDARY SCRUTINY" : (isRiskHigh ? "DETAIN / FRAUD ALERT" : "CLEAR TO ENTER"),
         verdictDesc: isUnsupported
-          ? "The uploaded document could not be confidently recognized by TRUST-ID. No identity information was inferred."
+          ? "The uploaded document requires manual inspection. Document type could not be confidently matched to automated clearance profiles."
           : (isRiskHigh
-            ? "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match."
-            : "Auto-gate clearance approved. Traveler identity and document integrity verified."),
-        riskScore: isUnsupported ? 75.0 : risk,
+            ? "MANDATORY HUMAN REVIEW: Elevated risk indicators or unresolved field inconsistencies recorded in screening pipeline."
+            : "Clearance approved. Credential syntax and physical substrate integrity validated."),
+        riskScore: isUnsupported ? 35.0 : risk,
         documentType: extractedDocType,
         docNumber: extractedDocNo,
         fullName: extractedName,
