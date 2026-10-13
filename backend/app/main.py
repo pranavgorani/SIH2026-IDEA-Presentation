@@ -27,6 +27,7 @@ from backend.app.api.audit import router as audit_router
 from backend.app.api.analytics import router as analytics_router
 from backend.app.api.settings import router as settings_router
 from backend.app.api.reports import router as reports_router
+from backend.app.api.forensic_screening import router as idfse_router
 from backend.app.services.synthetic_generator import synthetic_generator
 
 @asynccontextmanager
@@ -85,9 +86,11 @@ app.add_middleware(
 
 # Mount Routers under root, /api, and /api/backend for Vercel and direct proxy compatibility
 app.include_router(screening_router)
+app.include_router(idfse_router)
 for route_prefix in ["/api", "/api/backend"]:
     app.include_router(auth_router, prefix=route_prefix)
     app.include_router(screening_router, prefix=route_prefix)
+    app.include_router(idfse_router, prefix=route_prefix)
     app.include_router(cases_router, prefix=route_prefix)
     app.include_router(documents_router, prefix=route_prefix)
     app.include_router(audit_router, prefix=route_prefix)

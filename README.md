@@ -396,3 +396,35 @@ The backend leverages OpenCV and cryptographic libraries. It can be deployed in 
 
 Developed for the **Smart India Hackathon 2026** under the problem statement **SIH26188: AI-Based Fake Identity & Document Screening System** issued by the **Ministry of Home Affairs (MHA)**.
 All synthetic datasets and demonstration imagery are generated solely for academic and technical evaluation.
+
+---
+
+## 17. Forensic Screening Engine (AG-IDFSE)
+
+TRUST-ID features the **Identity & Travel Document Forensic Screening Engine (AG-IDFSE)** designed for border security, civil identity verification, and anti-fraud document auditing.
+
+### 17.1 Allowed Document Taxonomy
+1. **Passports (ICAO Doc 9303 TD3 standard):** 2-line Machine Readable Zone (MRZ), 44 characters per line.
+2. **Visas & Permits (ICAO MRVA / MRVB standard):** Machine-readable visa entry stickers, paper consular stamps, and e-visas (36 or 44 characters per line).
+3. **National Identity Cards (ICAO TD1 / TD2 standard):** Identity smartcards, citizen cards, and resident permits (3 lines x 30 characters or 2 lines x 36 characters).
+4. **Driver’s Licenses & Transit Authorizations (ISO/IEC 18013):** Standard driving credentials with photo portraits and official licensing categories.
+
+*Unsupported credentials (e.g., student IDs, utility bills, handwritten notes, invoices) are immediately rejected with:*
+```json
+{"status": "REJECTED_UNSUPPORTED_DOCUMENT"}
+```
+
+### 17.2 Three-Layer Forensic Scan Architecture
+- **Layer A (Spatial & Geometric Alignment):** Quadrilateral border contour extraction, normalized corner coordinates, aspect ratio validation against TD3 (1.420), TD1 (1.585), TD2 (1.419), and ISO 18013 (1.585), skew angle estimation, specular glare hotspot detection, and perspective warp measurement.
+- **Layer B (Zonal Scanning):** Visual Inspection Zone (VIZ) biographical headers and seal detection, OCR-B font baseline and chevron (`<`) padding integrity, primary facial photo bounding box (`[ymin, xmin, ymax, xmax]`), ghost/secondary portrait identification, and security stamp/seal bleed analysis.
+- **Layer C (Pixel Forensics & Tampering Flags):** JPEG Error Level Analysis (ELA) compression disparity, gradient discontinuity and halo artifact detection around photo borders (`photo_edge_anomaly_score`, `photo_replacement_detected`), typography/kerning baseline anomalies, and digital stamp clone artifacts.
+
+### 17.3 ICAO Doc 9303 Check-Digit & Consistency Rules
+- **7-3-1 Weight Verification:** Mathematical checksum validation for Document Number, Date of Birth, Expiration Date, and Master Composite Checksum.
+- **VIZ vs. MRZ Consistency Cross-Match:** Cross-verifies surname, given names, date of birth, document number, and expiry date. Character mismatches trigger a `HIGH_SEVERITY_TAMPERING_ALERT`.
+- **Temporal Validity:** Enforces chronological sanity (DOB in the past, expiry date strictly greater than issue date, and flags `DOCUMENT_EXPIRED`).
+
+### 17.4 AG-IDFSE API Endpoints
+- `POST /api/idfse/screen` or `POST /idfse/screen`: Ingests document image or raw credentials and returns the standardized AG-IDFSE forensic screening report.
+- `POST /api/idfse/validate-mrz` or `POST /idfse/validate-mrz`: Standalone ICAO 9303 mathematical check-digit calculator and parser.
+
