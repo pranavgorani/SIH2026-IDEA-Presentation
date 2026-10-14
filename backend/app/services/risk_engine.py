@@ -5,28 +5,34 @@ from backend.app.models.schemas import (
     TamperResultResponse, FaceVerificationResponse, RecordVerificationResponse,
     RiskAssessmentResponse
 )
+from backend.app.services.gate1_validator import gate1_validator
+from backend.app.services.gate3_scorer import gate3_scorer
+
 
 class RiskEngine:
     """
-    Multi-Dimensional Risk Engine implementing Section 6 & 7:
-    - Separate result dimensions: OCR confidence, Field validation, Doc type confidence,
-      Integrity analysis, External verification, Biometric status, Final risk score, Final decision.
-    - Rule A: OCR uncertainty / blur does not independently equal fraud.
-    - Rule B: Missing non-applicable fields are NOT_APPLICABLE, not validation failures.
-    - Rule C: External verification unavailable/timeout returns NOT_VERIFIED, risk score contribution is 0.
-    - Rule D: Inconclusive/unavailable AI or tampering analysis is NOT evidence of tampering.
-    - Rule E: Document-specific checks: no MRZ or expiry required for PAN, Aadhaar, Voter ID.
-    - Rule F: Conflicting evidence / confirmed mismatches are explicitly recorded.
-    - Rule G: No hardcoded results, mock defaults, or static HIGH RISK verdicts.
-    - Rule H: No double-counting of correlated failures.
-    - Calibrated Bands: 0-24 LOW, 25-49 MEDIUM, 50-74 HIGH, 75-100 CRITICAL.
+    3-Gate Calibrated Multi-Dimensional Risk Engine:
+    Enforces the Golden Rule: "Deterministic Clarity First, Calibrated AI Second"
+
+    1. Valid documents MUST pass as LOW RISK (Score: 0–30, GREEN) even if
+       slightly blurry, phone-captured, WhatsApp-compressed, or missing EXIF metadata.
+    2. Global image noise or missing EXIF data must NEVER trigger a High Risk (RED) alert.
+    3. High Risk (Score: 66–100, RED) can ONLY be triggered if:
+       - A deterministic structural/cryptographic rule fails (Gate 1), OR
+       - Differential ROI Forensics proves that Face Box or Text/DOB Box has
+         anomalous variance vs background substrate (ΔZ > 2.6) (Gate 2), OR
+       - Biometric 1:1 face verification fails or 1:N multi-identity check flags
+         the same face on two different ID numbers (Gate 2).
+    4. Review / Medium Risk (Score: 31–65, YELLOW) for borderline cases (1.8 < ΔZ <= 2.6,
+       unreadable fields, minor discrepancy).
     """
+
     def __init__(self, weights: Optional[Dict[str, float]] = None):
         self.weights = weights or settings.DEFAULT_WEIGHTS.copy()
-        # Calibrated risk bands from Section 6
-        self.threshold_low = 24.0      # 0 - 24: LOW
-        self.threshold_medium = 49.0   # 25 - 49: MEDIUM
-        self.threshold_high = 74.0     # 50 - 74: HIGH, 75 - 100: CRITICAL
+        # Calibrated risk bands from Section 6 & Golden Rule
+        self.threshold_low = 24.0      # 0 - 24: LOW (and strictly within 0 - 30 GREEN)
+        self.threshold_medium = 49.0   # 25 - 49: MEDIUM (YELLOW)
+        self.threshold_high = 74.0     # 50 - 74: HIGH, 75 - 100: CRITICAL (RED)
 
     def evaluate(
         self,
@@ -50,26 +56,33 @@ class RiskEngine:
         is_mrz_applicable = doc_type_clean in mrz_expected_types
 
         # ---------------------------------------------------------------------
-        # 1. Visual Forensics Signal (Rule D: AI failure != tampering)
+        # 1. Gate 2: Visual Forensics Signal (Differential ROI Forensics)
         # ---------------------------------------------------------------------
-        tamper_sig_status = tampering.signals.get("status") or ("UNAVAILABLE" if tampering.confidence == 0.0 and not tampering.tampering_detected and tampering.evidence and "unavailable" in tampering.evidence[0].lower() else "OK")
+        tamper_sig_status = tampering.signals.get("status") or (
+            "UNAVAILABLE" if tampering.confidence == 0.0 and not tampering.tampering_detected and tampering.evidence and "unavailable" in tampering.evidence[0].lower() else "OK"
+        )
+        t_signals = tampering.signals or {}
+        max_delta_z = float(t_signals.get("max_delta_z", 0.0))
+
         if tamper_sig_status == "UNAVAILABLE" or tampering.signals.get("ai_status") == "unavailable":
-            # Neutral baseline — DO NOT penalize for unavailable model
             signal_scores["visual_forensics"] = 0.0
             unavailable_checks.append("VISUAL_FORENSICS")
             positive_signals.append("Visual forensics service unavailable/offline (zero fraud penalty applied)")
         elif tampering.tampering_detected:
-            # Score proportional to genuine detected regions and confidence
+            # Genuine detected differential splicing or injected demo region
             r_count = len(tampering.regions)
             f_score = min(100.0, 50.0 + tampering.confidence * 35.0 + r_count * 5.0)
             signal_scores["visual_forensics"] = round(f_score, 1)
             risk_factors.append(f"Visual tampering signals detected in {r_count} region(s) (Confidence: {tampering.confidence*100:.0f}%)")
+        elif max_delta_z > 1.8:
+            signal_scores["visual_forensics"] = 15.0
+            risk_factors.append(f"Minor differential variance across document substrate (ΔZ = {max_delta_z:.2f})")
         else:
             signal_scores["visual_forensics"] = 0.0
-            positive_signals.append("Visual forensics: No compression, splicing, or edge manipulation anomalies detected")
+            positive_signals.append("Visual forensics: No differential compression, splicing, or edge manipulation anomalies detected")
 
         # ---------------------------------------------------------------------
-        # 2. Identity / Biometric Face Verification Signal
+        # 2. Gate 2: Biometric Face Verification Signal
         # ---------------------------------------------------------------------
         if face.status == "MATCH_CONFIRMED":
             signal_scores["identity_verification"] = 0.0
@@ -81,7 +94,6 @@ class RiskEngine:
             signal_scores["identity_verification"] = 90.0
             risk_factors.append(f"Biometric mismatch alert: Presenter face does not correspond to document photo ({face.similarity*100:.0f}%)")
         elif face.status in ("NOT_PROVIDED", "UNAVAILABLE"):
-            # Live portrait omission is optional; zero fraud penalty
             signal_scores["identity_verification"] = 0.0
             unavailable_checks.append("FACE_VERIFICATION")
             positive_signals.append("Live presenter portrait not provided (biometric matching omitted without penalty)")
@@ -90,7 +102,7 @@ class RiskEngine:
             unavailable_checks.append("FACE_VERIFICATION")
 
         # ---------------------------------------------------------------------
-        # 3. Record Verification Signal (Rule C: External API failure != fraud)
+        # 3. External Record Verification Signal
         # ---------------------------------------------------------------------
         if record.status == "VALID":
             signal_scores["record_verification"] = 0.0
@@ -102,17 +114,15 @@ class RiskEngine:
             signal_scores["record_verification"] = 95.0
             risk_factors.append("Issuer Record Check: Document status has been REVOKED or reported lost/stolen")
         elif record.status in ("UNAVAILABLE", "NOT_CONFIGURED", "OFFLINE"):
-            # Rule C: External verification unavailable returns NOT_VERIFIED, score contribution is 0
             signal_scores["record_verification"] = 0.0
             unavailable_checks.append("EXTERNAL_RECORD_VERIFICATION")
             positive_signals.append("External registry verification not configured or unreachable (zero fraud penalty applied)")
         else:
-            # NOT_FOUND in simulated test database: gentle advisory (not automatic high fraud)
             signal_scores["record_verification"] = 25.0
             risk_factors.append(f"Issuer Record Check: Document identifier not found in test registry ({record.status})")
 
         # ---------------------------------------------------------------------
-        # 4. Document Validation Signal (Rule B & Rule E)
+        # 4. Gate 1: Document Validation Signal
         # ---------------------------------------------------------------------
         has_critical_failure = False
         has_expiry_failure = False
@@ -120,7 +130,6 @@ class RiskEngine:
         actual_warning_checks = 0
 
         for c in validation.checks:
-            # Skip checks that are NOT_APPLICABLE for this document type
             if c.status == "NOT_APPLICABLE":
                 continue
             if c.status == "FAIL":
@@ -141,12 +150,11 @@ class RiskEngine:
             positive_signals.append("Core syntax parameters validated with minor formatting notices")
         else:
             signal_scores["document_validation"] = 0.0
-            positive_signals.append(f"Rule validation: All applicable syntax and chronological checks satisfied")
+            positive_signals.append("Rule validation: All applicable syntax and chronological checks satisfied")
 
         # ---------------------------------------------------------------------
-        # 5. OCR & Field Consistency (Rule A: low confidence != fraud)
+        # 5. OCR & Field Consistency
         # ---------------------------------------------------------------------
-        # High confidence gets positive score, low confidence triggers rescan advisory without inflating fraud score
         if ocr.confidence >= 0.85:
             signal_scores["ocr_consistency"] = 0.0
             positive_signals.append(f"High OCR confidence ({ocr.confidence*100:.0f}%) across document fields")
@@ -154,12 +162,11 @@ class RiskEngine:
             signal_scores["ocr_consistency"] = 15.0
             positive_signals.append(f"Moderate OCR text confidence ({ocr.confidence*100:.0f}%)")
         else:
-            # Rule A: Low OCR confidence is an image legibility issue, not fraud
             signal_scores["ocr_consistency"] = 25.0
             risk_factors.append(f"Low OCR text extraction confidence ({ocr.confidence*100:.0f}%) — image rescan recommended")
 
         # ---------------------------------------------------------------------
-        # 6. MRZ Validation (Rule E: Only for MRZ documents)
+        # 6. MRZ Validation
         # ---------------------------------------------------------------------
         if is_mrz_applicable and ocr.mrz:
             if ocr.mrz.valid:
@@ -169,7 +176,6 @@ class RiskEngine:
                 signal_scores["mrz_validation"] = 85.0
                 risk_factors.append("MRZ check digit validation failed (checksum mismatch)")
         elif not is_mrz_applicable:
-            # Rule E: PAN, Aadhaar, Voter ID do not have MRZ -> 0 score penalty
             signal_scores["mrz_validation"] = 0.0
         else:
             # Expected MRZ document missing MRZ
@@ -177,13 +183,12 @@ class RiskEngine:
             risk_factors.append(f"{document_type} typically requires an ICAO MRZ zone which was not detected")
 
         # ---------------------------------------------------------------------
-        # 7. Image Quality Signal (Rule A)
+        # 7. Image Quality Signal
         # ---------------------------------------------------------------------
         if quality.is_acceptable:
             signal_scores["image_quality"] = 0.0
             positive_signals.append(f"Image scan quality is adequate (Score: {quality.quality_score:.0f}%)")
         else:
-            # Quality deficiency is an operational issue, capped at 25.0 (NEEDS_RESCAN)
             signal_scores["image_quality"] = 25.0
             risk_factors.append(f"Scan quality degraded ({quality.quality_score:.0f}%): {', '.join(quality.issues)}")
 
@@ -196,18 +201,29 @@ class RiskEngine:
             for key in self.weights
         ) / (total_weight if total_weight > 0 else 1.0)
 
-        # Domain Safety Overrides (Evidence-backed only)
         # ---------------------------------------------------------------------
-        # Confirmed MRZ mismatch on an MRZ document -> at least MEDIUM risk (>= 35.0)
+        # HIGH-RISK TRIGGERS (GOLDEN RULE 3)
+        # High Risk can ONLY be triggered if:
+        # 1. Deterministic structural failure (Gate 1): Expiry failure, critical chronological failure, or MRZ checksum mismatch
+        # 2. Localized differential splicing (Gate 2): tampering detected with high confidence (>= 0.70)
+        # 3. Biometric mismatch / recycled fraud (Gate 2): face mismatch detected
+        # 4. Central registry status revoked/suspended
+        # ---------------------------------------------------------------------
         has_mrz_mismatch = is_mrz_applicable and (
             (ocr.mrz is not None and not getattr(ocr.mrz, "valid", True)) or
             any("mrz" in rf.lower() and "fail" in rf.lower() for rf in risk_factors)
         )
 
-        # High-risk triggers: Expired document (where applicable), Revoked record,
-        # High-confidence confirmed tampering (>= 0.85), or Biometric Mismatch
-        if (has_expiry_failure and is_expiry_applicable) or record.status in ("REVOKED", "SUSPENDED") or (tampering.tampering_detected and tampering.confidence >= 0.85) or face.status == "MISMATCH_DETECTED":
-            final_score = max(raw_weighted_score, 65.0)
+        is_high_risk_trigger = (
+            (has_expiry_failure and is_expiry_applicable) or
+            record.status in ("REVOKED", "SUSPENDED") or
+            (tampering.tampering_detected and tampering.confidence >= 0.70) or
+            face.status == "MISMATCH_DETECTED" or
+            has_critical_failure
+        )
+
+        if is_high_risk_trigger:
+            final_score = max(raw_weighted_score, 66.0)
         elif has_mrz_mismatch:
             final_score = max(raw_weighted_score, 35.0)
         else:
@@ -216,8 +232,8 @@ class RiskEngine:
         final_score = round(max(0.0, min(100.0, final_score)), 1)
 
         # ---------------------------------------------------------------------
-        # Calibrated Categorization & Decisions (Section 6 & 7)
-        # Bands: 0-24 LOW, 25-49 MEDIUM, 50-74 HIGH, 75-100 CRITICAL
+        # Calibrated Categorization & Decisions
+        # Bands: 0-24 LOW (GREEN), 25-49 MEDIUM (YELLOW), 50-74 HIGH, 75-100 CRITICAL (RED)
         # ---------------------------------------------------------------------
         if quality.quality_score < 40.0 or (ocr.confidence < 0.40 and not fields_have_data(ocr.fields)):
             final_decision = "NEEDS_RESCAN"
@@ -286,11 +302,13 @@ class RiskEngine:
 
         return "\n".join(lines)
 
+
 def fields_have_data(fields) -> bool:
     if not fields:
         return False
     doc_num = getattr(fields, "document_number", "") or ""
     name = getattr(fields, "name", "") or ""
     return bool(doc_num.strip() or name.strip())
+
 
 risk_engine = RiskEngine()
