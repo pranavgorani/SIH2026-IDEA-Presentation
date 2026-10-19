@@ -291,7 +291,7 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
     gender: "M",
     expiryDate: "2031-05-09",
     issuingCountry: "IND",
-    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    visionAccelerator: "⚡ GEMINI 3.8 FLASH HIGH THINKING NEURAL VISION",
     rawMrz: [
       "P<INDSHARMA<<RAHUL<<<<<<<<<<<<<<<<<<<<<<<<<<",
       "Z839102459IND9208142M3105098<<<<<<<<<<<<<<<00"
@@ -349,7 +349,7 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
     gender: "M",
     expiryDate: "PERMANENT",
     issuingCountry: "IND",
-    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    visionAccelerator: "⚡ GEMINI 3.8 FLASH HIGH THINKING NEURAL VISION",
     rawMrz: [],
     checkDigits: [],
     documentSha256: "2482cb9e4f04f23be0133a2c98d011f0a8d3b2e71fa0c29f451e09c8b671a532",
@@ -394,7 +394,7 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
     gender: "M",
     expiryDate: "2033-10-14",
     issuingCountry: "IND",
-    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    visionAccelerator: "⚡ GEMINI 3.8 FLASH HIGH THINKING NEURAL VISION",
     rawMrz: [
       "P<INDSHARMA<<ARJUN<VIKRAM<<<<<<<<<<<<<<<<<<<",
       "P891204824IND9411204M3310148<<<<<<<<<<<<<<<02"
@@ -452,7 +452,7 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
     gender: "M",
     expiryDate: "2024-01-10",
     issuingCountry: "FRA",
-    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    visionAccelerator: "⚡ GEMINI 3.8 FLASH HIGH THINKING NEURAL VISION",
     rawMrz: [
       "VCFRAMILLER<<DAVID<<<<<<<<<<<<<<<<<<<<<<<<<<",
       "VSA9918271GBR8305125M2401104<<<<<<<<<<<<<<<42"
@@ -500,7 +500,7 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
     gender: "M",
     expiryDate: "2035-12-31",
     issuingCountry: "IND",
-    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    visionAccelerator: "⚡ GEMINI 3.8 FLASH HIGH THINKING NEURAL VISION",
     rawMrz: [
       "I<IND918238471928<<<<<<<<<<<<<<<",
       "9003154M3512318IND<<<<<<<<<<<0"
@@ -548,7 +548,7 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
     gender: "M",
     expiryDate: "2029-09-03",
     issuingCountry: "IND",
-    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    visionAccelerator: "⚡ GEMINI 3.8 FLASH HIGH THINKING NEURAL VISION",
     rawMrz: [
       "D1INDDL1420110012345<<<<<<<<<<<",
       "8809042M2909038IND<<<<<<<<<<<4"
@@ -596,7 +596,7 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
     gender: "M",
     expiryDate: "2028-11-02",
     issuingCountry: "CAN",
-    visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
+    visionAccelerator: "⚡ GEMINI 3.8 FLASH HIGH THINKING NEURAL VISION",
     rawMrz: [
       "P<CANVANCE<<MARCUS<<<<<<<<<<<<<<<<<<<<<<<<<<",
       "K901827464CAN7911032M2811028<<<<<<<<<<<<<<<20"
@@ -963,7 +963,7 @@ export default function ScreeningPage() {
         : "VERIFIED";
 
       const externalVerificationStatus = apiData?.external_verification_status || "NOT_CONFIGURED";
-      const aiProviderDisplay = apiData?.ai_provider_display || (apiData?.gemini_used ? "GEMINI + LOCAL OCR/CV" : "LOCAL OCR/CV");
+      const aiProviderDisplay = apiData?.ai_provider_display || (apiData?.gemini_used ? "GEMINI 3.8 FLASH + LOCAL OCR/CV" : "LOCAL OCR/CV");
       const overallConfidence = apiData?.overall_confidence !== undefined ? Number(apiData.overall_confidence) : (isUnsupported ? 0 : 0.94);
 
       const extractedDocType = isProcessingFailed
@@ -1866,7 +1866,7 @@ export default function ScreeningPage() {
                 <RotateCcw className="w-4 h-4 text-amber-400" />
                 <span>⚠ RESCAN REQUIRED</span>
               </div>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-slate-600">
                 Resolution or lighting insufficient for reliable recognition
               </span>
             </div>
@@ -1876,7 +1876,7 @@ export default function ScreeningPage() {
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
                 <span>⚠ DOCUMENT TYPE NOT RECOGNIZED</span>
               </div>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-slate-600">
                 Credential format not matched to automated clearance profiles
               </span>
             </div>
@@ -2040,7 +2040,7 @@ export default function ScreeningPage() {
                 <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[10px] font-mono text-slate-700">
                   <Cpu className="w-3 h-3 text-blue-600" />
                   <span>RapidOCR ONNX + ICAO Parser</span>
-                  <span className="text-slate-400">•</span>
+                  <span className="text-slate-600">•</span>
                   <span className="text-emerald-700 font-bold">{currentScenario.analysisStatus || "VERIFIED"}</span>
                 </div>
               </div>
@@ -2072,7 +2072,7 @@ export default function ScreeningPage() {
                 <div className="absolute text-center">
                   <span
                     className={`font-mono font-black ${currentScenario.riskScore !== null ? "text-xl" : "text-base"} ${
-                      isDetain ? "text-rose-600" : (currentScenario.riskScore === null ? "text-slate-400" : "text-emerald-700")
+                      isDetain ? "text-rose-600" : (currentScenario.riskScore === null ? "text-slate-600" : "text-emerald-700")
                     }`}
                   >
                     {currentScenario.riskScore !== null ? currentScenario.riskScore.toFixed(1) : "N/A"}
@@ -2216,7 +2216,7 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
                             DOCUMENT TYPE
                           </span>
                           <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -2259,7 +2259,7 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
                             DOCUMENT NUMBER
                           </span>
                           <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -2302,7 +2302,7 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
                             HOLDER FULL NAME
                           </span>
                           <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -2345,7 +2345,7 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
                             NATIONALITY
                           </span>
                           <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -2388,7 +2388,7 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
                             DATE OF BIRTH
                           </span>
                           <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -2431,7 +2431,7 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
                             GENDER
                           </span>
                           <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -2474,7 +2474,7 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
                             EXPIRY DATE
                           </span>
                           <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -2517,7 +2517,7 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
                             ISSUING COUNTRY / POST
                           </span>
                           <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -2539,18 +2539,18 @@ export default function ScreeningPage() {
                 })()}
 
                 {/* AI VISION ACCELERATOR CARD (Section 37) */}
-                <div className="p-3 rounded-xl bg-white border border-cyan-800/60 col-span-2 sm:col-span-3 lg:col-span-2 flex flex-col justify-between">
-                  <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-wider block">
+                <div className="p-3 rounded-xl bg-cyan-50/70 border border-cyan-200 col-span-2 sm:col-span-3 lg:col-span-2 flex flex-col justify-between shadow-sm">
+                  <span className="text-[10px] font-mono text-cyan-800 font-bold uppercase tracking-wider block">
                     AI VISION ACCELERATOR & PIPELINE
                   </span>
-                  <span className="text-xs font-bold text-cyan-300 mt-1 block">
+                  <span className="text-xs font-bold text-cyan-950 mt-1 block">
                     {currentScenario.visionAccelerator}
                   </span>
-                  <div className="mt-2 pt-1 border-t border-cyan-900/60 flex items-center justify-between text-[10px] text-cyan-400 font-mono">
+                  <div className="mt-2 pt-1 border-t border-cyan-200 flex items-center justify-between text-[11px] text-cyan-900 font-mono font-medium">
                     <span>
-                      AI Provider: {currentScenario.aiProviderDisplay || (currentScenario.visionAccelerator.includes("GEMINI") ? "GEMINI + LOCAL OCR/CV" : "LOCAL OCR/CV")}
+                      AI Provider: {currentScenario.aiProviderDisplay || (currentScenario.visionAccelerator.includes("GEMINI") ? "GEMINI 3.8 FLASH + LOCAL OCR/CV" : "LOCAL OCR/CV")}
                     </span>
-                    <span className="text-emerald-400 font-bold">ACTIVE</span>
+                    <span className="text-emerald-700 font-bold">ACTIVE</span>
                   </div>
                 </div>
               </div>
@@ -2576,7 +2576,7 @@ export default function ScreeningPage() {
                         .filter(([_, v]) => Boolean(v && String(v).trim().length > 0 && String(v).trim() !== "— Not detected" && String(v).trim() !== "—"))
                         .map(([key, val]) => (
                           <div key={key} className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 space-y-0.5">
-                            <span className="text-[9px] font-mono uppercase text-slate-400 block tracking-wider">
+                            <span className="text-[9px] font-mono uppercase text-slate-600 block tracking-wider">
                               {key.replace(/_/g, " ")}
                             </span>
                             <span className="font-semibold text-slate-200 block truncate select-all">
@@ -2591,7 +2591,7 @@ export default function ScreeningPage() {
               {/* RAW MACHINE READABLE ZONE (ICAO DOC 9303 MRZ BAND) - Section 28 */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                  <span className="text-[10px] font-mono font-bold text-slate-600 uppercase tracking-wider">
                     MACHINE READABLE ZONE (ICAO DOC 9303)
                   </span>
                   <div className="flex items-center gap-2">
@@ -2634,7 +2634,7 @@ export default function ScreeningPage() {
                     <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
                       RAW OCR TEXT
                     </span>
-                    <span className="text-[10px] font-mono text-slate-400">
+                    <span className="text-[10px] font-mono text-slate-600">
                       ({(currentScenario.rawOcrText || "").length} characters extracted)
                     </span>
                   </div>
@@ -2649,7 +2649,7 @@ export default function ScreeningPage() {
                 </div>
                 {showRawOcr && (
                   <div className="p-4 bg-black/90 border-t border-slate-200 space-y-2">
-                    <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-slate-600">
                       <span>Source Engine: RapidOCR PP-OCRv4 / Tesseract Optical Stream</span>
                       <button
                         type="button"
@@ -2674,7 +2674,7 @@ export default function ScreeningPage() {
 
               {/* ICAO DOC 9303 CHECK DIGIT MATHEMATICAL BREAKDOWN */}
               <div className="space-y-2">
-                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                <span className="text-[10px] font-mono font-bold text-slate-600 uppercase tracking-wider">
                   ICAO DOC 9303 CHECK DIGIT MATHEMATICAL BREAKDOWN (7-3-1 REPEATING WEIGHTS)
                 </span>
 
@@ -2689,12 +2689,12 @@ export default function ScreeningPage() {
                             : "bg-rose-950/30 border-rose-500/60 text-rose-400"
                         }`}
                       >
-                        <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                        <span className="text-[9px] font-mono uppercase tracking-wider text-slate-600 block truncate">
                           {cd.field}
                         </span>
                         <div className="my-1.5 flex items-center justify-between text-xs font-mono">
                           <span className="text-slate-300">Ext: {cd.ext || "—"}</span>
-                          <span className="text-slate-400">|</span>
+                          <span className="text-slate-600">|</span>
                           <span className="text-slate-300">Calc: {cd.calc || "—"}</span>
                         </div>
                         <div className="flex items-center gap-1 text-[11px] font-bold font-mono">
@@ -2713,7 +2713,7 @@ export default function ScreeningPage() {
                       </div>
                     ))
                   ) : (
-                    <div className="col-span-4 p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 italic">
+                    <div className="col-span-4 p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-600 italic">
                       Check digits applicable to Machine Readable Travel Documents (Passports & Visas).
                     </div>
                   )}
@@ -2732,28 +2732,28 @@ export default function ScreeningPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-mono block">Substrate Assessment</span>
+                  <span className="text-[10px] text-slate-600 font-mono block">Substrate Assessment</span>
                   <span className="text-sm font-bold text-white mt-1 block">
                     {currentScenario.tamperingAssessment}
                   </span>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-mono block">ELA Discontinuity Metric</span>
+                  <span className="text-[10px] text-slate-600 font-mono block">ELA Discontinuity Metric</span>
                   <span className="text-sm font-bold text-rose-400 mt-1 block">
                     {currentScenario.elaScore}
                   </span>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-mono block">Copy-Move Splicing Filter</span>
+                  <span className="text-[10px] text-slate-600 font-mono block">Copy-Move Splicing Filter</span>
                   <span className="text-sm font-bold text-emerald-400 mt-1 block">
                     0 Cluster Anomalies Found
                   </span>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-mono block">Typography Baseline Alignment</span>
+                  <span className="text-[10px] text-slate-600 font-mono block">Typography Baseline Alignment</span>
                   <span className="text-sm font-bold text-white mt-1 block">
                     {isDetain ? "Discontinuity Flagged" : "Linear Font Geometry Conforming"}
                   </span>
@@ -2772,21 +2772,21 @@ export default function ScreeningPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-mono block">1:1 Biometric Face Match</span>
+                  <span className="text-[10px] text-slate-600 font-mono block">1:1 Biometric Face Match</span>
                   <span className="text-sm font-bold text-purple-300 mt-1 block">
                     {currentScenario.biometricMatch}
                   </span>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-mono block">Liveness & Anti-Spoof</span>
+                  <span className="text-[10px] text-slate-600 font-mono block">Liveness & Anti-Spoof</span>
                   <span className="text-sm font-bold text-emerald-400 mt-1 block">
                     Passed (Specular Reflection Valid)
                   </span>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 col-span-2">
-                  <span className="text-[10px] text-slate-400 font-mono block">Watchlist SLTD Registry</span>
+                  <span className="text-[10px] text-slate-600 font-mono block">Watchlist SLTD Registry</span>
                   <span className="text-sm font-bold text-white mt-1 block">
                     {currentScenario.watchlistStatus}
                   </span>
@@ -2850,7 +2850,7 @@ export default function ScreeningPage() {
               <button
                 type="button"
                 onClick={() => setShowAllChecksModal(false)}
-                className="text-slate-400 hover:text-white p-1 rounded"
+                className="text-slate-600 hover:text-white p-1 rounded"
               >
                 ✕
               </button>
@@ -2859,7 +2859,7 @@ export default function ScreeningPage() {
             {/* Filter toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="relative flex-1 min-w-[200px]">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <Search className="w-3.5 h-3.5 text-slate-600 absolute left-3 top-2.5" />
                 <input
                   type="text"
                   placeholder="Search checks by name or category..."
@@ -2878,7 +2878,7 @@ export default function ScreeningPage() {
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                       checkStatusFilter === status
                         ? "bg-blue-600 text-white font-bold"
-                        : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
+                        : "bg-slate-900 text-slate-600 hover:text-white border border-slate-800"
                     }`}
                   >
                     {status}
@@ -2890,7 +2890,7 @@ export default function ScreeningPage() {
             {/* Checks Table Scrollable */}
             <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 bg-slate-50 text-slate-400 font-mono border-b border-slate-200">
+                <thead className="sticky top-0 bg-slate-50 text-slate-600 font-mono border-b border-slate-200">
                   <tr>
                     <th className="py-2.5 px-3">Check ID</th>
                     <th className="py-2.5 px-3">Category</th>
@@ -2912,7 +2912,7 @@ export default function ScreeningPage() {
                     })
                     .map((c) => (
                       <tr key={c.check_id} className="hover:bg-slate-900/60 transition-colors">
-                        <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">
+                        <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
                           {c.check_id}
                         </td>
                         <td className="py-2.5 px-3 text-slate-300 font-medium whitespace-nowrap">
@@ -2934,7 +2934,7 @@ export default function ScreeningPage() {
                             {c.status}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 text-slate-400 text-[11px] leading-tight">
+                        <td className="py-2.5 px-3 text-slate-600 text-[11px] leading-tight">
                           {c.message || c.evidence}
                         </td>
                       </tr>
@@ -2944,7 +2944,7 @@ export default function ScreeningPage() {
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
-              <span className="text-slate-400 font-mono">
+              <span className="text-slate-600 font-mono">
                 Total: 100 Forensic Verification Tests
               </span>
               <button
@@ -2974,7 +2974,7 @@ export default function ScreeningPage() {
               <button
                 type="button"
                 onClick={() => setSelectedFieldEvidence(null)}
-                className="text-slate-400 hover:text-white p-1 rounded"
+                className="text-slate-600 hover:text-white p-1 rounded"
               >
                 ✕
               </button>
@@ -2982,7 +2982,7 @@ export default function ScreeningPage() {
 
             <div className="space-y-3 text-xs">
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block">
                   Field
                 </span>
                 <span className="text-sm font-bold text-white block">
@@ -2991,7 +2991,7 @@ export default function ScreeningPage() {
               </div>
 
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block">
                   Extracted Value
                 </span>
                 <span className="text-sm font-mono font-bold text-amber-300 block select-all">
@@ -3001,7 +3001,7 @@ export default function ScreeningPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block">
                     Source
                   </span>
                   <span className="text-xs font-mono font-bold text-cyan-300 block">
@@ -3010,7 +3010,7 @@ export default function ScreeningPage() {
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block">
                     Confidence
                   </span>
                   <span
@@ -3029,7 +3029,7 @@ export default function ScreeningPage() {
 
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600">
                     Cross-Validation
                   </span>
                   <span
@@ -3038,7 +3038,7 @@ export default function ScreeningPage() {
                         ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
                         : selectedFieldEvidence.validation === "MISMATCH"
                         ? "bg-rose-500/20 text-rose-400 border-rose-500/40"
-                        : "bg-slate-800 text-slate-400 border-slate-700"
+                        : "bg-slate-800 text-slate-600 border-slate-700"
                     }`}
                   >
                     {selectedFieldEvidence.validation}
@@ -3057,7 +3057,7 @@ export default function ScreeningPage() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-600">
                     Field validated against optical character recognition and document template layout geometry.
                   </p>
                 )}
@@ -3066,7 +3066,7 @@ export default function ScreeningPage() {
               {/* Document Region / Field Crop Inspection (Part 6) */}
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600">
                     Document Region Crop Inspection
                   </span>
                   <span className="text-[9px] font-mono text-cyan-400">
@@ -3114,7 +3114,7 @@ export default function ScreeningPage() {
               <button
                 type="button"
                 onClick={() => setShowUploadModal(false)}
-                className="text-slate-400 hover:text-white p-1 rounded"
+                className="text-slate-600 hover:text-white p-1 rounded"
               >
                 ✕
               </button>
@@ -3126,7 +3126,7 @@ export default function ScreeningPage() {
                 type="button"
                 onClick={() => setUploadMode("file")}
                 className={`flex-1 py-1.5 rounded text-xs font-semibold ${
-                  uploadMode === "file" ? "bg-blue-600 text-white" : "text-slate-400"
+                  uploadMode === "file" ? "bg-blue-600 text-white" : "text-slate-600"
                 }`}
               >
                 File Upload
@@ -3135,7 +3135,7 @@ export default function ScreeningPage() {
                 type="button"
                 onClick={() => setUploadMode("camera")}
                 className={`flex-1 py-1.5 rounded text-xs font-semibold ${
-                  uploadMode === "camera" ? "bg-blue-600 text-white" : "text-slate-400"
+                  uploadMode === "camera" ? "bg-blue-600 text-white" : "text-slate-600"
                 }`}
               >
                 Live Webcam Scanner
@@ -3167,7 +3167,7 @@ export default function ScreeningPage() {
                   <div className="text-sm text-slate-200 font-semibold">
                     {customFile ? customFile.name : "Drag & drop image or browse device"}
                   </div>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-600">
                     Supports Indian Passport, Aadhaar, PAN, Voter ID, Driving Licence, RC, Visa (PNG, JPG, PDF max 25MB)
                   </p>
                 </div>

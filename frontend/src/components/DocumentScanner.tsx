@@ -529,7 +529,7 @@ export default function DocumentScanner({
                 {mode === "selfie" ? "Face Biometrics" : "Border Credential Scanner"}
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-1">{subtitle}</p>
+            <p className="text-xs text-slate-600 mt-1">{subtitle}</p>
           </div>
 
           {onCancel && (
@@ -538,7 +538,7 @@ export default function DocumentScanner({
                 stopStream();
                 onCancel();
               }}
-              className="self-end sm:self-auto px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs border border-slate-200 transition-all"
+              className="self-end sm:self-auto px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-600 hover:text-slate-200 text-xs border border-slate-200 transition-all"
             >
               Close Scanner
             </button>
@@ -555,7 +555,7 @@ export default function DocumentScanner({
         </div>
 
         {/* Data Retention Notice */}
-        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-200 text-[10px] text-slate-400">
+        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-200 text-[10px] text-slate-600">
           <div className="flex items-center gap-1.5">
             <Lock className="w-3 h-3 text-emerald-400" />
             <span>
@@ -659,7 +659,7 @@ export default function DocumentScanner({
                     className={`px-3 py-2 rounded-xl text-xs font-semibold flex flex-col items-center justify-center gap-1 border transition-all ${
                       isSelected
                         ? "bg-blue-600/20 border-blue-500 text-white shadow-lg shadow-blue-500/10"
-                        : "bg-slate-950 border-slate-200 text-slate-400 hover:text-slate-200 hover:border-slate-600"
+                        : "bg-slate-950 border-slate-200 text-slate-600 hover:text-slate-200 hover:border-slate-600"
                     }`}
                   >
                     <span>
@@ -668,7 +668,7 @@ export default function DocumentScanner({
                        type === "NATIONAL_ID" ? "National ID" :
                        type === "DRIVING_LICENCE" ? "Driving Licence" : "Permit"}
                     </span>
-                    <span className="text-[9px] font-mono text-slate-400">
+                    <span className="text-[9px] font-mono text-slate-600">
                       {type === "PASSPORT" ? "TD3 / MRZ" :
                        type === "VISA" ? "Consular Foil" : "ISO ID-1"}
                     </span>
@@ -689,7 +689,7 @@ export default function DocumentScanner({
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
                     activeSide === "front"
                       ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-slate-600 hover:text-slate-200"
                   }`}
                 >
                   <span>Front Side</span>
@@ -701,7 +701,7 @@ export default function DocumentScanner({
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
                     activeSide === "back"
                       ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-slate-600 hover:text-slate-200"
                   }`}
                 >
                   <span>Reverse / Back</span>
@@ -732,7 +732,7 @@ export default function DocumentScanner({
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   activeModality === "RGB"
                     ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-slate-600 hover:text-slate-200"
                 }`}
               >
                 <Eye className="w-3.5 h-3.5" />
@@ -746,7 +746,7 @@ export default function DocumentScanner({
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   activeModality === "UV"
                     ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-slate-600 hover:text-slate-200"
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5 text-purple-300" />
@@ -759,7 +759,7 @@ export default function DocumentScanner({
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   activeModality === "IR"
                     ? "bg-rose-700 text-white shadow-md shadow-rose-500/20"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-slate-600 hover:text-slate-200"
                 }`}
               >
                 <Layers className="w-3.5 h-3.5 text-rose-300" />
@@ -772,7 +772,7 @@ export default function DocumentScanner({
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   activeModality === "QR_BARCODE"
                     ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-slate-600 hover:text-slate-200"
                 }`}
               >
                 <QrCode className="w-3.5 h-3.5 text-emerald-300" />
@@ -785,7 +785,7 @@ export default function DocumentScanner({
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   activeModality === "RFID_NFC"
                     ? "bg-amber-600 text-white shadow-md shadow-amber-500/20"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-slate-600 hover:text-slate-200"
                 }`}
               >
                 <Radio className="w-3.5 h-3.5 text-amber-300" />
@@ -803,7 +803,7 @@ export default function DocumentScanner({
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   intakeMethod === "webcam"
                     ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-slate-600 hover:text-slate-200"
                 }`}
               >
                 <Camera className="w-3.5 h-3.5" />
@@ -816,7 +816,7 @@ export default function DocumentScanner({
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   intakeMethod === "upload"
                     ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-slate-600 hover:text-slate-200"
                 }`}
               >
                 <UploadCloud className="w-3.5 h-3.5" />
@@ -916,7 +916,7 @@ export default function DocumentScanner({
                     <h4 className="text-sm font-bold text-white font-mono tracking-wider">
                       OPTICAL SENSOR STANDBY / READY
                     </h4>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-600">
                       Align {currentConfig.name} within document guide or activate camera stream.
                     </p>
                   </div>
@@ -1028,7 +1028,7 @@ export default function DocumentScanner({
                     className={`p-1.5 rounded-lg border backdrop-blur-md transition-all ${
                       torchActive
                         ? "bg-amber-500/30 border-amber-400 text-amber-300"
-                        : "bg-slate-900/85 border-slate-200 text-slate-400"
+                        : "bg-slate-900/85 border-slate-200 text-slate-600"
                     }`}
                   >
                     <Zap className="w-4 h-4" />
@@ -1049,7 +1049,7 @@ export default function DocumentScanner({
                 <p className="text-sm font-bold text-white">
                   Drop credential image here, or <span className="text-blue-400 underline">browse device</span>
                 </p>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-600">
                   Select high-resolution {selectedDocType} scan (PNG, JPG, WEBP up to 25MB)
                 </p>
               </div>
@@ -1084,7 +1084,7 @@ export default function DocumentScanner({
               <span className="self-end px-2.5 py-1 rounded bg-slate-950/90 border border-slate-600 text-slate-200 text-[10px] font-mono font-bold">
                 IR 850nm Absorption Active
               </span>
-              <div className="text-slate-400 text-[11px] font-mono text-center">
+              <div className="text-slate-600 text-[11px] font-mono text-center">
                 [Simulated: B900 carbon black text preserved; IR-transparent inks faded]
               </div>
             </div>
@@ -1106,7 +1106,7 @@ export default function DocumentScanner({
               <Radio className={`w-12 h-12 ${simulatedNfcReading ? "text-amber-400 animate-spin" : "text-amber-300"}`} />
               <div className="text-center space-y-1">
                 <h4 className="text-sm font-bold text-white">ICAO Doc 9303 Contactless e-Chip Interrogator</h4>
-                <p className="text-xs text-slate-400">Position contactless e-passport near RFID/NFC antenna</p>
+                <p className="text-xs text-slate-600">Position contactless e-passport near RFID/NFC antenna</p>
               </div>
 
               {simulatedNfcReading ? (
@@ -1205,7 +1205,7 @@ export default function DocumentScanner({
                     <span className={`text-3xl font-black font-mono tracking-tight ${
                       isDocLowRiskPass ? "text-emerald-400" : isDocMediumRisk ? "text-amber-400" : "text-rose-400"
                     }`}>
-                      {docRiskScore10} <span className="text-sm font-semibold text-slate-400">/ 10.0</span>
+                      {docRiskScore10} <span className="text-sm font-semibold text-slate-600">/ 10.0</span>
                     </span>
                     <span className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm ${
                       isDocLowRiskPass
@@ -1237,7 +1237,7 @@ export default function DocumentScanner({
 
               {/* Officer Testing / Simulation Controls */}
               <div className="flex flex-col sm:items-end gap-1.5">
-                <span className="text-[10px] text-slate-400 font-mono">Test Risk Scenarios (Scale 0-10):</span>
+                <span className="text-[10px] text-slate-600 font-mono">Test Risk Scenarios (Scale 0-10):</span>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
@@ -1298,28 +1298,28 @@ export default function DocumentScanner({
             {/* 4 Optical Sub-Factor Scores Out of 10 */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-mono">Boundary & Skew</span>
+                <span className="text-[10px] text-slate-600 block font-mono">Boundary & Skew</span>
                 <span className="font-mono font-bold text-white mt-0.5 block">
                   {Math.min(2.5, Math.abs(detectedSkewAngle) * 0.25).toFixed(1)} / 2.5
                 </span>
                 <span className="text-[9px] text-slate-500">Angle: {detectedSkewAngle}°</span>
               </div>
               <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-mono">Clarity & Lighting</span>
+                <span className="text-[10px] text-slate-600 block font-mono">Clarity & Lighting</span>
                 <span className="font-mono font-bold text-white mt-0.5 block">
                   {qualityAnalysis ? ((100 - qualityAnalysis.overallScore) / 100 * 2.5).toFixed(1) : "0.3"} / 2.5
                 </span>
                 <span className="text-[9px] text-slate-500">Quality: {qualityAnalysis?.overallScore || 95}%</span>
               </div>
               <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-mono">MRZ / Format Logic</span>
+                <span className="text-[10px] text-slate-600 block font-mono">MRZ / Format Logic</span>
                 <span className="font-mono font-bold text-white mt-0.5 block">
                   0.3 / 2.5
                 </span>
                 <span className="text-[9px] text-emerald-400">ICAO 9303 Valid</span>
               </div>
               <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-mono">Surface Artifacts</span>
+                <span className="text-[10px] text-slate-600 block font-mono">Surface Artifacts</span>
                 <span className="font-mono font-bold text-white mt-0.5 block">
                   {qualityAnalysis && (!qualityAnalysis.cutoff.passed || !qualityAnalysis.glare.passed) ? "1.8" : "0.4"} / 2.5
                 </span>
@@ -1359,7 +1359,7 @@ export default function DocumentScanner({
                   className={`px-3 py-1 rounded-md font-semibold transition-all ${
                     resultsActiveTab === "corrected"
                       ? "bg-blue-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-slate-600 hover:text-slate-200"
                   }`}
                 >
                   Corrected View
@@ -1370,7 +1370,7 @@ export default function DocumentScanner({
                   className={`px-3 py-1 rounded-md font-semibold transition-all ${
                     resultsActiveTab === "original"
                       ? "bg-blue-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-slate-600 hover:text-slate-200"
                   }`}
                 >
                   Original Raw
@@ -1381,7 +1381,7 @@ export default function DocumentScanner({
                   className={`px-3 py-1 rounded-md font-semibold transition-all ${
                     resultsActiveTab === "comparison"
                       ? "bg-blue-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-slate-600 hover:text-slate-200"
                   }`}
                 >
                   Side-by-Side
@@ -1426,7 +1426,7 @@ export default function DocumentScanner({
               {resultsActiveTab === "comparison" && originalImageUrl && correctedImageUrl && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full p-2">
                   <div className="space-y-1 text-center">
-                    <p className="text-[11px] font-semibold text-slate-400">Original Unprocessed Frame</p>
+                    <p className="text-[11px] font-semibold text-slate-600">Original Unprocessed Frame</p>
                     <div className="h-64 bg-slate-950 rounded-lg flex items-center justify-center overflow-hidden border border-slate-800">
                       <img src={originalImageUrl} alt="Original" className="max-h-full object-contain" />
                     </div>
@@ -1471,7 +1471,7 @@ export default function DocumentScanner({
                 {/* 1. Blur Check */}
                 <div className="p-3 rounded-lg bg-slate-900 border border-slate-200 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-semibold">{qualityAnalysis.blur.label}</span>
+                    <span className="text-slate-600 font-semibold">{qualityAnalysis.blur.label}</span>
                     <span className={`font-mono font-bold ${qualityAnalysis.blur.passed ? "text-emerald-400" : "text-amber-400"}`}>
                       {qualityAnalysis.blur.score}%
                     </span>
@@ -1482,7 +1482,7 @@ export default function DocumentScanner({
                       style={{ width: `${qualityAnalysis.blur.score}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-slate-400 truncate" title={qualityAnalysis.blur.detail}>
+                  <p className="text-[10px] text-slate-600 truncate" title={qualityAnalysis.blur.detail}>
                     {qualityAnalysis.blur.detail}
                   </p>
                 </div>
@@ -1490,7 +1490,7 @@ export default function DocumentScanner({
                 {/* 2. Glare Check */}
                 <div className="p-3 rounded-lg bg-slate-900 border border-slate-200 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-semibold">{qualityAnalysis.glare.label}</span>
+                    <span className="text-slate-600 font-semibold">{qualityAnalysis.glare.label}</span>
                     <span className={`font-mono font-bold ${qualityAnalysis.glare.passed ? "text-emerald-400" : "text-amber-400"}`}>
                       {qualityAnalysis.glare.score}%
                     </span>
@@ -1501,7 +1501,7 @@ export default function DocumentScanner({
                       style={{ width: `${qualityAnalysis.glare.score}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-slate-400 truncate" title={qualityAnalysis.glare.detail}>
+                  <p className="text-[10px] text-slate-600 truncate" title={qualityAnalysis.glare.detail}>
                     {qualityAnalysis.glare.detail}
                   </p>
                 </div>
@@ -1509,7 +1509,7 @@ export default function DocumentScanner({
                 {/* 3. Low Lighting Check */}
                 <div className="p-3 rounded-lg bg-slate-900 border border-slate-200 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-semibold">{qualityAnalysis.lighting.label}</span>
+                    <span className="text-slate-600 font-semibold">{qualityAnalysis.lighting.label}</span>
                     <span className={`font-mono font-bold ${qualityAnalysis.lighting.passed ? "text-emerald-400" : "text-amber-400"}`}>
                       {qualityAnalysis.lighting.score}%
                     </span>
@@ -1520,7 +1520,7 @@ export default function DocumentScanner({
                       style={{ width: `${qualityAnalysis.lighting.score}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-slate-400 truncate" title={qualityAnalysis.lighting.detail}>
+                  <p className="text-[10px] text-slate-600 truncate" title={qualityAnalysis.lighting.detail}>
                     {qualityAnalysis.lighting.detail}
                   </p>
                 </div>
@@ -1528,7 +1528,7 @@ export default function DocumentScanner({
                 {/* 4. Cut-off Edges Check */}
                 <div className="p-3 rounded-lg bg-slate-900 border border-slate-200 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-semibold">{qualityAnalysis.cutoff.label}</span>
+                    <span className="text-slate-600 font-semibold">{qualityAnalysis.cutoff.label}</span>
                     <span className={`font-mono font-bold ${qualityAnalysis.cutoff.passed ? "text-emerald-400" : "text-amber-400"}`}>
                       {qualityAnalysis.cutoff.score}%
                     </span>
@@ -1539,7 +1539,7 @@ export default function DocumentScanner({
                       style={{ width: `${qualityAnalysis.cutoff.score}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-slate-400 truncate" title={qualityAnalysis.cutoff.detail}>
+                  <p className="text-[10px] text-slate-600 truncate" title={qualityAnalysis.cutoff.detail}>
                     {qualityAnalysis.cutoff.detail}
                   </p>
                 </div>
@@ -1547,7 +1547,7 @@ export default function DocumentScanner({
                 {/* 5. Reflection Check */}
                 <div className="p-3 rounded-lg bg-slate-900 border border-slate-200 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-semibold">{qualityAnalysis.reflection.label}</span>
+                    <span className="text-slate-600 font-semibold">{qualityAnalysis.reflection.label}</span>
                     <span className={`font-mono font-bold ${qualityAnalysis.reflection.passed ? "text-emerald-400" : "text-amber-400"}`}>
                       {qualityAnalysis.reflection.score}%
                     </span>
@@ -1558,7 +1558,7 @@ export default function DocumentScanner({
                       style={{ width: `${qualityAnalysis.reflection.score}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-slate-400 truncate" title={qualityAnalysis.reflection.detail}>
+                  <p className="text-[10px] text-slate-600 truncate" title={qualityAnalysis.reflection.detail}>
                     {qualityAnalysis.reflection.detail}
                   </p>
                 </div>
@@ -1587,15 +1587,15 @@ export default function DocumentScanner({
               </div>
               <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-200">
                 <span className="text-slate-500 block text-[10px]">Document Number</span>
-                <span className="font-mono text-slate-400 italic">Pending AI Screening</span>
+                <span className="font-mono text-slate-600 italic">Pending AI Screening</span>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-200">
                 <span className="text-slate-500 block text-[10px]">Holder Name</span>
-                <span className="font-mono text-slate-400 italic">Pending AI Screening</span>
+                <span className="font-mono text-slate-600 italic">Pending AI Screening</span>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-200">
                 <span className="text-slate-500 block text-[10px]">Expiry Date</span>
-                <span className="font-mono text-slate-400 italic">Pending AI Screening</span>
+                <span className="font-mono text-slate-600 italic">Pending AI Screening</span>
               </div>
             </div>
 
@@ -1606,7 +1606,7 @@ export default function DocumentScanner({
                   <span>ICAO 9303 MRZ VERIFICATION</span>
                   <span className="text-cyan-400 font-bold">READY TO EXTRACT FROM UPLOAD</span>
                 </div>
-                <div className="text-[10px] text-slate-400 italic p-2 bg-black/40 rounded border border-slate-800">
+                <div className="text-[10px] text-slate-600 italic p-2 bg-black/40 rounded border border-slate-800">
                   MRZ zone identified. High-resolution OCR and check-digit validation will execute upon pipeline execution.
                 </div>
               </div>
@@ -1638,7 +1638,7 @@ export default function DocumentScanner({
 
       {/* 9. Action Footer */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-slate-200">
-        <div className="text-xs text-slate-400 w-full sm:w-auto">
+        <div className="text-xs text-slate-600 w-full sm:w-auto">
           {isResultsView ? (
             <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4" />
@@ -1651,7 +1651,7 @@ export default function DocumentScanner({
                   <Lock className="w-3.5 h-3.5" /> Please check authorization consent above to enable capture
                 </span>
               ) : (
-                <span className="text-slate-400">Position credential and press Capture Document</span>
+                <span className="text-slate-600">Position credential and press Capture Document</span>
               )}
             </div>
           )}
@@ -1695,7 +1695,7 @@ export default function DocumentScanner({
                 onClick={handleRetake}
                 className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-semibold text-xs border border-slate-200 transition-all flex items-center gap-1.5"
               >
-                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
                 <span>Retake</span>
               </button>
 

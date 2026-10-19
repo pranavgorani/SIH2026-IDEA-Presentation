@@ -41,9 +41,9 @@ class GeminiVisionHybridProvider(AIProvider):
 
     @property
     def model_name(self) -> str:
-        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
-        allowed_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]
-        return model if model in allowed_models else "gemini-2.0-flash"
+        model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+        allowed_models = ["gemini-3.8-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]
+        return model if model in allowed_models else "gemini-3.8-flash"
 
     def analyze_document(self, image_path: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         # Step 1: Run deterministic local CV analysis first to guarantee baseline metrics
@@ -171,7 +171,10 @@ class GeminiVisionHybridProvider(AIProvider):
             ],
             "generationConfig": {
                 "temperature": 0.1,
-                "response_mime_type": "application/json"
+                "response_mime_type": "application/json",
+                "thinkingConfig": {
+                    "thinkingLevel": "high"
+                }
             }
         }
 

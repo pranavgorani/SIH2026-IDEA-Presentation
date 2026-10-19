@@ -130,7 +130,7 @@ class Settings(BaseSettings):
     # System Providers (LOCAL_CV_FALLBACK or GEMINI_VISION_HYBRID)
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "LOCAL_CV_FALLBACK")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
     # OCR & Pipeline Configuration
     OCR_ENGINE_PRIMARY: str = os.getenv("OCR_ENGINE_PRIMARY", "auto")

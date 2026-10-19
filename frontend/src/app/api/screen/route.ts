@@ -128,7 +128,7 @@ Return ONLY a JSON object with this exact structure:
 }`;
 
         const geminiResp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -147,8 +147,11 @@ Return ONLY a JSON object with this exact structure:
                 },
               ],
               generationConfig: {
-                temperature: 0.0,
+                temperature: 0.1,
                 response_mime_type: "application/json",
+                thinkingConfig: {
+                  thinkingLevel: "high",
+                },
               },
             }),
           }

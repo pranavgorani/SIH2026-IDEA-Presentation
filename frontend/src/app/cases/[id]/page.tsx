@@ -104,7 +104,7 @@ export default function CaseInvestigationPage() {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-3">
         <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-        <div className="text-xs text-slate-400 font-mono">Loading Case Dossier #{caseId.slice(0, 8)}...</div>
+        <div className="text-xs text-slate-600 font-mono">Loading Case Dossier #{caseId.slice(0, 8)}...</div>
       </div>
     );
   }
@@ -143,7 +143,7 @@ export default function CaseInvestigationPage() {
         <div className="space-y-1">
           <Link
             href="/cases"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-white transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Cases Queue</span>
@@ -208,7 +208,7 @@ export default function CaseInvestigationPage() {
           <button
             onClick={fetchCase}
             title="Reload Case"
-            className="p-2 rounded-lg bg-slate-900 border border-[#24365d] text-slate-400 hover:text-white transition-colors"
+            className="p-2 rounded-lg bg-slate-900 border border-[#24365d] text-slate-600 hover:text-white transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -225,20 +225,20 @@ export default function CaseInvestigationPage() {
                 <div className="text-3xl font-black font-mono text-white leading-none">
                   {caseData.risk_score}
                 </div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-1">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-600 mt-1">
                   / 100
                 </div>
               </div>
             </div>
 
             <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-600">
                 Multi-Signal Advisory
               </div>
               <div className="text-lg font-bold text-white mt-0.5">
                 {risk_assessment?.recommended_action || "Advisory Pending"}
               </div>
-              <div className="text-xs text-slate-400 font-mono mt-1">
+              <div className="text-xs text-slate-600 font-mono mt-1">
                 Forensic Confidence: <strong className="text-white">{Math.round(caseData.confidence * 100)}%</strong> • MHA AI-Assisted Protocol
               </div>
             </div>
@@ -247,25 +247,25 @@ export default function CaseInvestigationPage() {
           {/* Quick Signal Summary Pills */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
             <div className="p-2.5 rounded-lg bg-slate-950 border border-[#24365d]">
-              <div className="text-slate-400 text-[10px]">VISUAL FORENSICS</div>
+              <div className="text-slate-600 text-[10px]">VISUAL FORENSICS</div>
               <div className="font-bold text-white mt-0.5">
                 {tamper_result?.tampering_detected ? "TAMPERED ⚠️" : "CLEAN ✓"}
               </div>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-950 border border-[#24365d]">
-              <div className="text-slate-400 text-[10px]">MRZ VALIDATION</div>
+              <div className="text-slate-600 text-[10px]">MRZ VALIDATION</div>
               <div className="font-bold text-white mt-0.5">
                 {ocr_result?.mrz?.valid ? "ICAO VALID ✓" : "FAIL / N/A"}
               </div>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-950 border border-[#24365d]">
-              <div className="text-slate-400 text-[10px]">BIOMETRIC MATCH</div>
+              <div className="text-slate-600 text-[10px]">BIOMETRIC MATCH</div>
               <div className="font-bold text-white mt-0.5">
                 {face_verification?.status ? face_verification.status.replace("_", " ") : "UNAVAILABLE"}
               </div>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-950 border border-[#24365d]">
-              <div className="text-slate-400 text-[10px]">RECORD STATUS</div>
+              <div className="text-slate-600 text-[10px]">RECORD STATUS</div>
               <div className="font-bold text-white mt-0.5">
                 {record_verification?.status || "VALID"}
               </div>
@@ -282,7 +282,7 @@ export default function CaseInvestigationPage() {
               <span>Detected Risk Indicators ({risk_assessment?.risk_factors?.length || 0})</span>
             </div>
             {risk_assessment?.risk_factors?.length === 0 ? (
-              <div className="text-xs text-slate-400 italic">No anomalies or negative flags detected.</div>
+              <div className="text-xs text-slate-600 italic">No anomalies or negative flags detected.</div>
             ) : (
               <ul className="space-y-1 text-xs text-red-200">
                 {risk_assessment?.risk_factors?.map((f: string, idx: number) => (
@@ -326,7 +326,7 @@ export default function CaseInvestigationPage() {
                 COMPUTER VISION CORE
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-600 mt-0.5">
               Inspect Error Level Analysis (ELA) compression gradients, local noise variance, and bounding boxes.
             </p>
           </div>
@@ -338,7 +338,7 @@ export default function CaseInvestigationPage() {
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 forensicMode === "ORIGINAL"
                   ? "bg-blue-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : "text-slate-600 hover:text-white"
               }`}
             >
               Original
@@ -348,7 +348,7 @@ export default function CaseInvestigationPage() {
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 forensicMode === "ENHANCED"
                   ? "bg-cyan-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : "text-slate-600 hover:text-white"
               }`}
             >
               Enhanced
@@ -358,7 +358,7 @@ export default function CaseInvestigationPage() {
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 forensicMode === "HEATMAP"
                   ? "bg-purple-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : "text-slate-600 hover:text-white"
               }`}
             >
               Tamper Heatmap
@@ -368,7 +368,7 @@ export default function CaseInvestigationPage() {
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 forensicMode === "BBOXES"
                   ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : "text-slate-600 hover:text-white"
               }`}
             >
               OCR Bounding Boxes
@@ -378,7 +378,7 @@ export default function CaseInvestigationPage() {
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 forensicMode === "FACE_REGION"
                   ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : "text-slate-600 hover:text-white"
               }`}
             >
               Face Region
@@ -388,7 +388,7 @@ export default function CaseInvestigationPage() {
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 forensicMode === "SUSPICIOUS_REGIONS"
                   ? "bg-red-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : "text-slate-600 hover:text-white"
               }`}
             >
               Suspicious Regions
@@ -509,19 +509,19 @@ export default function CaseInvestigationPage() {
               </div>
               <div className="space-y-2 text-xs font-mono">
                 <div className="flex justify-between py-1 border-b border-slate-800">
-                  <span className="text-slate-400">ELA Disparity:</span>
+                  <span className="text-slate-600">ELA Disparity:</span>
                   <span className="text-white font-bold">{tamper_result?.signals?.ela_compression_disparity || 0.12}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-800">
-                  <span className="text-slate-400">Noise Anomaly:</span>
+                  <span className="text-slate-600">Noise Anomaly:</span>
                   <span className="text-white font-bold">{tamper_result?.signals?.high_freq_noise_anomaly || 0.08}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-800">
-                  <span className="text-slate-400">Edge Discontinuity:</span>
+                  <span className="text-slate-600">Edge Discontinuity:</span>
                   <span className="text-white font-bold">{tamper_result?.signals?.edge_gradient_discontinuity || 0.15}</span>
                 </div>
                 <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Status:</span>
+                  <span className="text-slate-600">Status:</span>
                   <span className={tamper_result?.tampering_detected ? "text-red-400 font-bold" : "text-emerald-400 font-bold"}>
                     {tamper_result?.tampering_detected ? "MANIPULATION DETECTED" : "UNIFORM RESIDUALS"}
                   </span>
@@ -533,11 +533,11 @@ export default function CaseInvestigationPage() {
             <div className="p-4 rounded-xl bg-slate-950 border border-[#24365d] space-y-3">
               <div className="text-xs font-bold text-white uppercase tracking-wider flex items-center justify-between">
                 <span>Flagged Forensic Regions ({tamper_result?.regions?.length || 0})</span>
-                <span className="text-[10px] text-slate-400 font-mono">Click to inspect</span>
+                <span className="text-[10px] text-slate-600 font-mono">Click to inspect</span>
               </div>
 
               {tamper_result?.regions?.length === 0 ? (
-                <div className="text-xs text-slate-400 italic">No suspicious localized alterations identified.</div>
+                <div className="text-xs text-slate-600 italic">No suspicious localized alterations identified.</div>
               ) : (
                 <div className="space-y-2">
                   {tamper_result?.regions?.map((reg: any, idx: number) => (
@@ -554,7 +554,7 @@ export default function CaseInvestigationPage() {
                         <span className="capitalize">{reg.type.replace("possible_", "").replace("_", " ")}</span>
                         <span className="text-[11px] font-mono text-purple-400">{Math.round(reg.confidence * 100)}% Conf</span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1 leading-snug">{reg.explanation}</p>
+                      <p className="text-[11px] text-slate-600 mt-1 leading-snug">{reg.explanation}</p>
                     </div>
                   ))}
                 </div>
@@ -571,20 +571,20 @@ export default function CaseInvestigationPage() {
                   </div>
                   <div className="space-y-1 font-mono text-[11px]">
                     <div>
-                      <span className="text-slate-400">Detection Type: </span>
+                      <span className="text-slate-600">Detection Type: </span>
                       <strong className="text-white capitalize">{selectedRegion.type.replace("possible_", "").replace("_", " ")}</strong>
                     </div>
                     <div>
-                      <span className="text-slate-400">Coordinates: </span>
+                      <span className="text-slate-600">Coordinates: </span>
                       <span className="text-slate-300">x={selectedRegion.x}, y={selectedRegion.y}, {selectedRegion.width}x{selectedRegion.height}px</span>
                     </div>
                   </div>
                   <div className="text-[11px] text-slate-300 bg-slate-950/70 p-2.5 rounded-lg border border-purple-500/20">
                     <strong className="text-purple-300 block mb-0.5">Forensic Finding:</strong>
                     "This region shows signals consistent with possible manipulation."
-                    <p className="text-slate-400 mt-1">{selectedRegion.explanation}</p>
+                    <p className="text-slate-600 mt-1">{selectedRegion.explanation}</p>
                   </div>
-                  <div className="text-[10px] text-slate-400 italic">
+                  <div className="text-[10px] text-slate-600 italic">
                     Note: Computer-vision signal analysis indicates localized anomalies for human verification. Does not claim sole forensic certainty.
                   </div>
                 </div>
@@ -610,35 +610,35 @@ export default function CaseInvestigationPage() {
 
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div className="p-3 rounded-lg bg-slate-950 border border-[#24365d]">
-              <span className="text-slate-400 block text-[10px] uppercase font-semibold">Full Legal Name</span>
+              <span className="text-slate-600 block text-[10px] uppercase font-semibold">Full Legal Name</span>
               <span className="text-white font-bold text-sm mt-0.5 block">{ocr_result?.fields?.name || "—"}</span>
             </div>
             <div className="p-3 rounded-lg bg-slate-950 border border-[#24365d]">
-              <span className="text-slate-400 block text-[10px] uppercase font-semibold">Document Number</span>
+              <span className="text-slate-600 block text-[10px] uppercase font-semibold">Document Number</span>
               <span className="text-white font-mono font-bold text-sm mt-0.5 block">{ocr_result?.fields?.document_number || "—"}</span>
             </div>
             <div className="p-3 rounded-lg bg-slate-950 border border-[#24365d]">
-              <span className="text-slate-400 block text-[10px] uppercase font-semibold">Nationality</span>
+              <span className="text-slate-600 block text-[10px] uppercase font-semibold">Nationality</span>
               <span className="text-white font-bold mt-0.5 block">{ocr_result?.fields?.nationality || "—"}</span>
             </div>
             <div className="p-3 rounded-lg bg-slate-950 border border-[#24365d]">
-              <span className="text-slate-400 block text-[10px] uppercase font-semibold">Date of Birth</span>
+              <span className="text-slate-600 block text-[10px] uppercase font-semibold">Date of Birth</span>
               <span className="text-white font-mono font-semibold mt-0.5 block">{ocr_result?.fields?.date_of_birth || "—"}</span>
             </div>
             <div className="p-3 rounded-lg bg-slate-950 border border-[#24365d]">
-              <span className="text-slate-400 block text-[10px] uppercase font-semibold">Date of Expiry</span>
+              <span className="text-slate-600 block text-[10px] uppercase font-semibold">Date of Expiry</span>
               <span className="text-white font-mono font-semibold mt-0.5 block">{ocr_result?.fields?.date_of_expiry || "—"}</span>
             </div>
             <div className="p-3 rounded-lg bg-slate-950 border border-[#24365d]">
-              <span className="text-slate-400 block text-[10px] uppercase font-semibold">Gender / Sex</span>
+              <span className="text-slate-600 block text-[10px] uppercase font-semibold">Gender / Sex</span>
               <span className="text-white font-mono font-semibold mt-0.5 block">{ocr_result?.fields?.gender || "—"}</span>
             </div>
           </div>
 
           {/* Raw Text Accordion */}
-          <details className="text-xs text-slate-400 bg-slate-950 p-3 rounded-lg border border-[#24365d]">
+          <details className="text-xs text-slate-600 bg-slate-950 p-3 rounded-lg border border-[#24365d]">
             <summary className="cursor-pointer font-semibold text-slate-300">View Raw OCR Extracted Text Buffer</summary>
-            <pre className="mt-2 text-[11px] font-mono text-slate-400 whitespace-pre-wrap max-h-36 overflow-y-auto">
+            <pre className="mt-2 text-[11px] font-mono text-slate-600 whitespace-pre-wrap max-h-36 overflow-y-auto">
               {ocr_result?.raw_text || "No text buffer recorded."}
             </pre>
           </details>
@@ -673,25 +673,25 @@ export default function CaseInvestigationPage() {
               {/* Individual Check Digit Statuses */}
               <div className="space-y-1.5 font-mono text-xs">
                 <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                  <span className="text-slate-400">Passport Number Check Digit:</span>
+                  <span className="text-slate-600">Passport Number Check Digit:</span>
                   <span className={ocr_result.mrz.checksum_passport_number ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                     {ocr_result.mrz.checksum_passport_number ? "VALID (Weight 7-3-1)" : "FAILED"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                  <span className="text-slate-400">DOB Check Digit:</span>
+                  <span className="text-slate-600">DOB Check Digit:</span>
                   <span className={ocr_result.mrz.checksum_dob ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                     {ocr_result.mrz.checksum_dob ? "VALID" : "FAILED"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                  <span className="text-slate-400">Expiry Check Digit:</span>
+                  <span className="text-slate-600">Expiry Check Digit:</span>
                   <span className={ocr_result.mrz.checksum_expiry ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                     {ocr_result.mrz.checksum_expiry ? "VALID" : "FAILED"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-slate-400">Composite Overall Checksum:</span>
+                  <span className="text-slate-600">Composite Overall Checksum:</span>
                   <span className={ocr_result.mrz.checksum_overall ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                     {ocr_result.mrz.checksum_overall ? "VALID" : "FAILED"}
                   </span>
@@ -699,7 +699,7 @@ export default function CaseInvestigationPage() {
               </div>
             </div>
           ) : (
-            <div className="text-xs text-slate-400 italic py-8 text-center">
+            <div className="text-xs text-slate-600 italic py-8 text-center">
               No Machine Readable Zone (MRZ) detected on this credential side.
             </div>
           )}
@@ -713,7 +713,7 @@ export default function CaseInvestigationPage() {
             <CheckCircle2 className="w-4 h-4 text-teal-400" />
             <span>Document Field & Chronological Validation Checklist</span>
           </h2>
-          <span className="text-xs font-mono text-slate-400">
+          <span className="text-xs font-mono text-slate-600">
             {validation_summary?.passed_count || 0} Passed • {validation_summary?.failed_count || 0} Failed • {validation_summary?.warning_count || 0} Warnings
           </span>
         </div>
@@ -747,7 +747,7 @@ export default function CaseInvestigationPage() {
                       {c.status}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{c.message}</p>
+                  <p className="text-[11px] text-slate-600 mt-0.5 leading-snug">{c.message}</p>
                 </div>
               </div>
             );
@@ -779,19 +779,19 @@ export default function CaseInvestigationPage() {
 
           <div className="grid grid-cols-2 gap-4 items-center">
             <div className="text-center space-y-1.5 p-3 rounded-xl bg-slate-950 border border-[#24365d]">
-              <div className="text-[10px] text-slate-400 uppercase font-semibold">Document Portrait</div>
+              <div className="text-[10px] text-slate-600 uppercase font-semibold">Document Portrait</div>
               <img
                 src={frontDocUrl}
                 alt="Document Face"
                 className="w-24 h-24 rounded-lg object-cover mx-auto border border-slate-700"
               />
-              <div className="text-[10px] text-slate-400 font-mono">
+              <div className="text-[10px] text-slate-600 font-mono">
                 Quality: {Math.round((face_verification?.document_face_quality || 0.8) * 100)}%
               </div>
             </div>
 
             <div className="text-center space-y-1.5 p-3 rounded-xl bg-slate-950 border border-[#24365d]">
-              <div className="text-[10px] text-slate-400 uppercase font-semibold">Presenter Live Photo</div>
+              <div className="text-[10px] text-slate-600 uppercase font-semibold">Presenter Live Photo</div>
               {face_verification?.live_face_detected ? (
                 <img
                   src={liveDocUrl}
@@ -803,13 +803,13 @@ export default function CaseInvestigationPage() {
                   No Selfie
                 </div>
               )}
-              <div className="text-[10px] text-slate-400 font-mono">
+              <div className="text-[10px] text-slate-600 font-mono">
                 Similarity: <strong className="text-white">{Math.round((face_verification?.similarity || 0) * 100)}%</strong>
               </div>
             </div>
           </div>
 
-          <p className="text-xs text-slate-400 leading-relaxed bg-slate-950 p-3 rounded-lg border border-[#24365d]">
+          <p className="text-xs text-slate-600 leading-relaxed bg-slate-950 p-3 rounded-lg border border-[#24365d]">
             {face_verification?.explanation || "Identity verification unavailable — no presented-person image provided for 1:1 comparison."}
           </p>
         </div>
@@ -838,21 +838,21 @@ export default function CaseInvestigationPage() {
 
           <div className="space-y-2 text-xs font-mono">
             <div className="flex justify-between py-1.5 border-b border-slate-800">
-              <span className="text-slate-400">Database Source:</span>
+              <span className="text-slate-600">Database Source:</span>
               <span className="text-white font-bold">{record_verification?.source || "CENTRAL_REGISTRY_ADAPTER"}</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-slate-800">
-              <span className="text-slate-400">Document Identifier:</span>
+              <span className="text-slate-600">Document Identifier:</span>
               <span className="text-white font-bold">{record_verification?.document_number || "—"}</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-slate-800">
-              <span className="text-slate-400">Record Match Status:</span>
+              <span className="text-slate-600">Record Match Status:</span>
               <span className={record_verification?.record_found ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                 {record_verification?.record_found ? "RECORD CONFIRMED FOUND" : "NO RECORD FOUND"}
               </span>
             </div>
             <div className="flex justify-between py-1.5">
-              <span className="text-slate-400">Checked At:</span>
+              <span className="text-slate-600">Checked At:</span>
               <span className="text-slate-300">{record_verification?.checked_at ? new Date(record_verification.checked_at).toLocaleString() : "Recently Verified"}</span>
             </div>
           </div>
@@ -872,7 +872,7 @@ export default function CaseInvestigationPage() {
                 SHA-256 HASH CHAIN
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-600 mt-0.5">
               Every action is immutably sealed with the predecessor block hash, ensuring non-repudiation.
             </p>
           </div>
@@ -904,7 +904,7 @@ export default function CaseInvestigationPage() {
                 ({auditIntegrity.total_events} block events cryptographically validated)
               </span>
             </div>
-            <span className="text-[10px] text-slate-400 font-mono">
+            <span className="text-[10px] text-slate-600 font-mono">
               Head: {auditIntegrity.last_block_hash.slice(0, 16)}...
             </span>
           </div>
@@ -921,9 +921,9 @@ export default function CaseInvestigationPage() {
                   #{ev.sequence_number}
                 </span>
                 <span className="text-white font-bold">{ev.action}</span>
-                <span className="text-slate-400 text-[11px]">by {ev.actor_id}</span>
+                <span className="text-slate-600 text-[11px]">by {ev.actor_id}</span>
               </div>
-              <div className="text-[10px] text-slate-400 flex flex-wrap items-center gap-3">
+              <div className="text-[10px] text-slate-600 flex flex-wrap items-center gap-3">
                 <span>Prev: {ev.previous_hash.slice(0, 8)}...</span>
                 <span className="text-sky-400">Hash: {ev.event_hash.slice(0, 12)}...</span>
                 <span>{new Date(ev.timestamp).toLocaleTimeString()}</span>
@@ -941,7 +941,7 @@ export default function CaseInvestigationPage() {
               <UserCheck className="w-5 h-5 text-amber-400" />
               <span>Human Verifier Decision & Adjudication</span>
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-600 mt-0.5">
               Submit authorized screening decision. High-risk cases require mandatory substantive justification.
             </p>
           </div>
@@ -956,7 +956,7 @@ export default function CaseInvestigationPage() {
           <div className="p-4 rounded-xl bg-slate-950 border border-emerald-500/30 text-xs space-y-1">
             <div className="font-bold text-white flex items-center justify-between">
               <span>Decision: {caseData.review_decision.decision}</span>
-              <span className="text-slate-400 font-mono text-[10px]">
+              <span className="text-slate-600 font-mono text-[10px]">
                 {new Date(caseData.review_decision.timestamp).toLocaleString()}
               </span>
             </div>
@@ -986,7 +986,7 @@ export default function CaseInvestigationPage() {
                 className={`p-3 rounded-xl border text-xs font-bold transition-all text-left ${
                   decision === opt.id
                     ? "bg-blue-600/30 border-blue-400 text-white shadow-md shadow-blue-500/20"
-                    : `bg-slate-950 border-[#24365d] text-slate-400 ${opt.color}`
+                    : `bg-slate-950 border-[#24365d] text-slate-600 ${opt.color}`
                 }`}
               >
                 {opt.label}

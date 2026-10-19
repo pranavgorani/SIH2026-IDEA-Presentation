@@ -167,7 +167,7 @@ export default function Sidebar() {
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
         {navGroups.map((group, idx) => (
           <div key={idx}>
-            <div className="px-3 mb-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400">
+            <div className="px-3 mb-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-600">
               {group.title}
             </div>
             <div className="space-y-1">
@@ -185,7 +185,7 @@ export default function Sidebar() {
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <Icon className={`w-4 h-4 ${isActive ? "text-blue-600" : "text-slate-400"}`} />
+                      <Icon className={`w-4 h-4 ${isActive ? "text-blue-600" : "text-slate-600"}`} />
                       <span>{item.label}</span>
                     </div>
                     {item.badge && (
@@ -239,7 +239,7 @@ export default function Sidebar() {
             <button
               onClick={handleLogout}
               title="Sign Out"
-              className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition-colors"
+              className="text-slate-600 hover:text-rose-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition-colors"
             >
               <LogOut className="w-4 h-4" />
             </button>

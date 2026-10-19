@@ -353,7 +353,7 @@ export default function ReportsPage() {
           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
             Document Screening Reports Center
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400">
+          <p className="text-xs sm:text-sm text-slate-600">
             Generate, inspect, and export 100-point audit matrices in official PDF, CSV, and DOCX formats.
           </p>
         </div>
@@ -387,7 +387,7 @@ export default function ReportsPage() {
                   onClick={() => setShowDownloadDropdown(false)}
                 />
                 <div className="absolute right-0 mt-2 w-72 rounded-xl bg-slate-900 border border-[#24365d] shadow-2xl p-1.5 z-50 space-y-1">
-                  <div className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                  <div className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-slate-600 border-b border-slate-800">
                     Export Filtered Ledger ({filteredReports.length} records)
                   </div>
 
@@ -399,7 +399,7 @@ export default function ReportsPage() {
                     <FileArchive className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
                     <div>
                       <div className="font-semibold text-white">Download All Reports</div>
-                      <div className="text-[10px] text-slate-400">ZIP archive containing the available reports</div>
+                      <div className="text-[10px] text-slate-600">ZIP archive containing the available reports</div>
                     </div>
                   </button>
 
@@ -411,7 +411,7 @@ export default function ReportsPage() {
                     <Table className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
                     <div>
                       <div className="font-semibold text-white">Export Report Ledger</div>
-                      <div className="text-[10px] text-slate-400">CSV containing the filtered or complete report ledger</div>
+                      <div className="text-[10px] text-slate-600">CSV containing the filtered or complete report ledger</div>
                     </div>
                   </button>
 
@@ -423,7 +423,7 @@ export default function ReportsPage() {
                     <FileText className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform shrink-0" />
                     <div>
                       <div className="font-semibold text-white">Export as PDF</div>
-                      <div className="text-[10px] text-slate-400">Professional PDF summary of screening results</div>
+                      <div className="text-[10px] text-slate-600">Professional PDF summary of screening results</div>
                     </div>
                   </button>
 
@@ -435,7 +435,7 @@ export default function ReportsPage() {
                     <File className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
                     <div>
                       <div className="font-semibold text-white">Export as DOCX</div>
-                      <div className="text-[10px] text-slate-400">Editable Word format report summary</div>
+                      <div className="text-[10px] text-slate-600">Editable Word format report summary</div>
                     </div>
                   </button>
                 </div>
@@ -475,7 +475,7 @@ export default function ReportsPage() {
           <button
             type="button"
             onClick={() => setExportFeedback(null)}
-            className="text-slate-400 hover:text-white"
+            className="text-slate-600 hover:text-white"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -485,7 +485,7 @@ export default function ReportsPage() {
       {/* Analytics KPI Ribbon */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="p-4 rounded-xl bg-slate-900/80 border border-[#24365d] shadow-sm">
-          <div className="text-xs text-slate-400 font-mono mb-1">TOTAL REPORTS</div>
+          <div className="text-xs text-slate-600 font-mono mb-1">TOTAL REPORTS</div>
           <div className="text-2xl font-black text-white">{reports.length}</div>
           <div className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1 font-mono">
             <CheckCircle2 className="w-3 h-3" /> 100-Point Verified
@@ -493,23 +493,23 @@ export default function ReportsPage() {
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/80 border border-emerald-900/40 shadow-sm">
-          <div className="text-xs text-slate-400 font-mono mb-1">LOW RISK (APPROVED)</div>
+          <div className="text-xs text-slate-600 font-mono mb-1">LOW RISK (APPROVED)</div>
           <div className="text-2xl font-black text-emerald-400">
             {reports.filter((r) => r.risk_level === "LOW").length}
           </div>
-          <div className="text-[10px] text-slate-400 mt-1 font-mono">Ready for Border Clearance</div>
+          <div className="text-[10px] text-slate-600 mt-1 font-mono">Ready for Border Clearance</div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/80 border border-amber-900/40 shadow-sm">
-          <div className="text-xs text-slate-400 font-mono mb-1">ELEVATED / REVIEW</div>
+          <div className="text-xs text-slate-600 font-mono mb-1">ELEVATED / REVIEW</div>
           <div className="text-2xl font-black text-amber-400">
             {reports.filter((r) => r.risk_level === "MEDIUM" || r.risk_level === "HIGH").length}
           </div>
-          <div className="text-[10px] text-slate-400 mt-1 font-mono">Requires Inspector Audit</div>
+          <div className="text-[10px] text-slate-600 mt-1 font-mono">Requires Inspector Audit</div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/80 border border-red-900/40 shadow-sm">
-          <div className="text-xs text-slate-400 font-mono mb-1">CRITICAL REJECTIONS</div>
+          <div className="text-xs text-slate-600 font-mono mb-1">CRITICAL REJECTIONS</div>
           <div className="text-2xl font-black text-red-400">
             {reports.filter((r) => r.risk_level === "CRITICAL").length}
           </div>
@@ -520,7 +520,7 @@ export default function ReportsPage() {
       {/* Filter and Search Bar */}
       <div className="p-4 rounded-xl bg-slate-900/80 border border-[#24365d] flex flex-col md:flex-row gap-3 items-center justify-between">
         <div className="relative w-full md:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+          <Search className="w-4 h-4 text-slate-600 absolute left-3 top-3" />
           <input
             type="text"
             value={searchTerm}
@@ -531,7 +531,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs text-slate-600">
             <Filter className="w-3.5 h-3.5" />
             <span>Risk:</span>
           </div>
@@ -565,7 +565,7 @@ export default function ReportsPage() {
       <div className="rounded-xl border border-[#24365d] bg-slate-900/60 overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#0c1630] border-b border-[#24365d] text-slate-400 font-mono uppercase tracking-wider text-[11px]">
+            <thead className="bg-[#0c1630] border-b border-[#24365d] text-slate-600 font-mono uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="py-3 px-4">Case Number</th>
                 <th className="py-3 px-4">Document / Holder</th>
@@ -578,14 +578,14 @@ export default function ReportsPage() {
             <tbody className="divide-y divide-slate-800/80">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                  <td colSpan={6} className="py-12 text-center text-slate-600">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-400" />
                     <span>Loading forensic report index...</span>
                   </td>
                 </tr>
               ) : filteredReports.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                  <td colSpan={6} className="py-12 text-center text-slate-600">
                     <AlertCircle className="w-6 h-6 mx-auto mb-2 text-slate-500" />
                     <span>No reports found matching criteria.</span>
                   </td>
@@ -603,7 +603,7 @@ export default function ReportsPage() {
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="font-semibold text-slate-200">{report.document_type.replace(/_/g, " ")}</div>
-                      <div className="text-[11px] text-slate-400">{report.holder_name}</div>
+                      <div className="text-[11px] text-slate-600">{report.holder_name}</div>
                     </td>
                     <td className="py-3.5 px-4 text-slate-300 font-mono">
                       {new Date(report.created_at).toLocaleDateString()} {new Date(report.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -630,7 +630,7 @@ export default function ReportsPage() {
                         {report.risk_level} ({report.risk_score})
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 font-mono text-[10px] text-slate-400">
+                    <td className="py-3.5 px-4 font-mono text-[10px] text-slate-600">
                       <div className="flex items-center gap-1 text-purple-300">
                         <Lock className="w-3 h-3 text-purple-400" />
                         <span>SHA-256 SEALED</span>

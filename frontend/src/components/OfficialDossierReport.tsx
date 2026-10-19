@@ -184,13 +184,13 @@ export default function OfficialDossierReport({
     <div className="space-y-6">
       {/* Top action toolbar (hidden on print) */}
       {showControls && (
-        <div className="no-print p-4 rounded-xl bg-slate-900 border border-[#24365d] flex flex-wrap items-center justify-between gap-3 shadow-lg">
+        <div className="no-print p-4 rounded-xl bg-white border border-slate-200 flex flex-wrap items-center justify-between gap-3 shadow-sm">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-mono font-bold text-slate-900 uppercase tracking-wider">
               Official MHA Evidentiary Screening Dossier
             </span>
-            <span className="text-[11px] font-mono text-slate-400">
+            <span className="text-[11px] font-mono text-slate-500">
               #{data.caseNumber || "CASE-LIVE"}
             </span>
           </div>
@@ -199,7 +199,7 @@ export default function OfficialDossierReport({
             <button
               type="button"
               onClick={() => setViewMode(viewMode === "print" ? "dark" : "print")}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all"
+              className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold border border-slate-300 transition-all"
             >
               Mode: {viewMode === "print" ? "📄 Official White Dossier" : "🌙 Dark Tactical View"}
             </button>
@@ -207,9 +207,9 @@ export default function OfficialDossierReport({
             <button
               type="button"
               onClick={handleCopyTextDossier}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold border border-slate-300 transition-all flex items-center gap-1.5"
             >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-600" />}
               <span>{copied ? "Copied ASCII Record" : "Copy ASCII Record"}</span>
             </button>
 
@@ -245,29 +245,29 @@ export default function OfficialDossierReport({
           >
             <div className="flex flex-wrap items-center gap-4 sm:gap-6">
               <div>
-                <span className="text-slate-400 block text-[9px] uppercase">Total Screened</span>
+                <span className="text-slate-600 block text-[9px] uppercase">Total Screened</span>
                 <span className="font-bold text-sm">{data.totalScreened ?? 164}</span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[9px] uppercase">Clearance Rate</span>
+                <span className="text-slate-600 block text-[9px] uppercase">Clearance Rate</span>
                 <span className="font-bold text-sm text-emerald-600">{data.clearanceRate ?? 75.6}%</span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[9px] uppercase">Tampering Intercepted</span>
+                <span className="text-slate-600 block text-[9px] uppercase">Tampering Intercepted</span>
                 <span className="font-bold text-sm text-rose-600">{data.tamperingIntercepted ?? 32}</span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[9px] uppercase">Watchlist Apprehensions</span>
+                <span className="text-slate-600 block text-[9px] uppercase">Watchlist Apprehensions</span>
                 <span className="font-bold text-sm text-amber-600">{data.watchlistApprehensions ?? 8}</span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[9px] uppercase">Avg Screening Latency</span>
+                <span className="text-slate-600 block text-[9px] uppercase">Avg Screening Latency</span>
                 <span className="font-bold text-sm">{data.avgLatency ?? "6.91s"}</span>
               </div>
             </div>
 
             <div className="text-[10px] font-bold tracking-tight text-blue-600 sm:text-right">
-              ⚡ GEMINI 2.5 FLASH NEURAL VISION | ICAO DOC 9303 | INTERPOL SLTD | ELA FORENSICS ACTIVE
+              ⚡ GEMINI 3.8 FLASH HIGH THINKING NEURAL VISION | ICAO DOC 9303 | INTERPOL SLTD | ELA FORENSICS ACTIVE
             </div>
           </div>
 
@@ -307,7 +307,7 @@ export default function OfficialDossierReport({
             {/* Under-Image Metadata line */}
             <div
               className={`w-full max-w-[620px] mt-3 flex items-center justify-between text-[11px] font-mono ${
-                viewMode === "print" ? "text-slate-600" : "text-slate-400"
+                viewMode === "print" ? "text-slate-600" : "text-slate-600"
               }`}
             >
               <div className="truncate max-w-[380px]">
@@ -394,7 +394,7 @@ export default function OfficialDossierReport({
                   </span>
                 </div>
               </div>
-              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-400 mt-1">
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-600 mt-1">
                 AI RISK SCORE
               </span>
             </div>
@@ -416,7 +416,7 @@ export default function OfficialDossierReport({
         </div>
 
         {/* Page break marker for print */}
-        <div className="print-page-break border-t-2 border-dashed border-slate-300 my-8 no-print text-center text-xs font-mono text-slate-400 py-2">
+        <div className="print-page-break border-t-2 border-dashed border-slate-300 my-8 no-print text-center text-xs font-mono text-slate-600 py-2">
           ▼ PAGE BREAK FOR PRINT (PAGE 2 BELOW) ▼
         </div>
 

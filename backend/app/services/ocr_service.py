@@ -447,85 +447,42 @@ class ModularOCREngine(BaseOCREngine):
 
     def _run_gemini_vision_ocr(self, file_path: Path) -> Optional[Dict[str, Any]]:
         """
-        Optional secondary extraction/validation layer adhering to Section 21 & 22.
-        Key is read from GEMINI_API_KEY environment variable.
-        Prompt explicitly instructs: never guess, infer, complete, or invent missing values.
+        Multimodal extraction & validation layer using Gemini 3.8 Flash (HIGH thinking level).
+        Adheres to Section 21, 22, and Gemini 3.8 Flash specification.
         """
         try:
-            from backend.app.providers.gemini_provider import gemini_provider
-            if not gemini_provider.is_configured:
+            from backend.app.services.gemini_document_scanner import gemini_document_scanner
+            if not gemini_document_scanner.is_configured:
                 return None
 
-            mime_map = {
-                ".png": "image/png", ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg", ".webp": "image/webp", ".pdf": "application/pdf"
-            }
-            mime_type = mime_map.get(file_path.suffix.lower(), "image/png")
-
-            file_size = file_path.stat().st_size
-            if file_size == 0 or file_size > 20 * 1024 * 1024:
+            scan_res = gemini_document_scanner.scan_document(file_path)
+            if scan_res.processing_status not in ("COMPLETED", "PARTIAL") or not scan_res.fields:
                 return None
 
-            with open(file_path, "rb") as f:
-                encoded = base64.b64encode(f.read()).decode("utf-8")
-
-            # Section 22: Strict Prompt
-            prompt = (
-                "You are an expert identity document verification OCR engine. "
-                "Extract only information visibly present in the uploaded document. "
-                "Never guess, infer, complete, or invent missing values. "
-                "If a field is unreadable or absent, return null. "
-                "Return confidence for every field as a float between 0.00 and 1.00.\n"
-                "Respond with this exact JSON structure:\n"
-                "{\n"
-                '  "raw_text": "all readable text",\n'
-                '  "fields": {\n'
-                '    "document_type": {"value": null, "confidence": 0.0},\n'
-                '    "document_number": {"value": null, "confidence": 0.0},\n'
-                '    "holder_full_name": {"value": null, "confidence": 0.0},\n'
-                '    "nationality": {"value": null, "confidence": 0.0},\n'
-                '    "date_of_birth": {"value": null, "confidence": 0.0},\n'
-                '    "gender": {"value": null, "confidence": 0.0},\n'
-                '    "expiry_date": {"value": null, "confidence": 0.0},\n'
-                '    "issuing_country": {"value": null, "confidence": 0.0}\n'
-                '  },\n'
-                '  "mrz_lines": []\n'
-                "}"
-            )
-
-            model = gemini_provider.model_name
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-            payload = {
-                "contents": [{
-                    "parts": [
-                        {"text": prompt},
-                        {"inline_data": {"mime_type": mime_type, "data": encoded}}
-                    ]
-                }],
-                "generationConfig": {
-                    "temperature": 0.0,
-                    "response_mime_type": "application/json"
+            fields_dict: Dict[str, Any] = {}
+            for k, fld in scan_res.fields.items():
+                fields_dict[k] = {
+                    "value": fld.value,
+                    "confidence": fld.confidence,
+                    "status": fld.status
                 }
-            }
-            headers = {
-                "x-goog-api-key": gemini_provider.api_key,
-                "Content-Type": "application/json"
-            }
 
-            with httpx.Client(timeout=8.0) as client:
-                resp = client.post(url, json=payload, headers=headers)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts:
-                            parsed = json.loads(parts[0].get("text", "{}"))
-                            if isinstance(parsed, dict):
-                                return parsed
+            mrz_lines = scan_res.mrz.lines if scan_res.mrz else []
+            lines = [f"{k.replace('_', ' ').title()}: {fld.value}" for k, fld in scan_res.fields.items() if fld.value]
+            raw_text = "\n".join(lines)
+
+            return {
+                "raw_text": raw_text,
+                "fields": fields_dict,
+                "mrz_lines": mrz_lines,
+                "document_type": scan_res.document_type,
+                "visual_observations": [obs.model_dump() for obs in scan_res.visual_observations],
+                "localized_regions": [reg.model_dump() for reg in scan_res.localized_regions],
+                "uncertainties": scan_res.uncertainties
+            }
         except Exception as ex:
-            logger.debug(f"Gemini Vision secondary extraction fallback: {ex}")
-        return None
+            logger.debug(f"Gemini 3.8 Flash vision extraction fallback: {ex}")
+            return None
 
     def _extract_visible_fields(self, text: str) -> Dict[str, Any]:
         """

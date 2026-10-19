@@ -274,7 +274,7 @@ export default function DashboardPage() {
               LIVE TELEMETRY
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-600 mt-1">
             Real-time identity credential forensics, 100-check visual analytics & document risk scoring (Scale 0–10).
           </p>
         </div>
@@ -283,7 +283,7 @@ export default function DashboardPage() {
           <button
             onClick={fetchData}
             title="Refresh Data"
-            className="p-2 rounded-lg bg-slate-900 border border-slate-200 text-slate-400 hover:text-white transition-colors"
+            className="p-2 rounded-lg bg-slate-900 border border-slate-200 text-slate-600 hover:text-white transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
@@ -308,7 +308,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {/* Total Screened */}
         <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
+          <div className="flex items-center justify-between text-slate-600">
             <span className="text-[11px] font-bold uppercase tracking-wider">Screened</span>
             <FileText className="w-4 h-4 text-blue-400" />
           </div>
@@ -351,26 +351,26 @@ export default function DashboardPage() {
 
         {/* Tampering Flags */}
         <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
+          <div className="flex items-center justify-between text-slate-600">
             <span className="text-[11px] font-bold uppercase tracking-wider">Tamper Flags</span>
             <Scan className="w-4 h-4 text-purple-400" />
           </div>
           <div className="text-2xl font-black text-purple-300 font-mono mt-2">
             {stats?.tampering_detected_count || 83}
           </div>
-          <div className="text-[10px] text-slate-400 mt-1">ELA & noise anomalies</div>
+          <div className="text-[10px] text-slate-600 mt-1">ELA & noise anomalies</div>
         </div>
 
         {/* Avg Processing Time */}
         <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
+          <div className="flex items-center justify-between text-slate-600">
             <span className="text-[11px] font-bold uppercase tracking-wider">Avg Latency</span>
             <Clock className="w-4 h-4 text-sky-400" />
           </div>
           <div className="text-2xl font-black text-white font-mono mt-2">
             {stats?.avg_processing_time_sec ? `${stats.avg_processing_time_sec}s` : "2.6s"}
           </div>
-          <div className="text-[10px] text-slate-400 mt-1">10-step full analysis</div>
+          <div className="text-[10px] text-slate-600 mt-1">10-step full analysis</div>
         </div>
       </div>
 
@@ -378,7 +378,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-200 flex items-center justify-between">
           <div>
-            <div className="text-xs text-slate-400">Biometric Alerts</div>
+            <div className="text-xs text-slate-600">Biometric Alerts</div>
             <div className="text-lg font-bold text-white font-mono">
               {stats?.face_mismatch_alerts || 34}
             </div>
@@ -387,7 +387,7 @@ export default function DashboardPage() {
         </div>
         <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-200 flex items-center justify-between">
           <div>
-            <div className="text-xs text-slate-400">Expired Documents</div>
+            <div className="text-xs text-slate-600">Expired Documents</div>
             <div className="text-lg font-bold text-white font-mono">
               {stats?.expired_documents_count || 52}
             </div>
@@ -396,7 +396,7 @@ export default function DashboardPage() {
         </div>
         <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-200 flex items-center justify-between">
           <div>
-            <div className="text-xs text-slate-400">Low Risk Cases</div>
+            <div className="text-xs text-slate-600">Low Risk Cases</div>
             <div className="text-lg font-bold text-emerald-400 font-mono">
               {stats?.low_risk_cases || 1083}
             </div>
@@ -405,7 +405,7 @@ export default function DashboardPage() {
         </div>
         <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-200 flex items-center justify-between">
           <div>
-            <div className="text-xs text-slate-400">Average Risk Index</div>
+            <div className="text-xs text-slate-600">Average Risk Index</div>
             <div className="text-lg font-bold text-sky-400 font-mono">
               {stats?.average_risk_score || 24.6} / 100
             </div>
@@ -473,16 +473,16 @@ export default function DashboardPage() {
         {/* 100-Doc Top Metrics (5 Summary Cards Including Risk Out of 10) */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
           <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-200 shadow-sm">
-            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
+            <span className="text-[10px] font-mono text-slate-600 uppercase tracking-wider block">
               Total Batch
             </span>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-2xl font-black text-white font-mono">
                 {benchmarkData?.total_documents || 100}
               </span>
-              <span className="text-xs text-slate-400">Docs</span>
+              <span className="text-xs text-slate-600">Docs</span>
             </div>
-            <span className="text-[10px] text-slate-400 block mt-1 truncate">
+            <span className="text-[10px] text-slate-600 block mt-1 truncate">
               45 Passports • 25 Visas
             </span>
           </div>
@@ -531,7 +531,7 @@ export default function DashboardPage() {
               <span className="text-2xl font-black text-cyan-300 font-mono">
                 {benchmarkData?.avg_risk_score_10 || "3.2"}
               </span>
-              <span className="text-xs text-slate-400 font-mono">/ 10.0</span>
+              <span className="text-xs text-slate-600 font-mono">/ 10.0</span>
             </div>
             <span className="text-[10px] text-emerald-400 block mt-1 font-mono font-bold">
               ✓ BATCH LOW RISK STATUS
@@ -539,14 +539,14 @@ export default function DashboardPage() {
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-200 shadow-sm col-span-2 sm:col-span-1">
-            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
+            <span className="text-[10px] font-mono text-slate-600 uppercase tracking-wider block">
               High-Volume Throughput
             </span>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="text-2xl font-black text-white font-mono">
                 {benchmarkData?.avg_processing_time_sec || 1.7}s
               </span>
-              <span className="text-xs text-slate-400">/ Doc</span>
+              <span className="text-xs text-slate-600">/ Doc</span>
             </div>
             <span className="text-[10px] text-emerald-400 block mt-1">
               ⚡ Zero queue bottleneck
@@ -578,7 +578,7 @@ export default function DashboardPage() {
                   <h4 className="text-xs font-bold text-white uppercase tracking-wider">
                     100 Checks Distribution by Category (10 Checks Each)
                   </h4>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-600">
                     Execution breakdown across all 100 inspection points (Green = Pass, Red = Flagged)
                   </p>
                 </div>
@@ -619,7 +619,7 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               </div>
 
-              <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-[10px] text-slate-400 flex items-center justify-between font-mono">
+              <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-[10px] text-slate-600 flex items-center justify-between font-mono">
                 <span>100 Checks Total = 10 Categories × 10 Checks</span>
                 <span className="text-emerald-400">Overall Check Completion: 100% Passed or Flagged</span>
               </div>
@@ -632,7 +632,7 @@ export default function DashboardPage() {
                   <h4 className="text-xs font-bold text-white uppercase tracking-wider">
                     Document Risk Score (Out of 10)
                   </h4>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-600">
                     Low Risk (≤3.5): 68 PASS • High Risk (&gt;6.5): 18 FAIL • Medium: 14 REVIEW
                   </p>
                 </div>
@@ -667,7 +667,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Clear Decision Legend */}
-              <div className="flex flex-wrap items-center justify-between text-[10px] font-mono px-1 text-slate-400 border-t border-slate-800/80 pt-2 gap-1">
+              <div className="flex flex-wrap items-center justify-between text-[10px] font-mono px-1 text-slate-600 border-t border-slate-800/80 pt-2 gap-1">
                 <span className="text-emerald-400 font-bold">● 0.0–3.5: Low Risk = PASS (68 Docs)</span>
                 <span className="text-amber-400 font-bold">● 3.6–6.5: Medium = REVIEW (14)</span>
                 <span className="text-rose-400 font-bold">● 6.6–10.0: High Risk = FAIL (18 Docs)</span>
@@ -685,7 +685,7 @@ export default function DashboardPage() {
                 Common Challenges Faced at Border Checkpoints (Threat Matrix Breakdown)
               </h3>
             </div>
-            <span className="text-[10px] font-mono text-slate-400">
+            <span className="text-[10px] font-mono text-slate-600">
               32 Interceptions Mapped to Operational Threats
             </span>
           </div>
@@ -693,7 +693,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col justify-between">
               <div>
-                <span className="text-[10px] text-slate-400 font-mono">Challenge 1</span>
+                <span className="text-[10px] text-slate-600 font-mono">Challenge 1</span>
                 <p className="text-xs font-bold text-white mt-0.5">Fake Passports & Visas</p>
               </div>
               <div className="mt-2 flex items-center justify-between">
@@ -706,7 +706,7 @@ export default function DashboardPage() {
 
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col justify-between">
               <div>
-                <span className="text-[10px] text-slate-400 font-mono">Challenge 2</span>
+                <span className="text-[10px] text-slate-600 font-mono">Challenge 2</span>
                 <p className="text-xs font-bold text-white mt-0.5">Altered Photographs</p>
               </div>
               <div className="mt-2 flex items-center justify-between">
@@ -719,7 +719,7 @@ export default function DashboardPage() {
 
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col justify-between">
               <div>
-                <span className="text-[10px] text-slate-400 font-mono">Challenge 3</span>
+                <span className="text-[10px] text-slate-600 font-mono">Challenge 3</span>
                 <p className="text-xs font-bold text-white mt-0.5">Modified Dates of Birth</p>
               </div>
               <div className="mt-2 flex items-center justify-between">
@@ -732,7 +732,7 @@ export default function DashboardPage() {
 
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col justify-between">
               <div>
-                <span className="text-[10px] text-slate-400 font-mono">Challenge 4</span>
+                <span className="text-[10px] text-slate-600 font-mono">Challenge 4</span>
                 <p className="text-xs font-bold text-white mt-0.5">Tampered Visa Stamps</p>
               </div>
               <div className="mt-2 flex items-center justify-between">
@@ -745,7 +745,7 @@ export default function DashboardPage() {
 
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col justify-between">
               <div>
-                <span className="text-[10px] text-slate-400 font-mono">Challenge 5</span>
+                <span className="text-[10px] text-slate-600 font-mono">Challenge 5</span>
                 <p className="text-xs font-bold text-white mt-0.5">Identity Impersonation</p>
               </div>
               <div className="mt-2 flex items-center justify-between">
@@ -758,7 +758,7 @@ export default function DashboardPage() {
 
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col justify-between">
               <div>
-                <span className="text-[10px] text-slate-400 font-mono">Challenge 6</span>
+                <span className="text-[10px] text-slate-600 font-mono">Challenge 6</span>
                 <p className="text-xs font-bold text-white mt-0.5">Expired/Blacklisted IDs</p>
               </div>
               <div className="mt-2 flex items-center justify-between">
@@ -771,7 +771,7 @@ export default function DashboardPage() {
 
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col justify-between col-span-2 sm:col-span-2 lg:col-span-1">
               <div>
-                <span className="text-[10px] text-slate-400 font-mono">Challenge 7</span>
+                <span className="text-[10px] text-slate-600 font-mono">Challenge 7</span>
                 <p className="text-xs font-bold text-white mt-0.5">High Passenger Volume</p>
               </div>
               <div className="mt-2 flex items-center justify-between">
@@ -794,7 +794,7 @@ export default function DashboardPage() {
                 100% ACCURACY
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-tight">
+            <p className="text-[11px] text-slate-600 leading-tight">
               Extracts ICAO 9303 MRZ lines, Document #, Full Name, DOB, Expiry & Nationality across Passports & Visas.
             </p>
             <div className="text-[10px] font-mono text-emerald-400 flex items-center gap-1 pt-1">
@@ -812,7 +812,7 @@ export default function DashboardPage() {
                 {benchmarkData?.modules_overview?.validation?.passed || 89} PASS
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-tight">
+            <p className="text-[11px] text-slate-600 leading-tight">
               Applies ICAO 7-3-1 weight algorithms, chronological integrity checks & ISO 7810 format verification.
             </p>
             <div className="text-[10px] font-mono text-rose-400 flex items-center gap-1 pt-1">
@@ -830,7 +830,7 @@ export default function DashboardPage() {
                 {benchmarkData?.modules_overview?.tampering?.passed || 83} PASS
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-tight">
+            <p className="text-[11px] text-slate-600 leading-tight">
               Error Level Analysis (ELA), edge noise disparity, photo splicing boundaries & consular visa stamp forgery detection.
             </p>
             <div className="text-[10px] font-mono text-purple-300 flex items-center gap-1 pt-1">
@@ -848,7 +848,7 @@ export default function DashboardPage() {
                 {benchmarkData?.modules_overview?.face_verification?.passed || 96} PASS
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-tight">
+            <p className="text-[11px] text-slate-600 leading-tight">
               1:1 Biometric cosine distance comparing extracted document portrait against live presenter webcam capture.
             </p>
             <div className="text-[10px] font-mono text-rose-400 flex items-center gap-1 pt-1">
@@ -876,7 +876,7 @@ export default function DashboardPage() {
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                   benchmarkFilter === tab.id
                     ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                    : "bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-200"
+                    : "bg-slate-950 text-slate-600 hover:text-slate-200 border border-slate-200"
                 }`}
               >
                 {tab.label}
@@ -886,7 +886,7 @@ export default function DashboardPage() {
 
           {/* Search Box */}
           <div className="relative min-w-[240px]">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
             <input
               type="text"
               value={benchmarkSearch}
@@ -897,7 +897,7 @@ export default function DashboardPage() {
             {benchmarkSearch && (
               <button
                 onClick={() => setBenchmarkSearch("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-white"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -908,7 +908,7 @@ export default function DashboardPage() {
         {/* 100-Document Interactive Table (With Risk Score Out of 10) */}
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-950/60 max-h-[520px] overflow-y-auto">
           <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 z-10 bg-slate-950 border-b border-slate-200 text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
+            <thead className="sticky top-0 z-10 bg-slate-950 border-b border-slate-200 text-slate-600 uppercase text-[10px] tracking-wider font-semibold">
               <tr>
                 <th className="py-2.5 px-3">Case / Doc ID</th>
                 <th className="py-2.5 px-3">Type & Country</th>
@@ -957,11 +957,11 @@ export default function DashboardPage() {
                       </td>
                       <td className="py-2.5 px-3">
                         <span className="font-semibold text-white block">{doc.holder_name}</span>
-                        <span className="text-[10px] font-mono text-slate-400">{doc.document_number}</span>
+                        <span className="text-[10px] font-mono text-slate-600">{doc.document_number}</span>
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap text-[11px]">
                         <span className="text-slate-300 block">DOB: {doc.date_of_birth}</span>
-                        <span className="text-slate-400 block text-[10px]">EXP: {doc.date_of_expiry}</span>
+                        <span className="text-slate-600 block text-[10px]">EXP: {doc.date_of_expiry}</span>
                       </td>
                       {/* 4 Module Micro-Indicators */}
                       <td className="py-2.5 px-3 text-center whitespace-nowrap">
@@ -1117,7 +1117,7 @@ export default function DashboardPage() {
                 <h3 className="text-lg font-bold text-white">
                   {selectedBenchmarkDoc.holder_name} — {selectedBenchmarkDoc.document_type}
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-600">
                   Target Threat Assessment:{" "}
                   <span className="text-white font-semibold">
                     {selectedBenchmarkDoc.primary_challenge_label}
@@ -1127,7 +1127,7 @@ export default function DashboardPage() {
 
               <button
                 onClick={() => setSelectedBenchmarkDoc(null)}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-600 hover:text-white transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1136,25 +1136,25 @@ export default function DashboardPage() {
             {/* Extracted Identity Credential Metadata */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-950 border border-slate-200 text-xs">
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-mono">Document #</span>
+                <span className="text-[10px] text-slate-600 uppercase font-mono">Document #</span>
                 <span className="font-mono font-bold text-white block mt-0.5">
                   {selectedBenchmarkDoc.document_number}
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-mono">Nationality</span>
+                <span className="text-[10px] text-slate-600 uppercase font-mono">Nationality</span>
                 <span className="font-bold text-white block mt-0.5">
                   {selectedBenchmarkDoc.nationality} ({selectedBenchmarkDoc.gender})
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-mono">Date of Birth</span>
+                <span className="text-[10px] text-slate-600 uppercase font-mono">Date of Birth</span>
                 <span className="font-mono text-slate-200 block mt-0.5">
                   {selectedBenchmarkDoc.date_of_birth}
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-mono">Expiry Date</span>
+                <span className="text-[10px] text-slate-600 uppercase font-mono">Expiry Date</span>
                 <span className="font-mono text-slate-200 block mt-0.5">
                   {selectedBenchmarkDoc.date_of_expiry}
                 </span>
@@ -1188,7 +1188,7 @@ export default function DashboardPage() {
                         {selectedBenchmarkDoc.modules.ocr.fields.mrz_line2}
                       </div>
                     )}
-                    <div className="text-slate-400 pt-0.5">
+                    <div className="text-slate-600 pt-0.5">
                       Extracted Fields: {Object.keys(selectedBenchmarkDoc.modules.ocr.fields).length} verified
                     </div>
                   </div>
@@ -1242,7 +1242,7 @@ export default function DashboardPage() {
                           ? "text-emerald-400 bg-emerald-950"
                           : selectedBenchmarkDoc.modules.face.status === "FAIL"
                           ? "text-rose-400 bg-rose-950"
-                          : "text-slate-400 bg-slate-900"
+                          : "text-slate-600 bg-slate-900"
                       }`}
                     >
                       SIM: {selectedBenchmarkDoc.modules.face.similarity}
@@ -1280,7 +1280,7 @@ export default function DashboardPage() {
                         </span>
                         <span className="text-white font-medium">{chk.name}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{chk.evidence}</p>
+                      <p className="text-[10px] text-slate-600 mt-0.5">{chk.evidence}</p>
                     </div>
                     <span
                       className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold flex-shrink-0 ${
@@ -1346,7 +1346,7 @@ export default function DashboardPage() {
                     <h3 className="text-sm font-bold text-white uppercase tracking-wider">
                       Screening Volume Trend
                     </h3>
-                    <p className="text-xs text-slate-400">Daily processed vs flagged credentials</p>
+                    <p className="text-xs text-slate-600">Daily processed vs flagged credentials</p>
                   </div>
                 </div>
                 <div className="h-64">
@@ -1369,7 +1369,7 @@ export default function DashboardPage() {
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1">
                   Risk Tier Distribution
                 </h3>
-                <p className="text-xs text-slate-400 mb-4">Proportion across low, medium & high tiers</p>
+                <p className="text-xs text-slate-600 mb-4">Proportion across low, medium & high tiers</p>
                 <div className="h-64 flex items-center justify-center">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1407,7 +1407,7 @@ export default function DashboardPage() {
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1">
                   Tampering & Detection Categories
                 </h3>
-                <p className="text-xs text-slate-400 mb-4">Breakdown of specific anomalies detected</p>
+                <p className="text-xs text-slate-600 mb-4">Breakdown of specific anomalies detected</p>
                 <div className="h-56">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart layout="vertical" data={detectionData}>
@@ -1426,7 +1426,7 @@ export default function DashboardPage() {
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1">
                   Documents by Credential Class
                 </h3>
-                <p className="text-xs text-slate-400 mb-4">Passports, Visas, National IDs & Licences</p>
+                <p className="text-xs text-slate-600 mb-4">Passports, Visas, National IDs & Licences</p>
                 <div className="h-56">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={docTypeData}>
@@ -1450,7 +1450,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-base font-bold text-white">Recent Screening Cases</h3>
-            <p className="text-xs text-slate-400">Live feed of processed documents requiring scrutiny</p>
+            <p className="text-xs text-slate-600">Live feed of processed documents requiring scrutiny</p>
           </div>
           <Link
             href="/cases"
@@ -1463,7 +1463,7 @@ export default function DashboardPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="border-b border-slate-200 text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
+            <thead className="border-b border-slate-200 text-slate-600 uppercase text-[10px] tracking-wider font-semibold">
               <tr>
                 <th className="py-3 px-3">Case ID</th>
                 <th className="py-3 px-3">Credential Type</th>
@@ -1507,7 +1507,7 @@ export default function DashboardPage() {
                       <td className="py-3 px-3 font-mono text-slate-200">
                         {c.risk_score} / 100
                       </td>
-                      <td className="py-3 px-3 text-slate-400 font-mono">
+                      <td className="py-3 px-3 text-slate-600 font-mono">
                         {Math.round(c.confidence * 100)}%
                       </td>
                       <td className="py-3 px-3">
