@@ -23,6 +23,8 @@ interface GeminiExtractedDoc {
   visa_type?: string | null;
   entries?: string | null;
   confidence?: number;
+  all_extracted_text?: string[] | null;
+  raw_text?: string | null;
 }
 
 export async function POST(req: NextRequest) {
@@ -91,12 +93,13 @@ export async function POST(req: NextRequest) {
       try {
         const base64Data = buffer.toString("base64");
         const prompt = `You are an expert identity document verification OCR and vision engine.
-Visually inspect this identity document image (which may be an Indian Passport, Aadhaar, PAN Card, Voter ID, Driving Licence, Vehicle RC, Visa, OCI, or foreign document).
+Visually inspect this document image (which may be an Indian Passport, Aadhaar, PAN Card, Voter ID, Driving Licence, Vehicle RC, Visa, OCI, foreign document, certificate, badge, or unknown document).
 
+Extract ALL visible readable text without discarding anything.
 Extract ONLY information VISIBLY present in the document.
 NEVER guess, infer, complete or fabricate missing fields.
-If the image is not a recognizable identity or travel document, or is blank, blurry, or unsupported, return {"document_type": "UNSUPPORTED"}.
-If the document is a government or official identity credential but its specific subtype is not listed, return {"document_type": "GENERIC_ID"}.
+If a document type cannot be confidently matched to a standard profile, do NOT fail: set document_type to "UNCLASSIFIED" or "UNKNOWN", and extract all visible text lines into all_extracted_text and raw_text.
+Only if the image is completely blank, black, or has zero readable text, return {"document_type": "UNSUPPORTED"}.
 If a field is unreadable or absent, return null.
 Return confidence (between 0.00 and 1.00) for every extracted field.
 
@@ -104,7 +107,7 @@ For Aadhaar: If masked digits are displayed (e.g. XXXX XXXX 1234), return the EX
 
 Return ONLY a JSON object with this exact structure:
 {
-  "document_type": "INDIAN PASSPORT" | "AADHAAR" | "PAN CARD" | "VOTER ID" | "DRIVING LICENCE" | "VEHICLE RC" | "INDIAN VISA" | "OCI CARD" | "PASSPORT" | "VISA" | "NATIONAL ID" | "GENERIC_ID" | "UNSUPPORTED",
+  "document_type": "INDIAN PASSPORT" | "AADHAAR" | "PAN CARD" | "VOTER ID" | "DRIVING LICENCE" | "VEHICLE RC" | "INDIAN VISA" | "OCI CARD" | "PASSPORT" | "VISA" | "NATIONAL ID" | "GENERIC_ID" | "UNCLASSIFIED" | "UNKNOWN" | "UNSUPPORTED",
   "document_number": "string or null",
   "holder_full_name": "string or null",
   "father_name": "string or null",
@@ -125,6 +128,8 @@ Return ONLY a JSON object with this exact structure:
   "vid": "string or null",
   "visa_type": "string or null",
   "entries": "string or null",
+  "all_extracted_text": ["line 1", "line 2"],
+  "raw_text": "all extracted readable text concatenated",
   "confidence": 0.95
 }`;
 
@@ -226,10 +231,15 @@ Return ONLY a JSON object with this exact structure:
       entries: "",
     };
 
+    const hasAnyReadableText = Boolean(
+      (fields.all_extracted_text && fields.all_extracted_text.length > 0) ||
+      (fields.raw_text && fields.raw_text.trim().length > 0) ||
+      fields.document_number ||
+      fields.holder_full_name
+    );
+
     const isUnsupported =
-      fields.document_type === "UNSUPPORTED" &&
-      !fields.document_number &&
-      !fields.holder_full_name;
+      fields.document_type === "UNSUPPORTED" && !hasAnyReadableText;
 
     if (isUnsupported) {
       return NextResponse.json({
@@ -249,13 +259,13 @@ Return ONLY a JSON object with this exact structure:
         external_verification_provider: "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
         unsupported: true,
         unsupported_reason:
-          "Document type could not be confidently recognized as a supported credential profile.",
+          "The uploaded image does not contain readable text or identity markers. Please ensure the document is clear and properly illuminated.",
         risk_score: null,
         risk_factors: [
-          "Document type could not be recognized as a supported identity credential.",
+          "Zero readable characters or visual features could be extracted from image.",
         ],
         final_decision: "UNSUPPORTED",
-        warnings: ["Unrecognized credential substrate or layout."],
+        warnings: ["No readable text blocks or credential features detected in image."],
         error_code: null,
         verification_mode: "GEMINI_VISION_MULTIMODAL",
         ai_status: "available",
@@ -297,31 +307,37 @@ Return ONLY a JSON object with this exact structure:
         fields_detail: {},
         raw_mrz: [],
         raw_ocr_text: "",
+        all_extracted_text: [],
         risk: {
           risk_score: null,
           risk_level: "NOT_APPLICABLE",
           confidence: 0.0,
           recommended_action: "Upload a supported identity document (Passport, Aadhaar, PAN, Voter ID, Driving Licence, etc.)",
           risk_factors: [
-            "Document type could not be recognized as a supported identity credential.",
+            "Zero readable characters or visual features could be extracted from image.",
           ],
         },
         requires_human_review: true,
         recommendation: "Please upload a clear, supported government identity or travel credential for automated clearance.",
         summary: {
-          primary_driver: "Document type could not be recognized",
+          primary_driver: "No readable document features",
           summary_tone: "concerning",
           reasons: [
-            "The uploaded document could not be matched to a supported credential.",
+            "The uploaded image contains no legible text or credential markers.",
             "No identity information was inferred or fabricated.",
           ],
-          recommended_actions: ["Upload Another Document"],
+          recommended_actions: ["Upload Another Document", "Rescan with higher resolution"],
         },
       });
     }
 
     // 4. Construct Authentic Extracted Response from Actual Visual Findings
-    const docType = (fields.document_type || "UNKNOWN").replace(/_/g, " ");
+    let rawDocType = fields.document_type || "UNCLASSIFIED";
+    if (rawDocType === "UNSUPPORTED" && hasAnyReadableText) {
+      rawDocType = "UNCLASSIFIED";
+    }
+    const docType = rawDocType.replace(/_/g, " ");
+    const isUnclassified = docType === "UNCLASSIFIED" || docType === "UNKNOWN" || docType === "GENERIC ID";
     const docNumber = fields.document_number || "";
     const holderName = fields.holder_full_name || "";
     const fatherName = fields.father_name || "";
@@ -330,7 +346,10 @@ Return ONLY a JSON object with this exact structure:
     const nat = fields.nationality || "IND";
     const issCountry = fields.issuing_country || "IND";
     const expiry = fields.expiry_date || "";
-    const baseConf = fields.confidence || 0.92;
+    const baseConf = fields.confidence || (isUnclassified ? 0.75 : 0.92);
+
+    const extractedTextLines = fields.all_extracted_text || [];
+    const fullRawText = fields.raw_text || (extractedTextLines.length > 0 ? extractedTextLines.join("\n") : "");
 
     const additionalFields: Record<string, any> = {};
     if (fatherName) additionalFields.father_name = { value: fatherName, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
@@ -348,13 +367,13 @@ Return ONLY a JSON object with this exact structure:
     if (fields.entries) additionalFields.entries = { value: fields.entries, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" };
 
     const basicFields = {
-      document_type: { value: docType, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
-      document_number: { value: docNumber, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
-      holder_full_name: { value: holderName, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
+      document_type: { value: docType, confidence: baseConf, source: "GEMINI_VISION", validation: isUnclassified ? "UNCLASSIFIED" : "MATCH" },
+      document_number: { value: docNumber, confidence: docNumber ? baseConf : 0, source: "GEMINI_VISION", validation: docNumber ? "MATCH" : "NOT_PRESENT" },
+      holder_full_name: { value: holderName, confidence: holderName ? baseConf : 0, source: "GEMINI_VISION", validation: holderName ? "MATCH" : "NOT_PRESENT" },
       nationality: { value: nat, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
-      date_of_birth: { value: dob, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
+      date_of_birth: { value: dob, confidence: dob ? baseConf : 0, source: "GEMINI_VISION", validation: dob ? "MATCH" : "NOT_PRESENT" },
       gender: { value: gender, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
-      expiry_date: { value: expiry, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
+      expiry_date: { value: expiry, confidence: expiry ? baseConf : 0, source: "GEMINI_VISION", validation: expiry ? "MATCH" : "NOT_PRESENT" },
       issuing_country: { value: issCountry, confidence: baseConf, source: "GEMINI_VISION", validation: "MATCH" },
     };
 
@@ -370,17 +389,17 @@ Return ONLY a JSON object with this exact structure:
       document_type_confidence: baseConf,
       ocr_status: "COMPLETED",
       fields: basicFields,
-      validation_status: "COMPLETED",
+      validation_status: isUnclassified ? "NOT_APPLICABLE" : "COMPLETED",
       external_verification_status: "NOT_VERIFIED",
-      risk_score: 12.0,
-      risk_factors: [],
-      final_decision: "LOW_RISK",
-      warnings: [],
+      risk_score: isUnclassified ? null : 12.0,
+      risk_factors: isUnclassified ? ["Document format is unclassified. Document-specific mathematical check digits could not be computed."] : [],
+      final_decision: isUnclassified ? "SECONDARY_SCRUTINY" : "LOW_RISK",
+      warnings: isUnclassified ? ["Unclassified document layout. All visible text and fields preserved without assumption of fraud."] : [],
       error_code: null,
 
       status: "COMPLETED",
       screening_status: "completed",
-      analysis_status: "VERIFIED",
+      analysis_status: isUnclassified ? "PARTIALLY_ANALYZED" : "VERIFIED",
       external_verification_provider: "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
       unsupported: false,
       verification_mode: "GEMINI_VISION_MULTIMODAL",
@@ -401,12 +420,12 @@ Return ONLY a JSON object with this exact structure:
       },
       field_confidence: {
         document_type: baseConf,
-        document_number: baseConf,
-        holder_name: baseConf,
+        document_number: docNumber ? baseConf : 0.0,
+        holder_name: holderName ? baseConf : 0.0,
         nationality: baseConf,
-        date_of_birth: baseConf,
+        date_of_birth: dob ? baseConf : 0.0,
         gender: baseConf,
-        expiry_date: baseConf,
+        expiry_date: expiry ? baseConf : 0.0,
         issuing_country: baseConf,
       },
       sources: {
@@ -423,21 +442,24 @@ Return ONLY a JSON object with this exact structure:
       additional_fields: additionalFields,
       fields_detail: basicFields,
       raw_mrz: [],
-      raw_ocr_text: "",
+      raw_ocr_text: fullRawText,
+      all_extracted_text: extractedTextLines,
       risk: {
-        risk_score: 12.0,
-        risk_level: "LOW",
+        risk_score: isUnclassified ? null : 12.0,
+        risk_level: isUnclassified ? "NOT_APPLICABLE" : "LOW",
         confidence: baseConf,
-        verdict: "CLEAR TO ENTER",
-        recommended_action: "GRANT_CLEARANCE",
-        risk_factors: [],
-        positive_signals: [
-          `Visual markers confirmed for ${docType}`,
-          `Visually extracted document identifier ${docNumber}`,
-          "Zero signs of visual tampering or digital splicing detected",
-        ],
+        verdict: isUnclassified ? "SECONDARY SCRUTINY" : "CLEAR TO ENTER",
+        recommended_action: isUnclassified ? "MANUAL_VERIFICATION" : "GRANT_CLEARANCE",
+        risk_factors: isUnclassified ? ["Document format is unclassified; mathematical check digit validation could not be executed."] : [],
+        positive_signals: isUnclassified
+          ? ["Visible text successfully extracted and indexed", "No digital tampering or splicing identified"]
+          : [
+              `Visual markers confirmed for ${docType}`,
+              `Visually extracted document identifier ${docNumber}`,
+              "Zero signs of visual tampering or digital splicing detected",
+            ],
       },
-      requires_human_review: false,
+      requires_human_review: isUnclassified,
     });
   } catch (err: any) {
     console.error("Screening route error:", err);

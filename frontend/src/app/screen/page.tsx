@@ -87,6 +87,11 @@ export interface ScenarioItem {
     color?: string;
   }>;
   rawOcrText?: string;
+  allExtractedText?: string[];
+  ocrStatus?: string;
+  geminiStatus?: string;
+  imageQualityWarnings?: string[];
+  validationStatus?: string;
   fieldConfidence?: Record<string, number>;
   sources?: Record<string, string>;
   fieldsDetail?: Record<string, {
@@ -647,7 +652,9 @@ export default function ScreeningPage() {
   const [customFile, setCustomFile] = useState<File | null>(null);
   const [customPreview, setCustomPreview] = useState<string | null>(null);
   const [isProcessingUpload, setIsProcessingUpload] = useState(false);
+  const [uploadScanStage, setUploadScanStage] = useState<string>("");
   const [uploadMode, setUploadMode] = useState<"file" | "camera">("file");
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Refresh State (Requirements 27-30)
   const [refreshState, setRefreshState] = useState<"idle" | "refreshing" | "refreshed">("idle");
@@ -711,18 +718,18 @@ export default function ScreeningPage() {
 
     let status: "VERIFIED" | "MATCHED" | "REVIEW" | "NOT_FOUND" | "NOT_PRESENT" | "NOT_VERIFIED" = "NOT_FOUND";
     let badgeText = "NOT_FOUND";
-    let badgeColor = "text-slate-500 bg-slate-900/60 border-slate-700/40";
+    let badgeColor = "text-slate-600 bg-slate-100 border-slate-300 font-semibold";
     let confidenceTier: "HIGH" | "MEDIUM" | "LOW" | "NOT_CONFIDENT" | "NOT_DETECTED" = "NOT_DETECTED";
 
     if (!hasValue) {
       if (currentScenario.isUnsupported || ["father_name", "vid"].includes(fieldKey)) {
         status = "NOT_PRESENT";
         badgeText = "NOT_PRESENT";
-        badgeColor = "text-slate-500 bg-slate-900/60 border-slate-800";
+        badgeColor = "text-slate-600 bg-slate-100 border-slate-300 font-medium";
       } else {
         status = "NOT_FOUND";
         badgeText = "NOT_FOUND";
-        badgeColor = "text-slate-500 bg-slate-900/60 border-slate-800";
+        badgeColor = "text-slate-600 bg-slate-100 border-slate-300 font-medium";
       }
     } else {
       // Evaluate based on validation evidence and cross-checking (Part 6 requirements)
@@ -730,22 +737,22 @@ export default function ScreeningPage() {
       if (valState === "MISMATCH" || pct < 60 || detail?.status === "REVIEW") {
         status = "REVIEW";
         badgeText = `⚠ REVIEW (${pct}%)`;
-        badgeColor = "text-rose-400 bg-rose-500/10 border-rose-500/30";
+        badgeColor = "text-rose-800 bg-rose-50 border-rose-300 font-bold";
         confidenceTier = pct >= 50 ? "LOW" : "NOT_CONFIDENT";
       } else if (valState === "VERIFIED" || detail?.status === "VERIFIED") {
         status = "VERIFIED";
         badgeText = `✓ VERIFIED (${pct}%)`;
-        badgeColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
+        badgeColor = "text-emerald-800 bg-emerald-50 border-emerald-300 font-bold";
         confidenceTier = "HIGH";
       } else if (valState === "MATCH" || valState === "MATCHED" || (src.includes("MRZ") && src.includes("OCR")) || detail?.status === "MATCHED") {
         status = "MATCHED";
         badgeText = `✓ MATCHED (${pct}%)`;
-        badgeColor = "text-cyan-400 bg-cyan-500/10 border-cyan-500/30";
+        badgeColor = "text-cyan-900 bg-cyan-50 border-cyan-300 font-bold";
         confidenceTier = pct >= 75 ? "HIGH" : "MEDIUM";
       } else {
         status = "NOT_VERIFIED";
         badgeText = `ℹ NOT_VERIFIED (${pct}%)`;
-        badgeColor = "text-amber-400 bg-amber-500/10 border-amber-500/30";
+        badgeColor = "text-amber-800 bg-amber-50 border-amber-300 font-bold";
         confidenceTier = pct >= 70 ? "MEDIUM" : "LOW";
       }
     }
@@ -890,7 +897,15 @@ export default function ScreeningPage() {
         }
       } catch {}
 
-      // 2. Call backend screening endpoint with actual uploaded file
+      // 2. Cancel any pending in-flight request and call backend screening endpoint
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setUploadScanStage("Uploading and validating file...");
+
       const formData = new FormData();
       formData.append("front_image", customFile);
       formData.append("file", customFile);
@@ -899,16 +914,24 @@ export default function ScreeningPage() {
 
       let apiData: any = null;
       try {
+        setUploadScanStage("Executing RapidOCR / PaddleOCR and Gemini 3.8 Flash...");
         const response = await fetch("/api/screen", {
           method: "POST",
-          body: formData
+          body: formData,
+          signal: controller.signal
         });
         if (response.ok) {
           apiData = await response.json();
+          setUploadScanStage("Finalizing forensic extraction...");
         } else {
           console.warn("Screening API HTTP error status:", response.status);
+          apiData = await response.json().catch(() => null);
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.name === "AbortError") {
+          console.log("Previous screening request aborted for new upload.");
+          return;
+        }
         console.warn("Screening API network error:", err);
       }
 
@@ -979,34 +1002,43 @@ export default function ScreeningPage() {
         (rawDocType === "UNKNOWN" && (!apiData?.ocr?.raw_text || apiData.ocr.raw_text.trim().length < 15))
       );
 
+      const allExtractedTextLines: string[] = apiData?.all_extracted_text || (apiData?.ocr?.all_extracted_text) || [];
+      const rawOcrTextStr: string = apiData?.raw_ocr_text || apiData?.ocr?.raw_text || (allExtractedTextLines.length > 0 ? allExtractedTextLines.join("\n") : "");
+
       const hasExtractedContent = Boolean(
         extractedDocNo ||
         docData.holder_name ||
         apiData?.fields?.name ||
+        allExtractedTextLines.length > 0 ||
         (apiData?.raw_mrz && apiData.raw_mrz.length > 0) ||
-        (apiData?.ocr?.raw_text && apiData.ocr.raw_text.trim().length >= 15)
+        rawOcrTextStr.trim().length >= 10
       );
 
-      // Only mark unsupported if explicitly unsupported AND no readable text or credential was inferred
+      // Document is only truly unsupported if zero readable text could be extracted
       const isUnsupported = !isProcessingFailed && !isNeedsRescan && (
-        processingStatus === "UNSUPPORTED" ||
-        apiData?.unsupported === true ||
-        (rawDocType === "UNSUPPORTED" && !hasExtractedContent) ||
+        (processingStatus === "UNSUPPORTED" && !hasExtractedContent) ||
+        (apiData?.unsupported === true && !hasExtractedContent) ||
         (!rawDocType && !hasExtractedContent)
       );
 
-      const isGeneric = !isProcessingFailed && !isNeedsRescan && !isUnsupported && (
-        rawDocType === "GENERIC IDENTITY CREDENTIAL" ||
-        rawDocType === "GENERIC_ID" ||
+      const isUnclassified = !isProcessingFailed && !isNeedsRescan && !isUnsupported && (
+        rawDocUpper.includes("UNCLASSIFIED") ||
+        rawDocUpper.includes("UNKNOWN") ||
+        rawDocType === "UNCLASSIFIED" ||
         rawDocType === "UNKNOWN" ||
-        processingStatus === "NEEDS_REVIEW"
+        rawDocType === "GENERIC IDENTITY CREDENTIAL" ||
+        rawDocType === "GENERIC_ID"
       );
+
+      const isGeneric = isUnclassified || (!isProcessingFailed && !isNeedsRescan && !isUnsupported && processingStatus === "NEEDS_REVIEW");
 
       const isPartial = !isProcessingFailed && !isNeedsRescan && !isUnsupported && (
         isGeneric ||
+        isUnclassified ||
         processingStatus === "PARTIAL" ||
         processingStatus === "NEEDS_REVIEW" ||
-        apiData?.validation_status === "PARTIAL"
+        apiData?.validation_status === "PARTIAL" ||
+        apiData?.validation_status === "NOT_APPLICABLE"
       );
 
       const unsupportedReason = apiData?.unsupported_reason || (
@@ -1036,7 +1068,9 @@ export default function ScreeningPage() {
         : isNeedsRescan
         ? "RESCAN REQUIRED"
         : isUnsupported
-        ? "UNRECOGNIZED / UNSUPPORTED"
+        ? "UNRECOGNIZED (NO READABLE TEXT)"
+        : (rawDocUpper.includes("UNCLASSIFIED") || rawDocUpper.includes("UNKNOWN"))
+        ? "UNCLASSIFIED CREDENTIAL"
         : isGeneric
         ? "GENERIC IDENTITY CREDENTIAL"
         : (rawDocType ? rawDocType.replace(/_/g, " ") : "IDENTIFIED CREDENTIAL");
@@ -1313,17 +1347,33 @@ export default function ScreeningPage() {
         }
       }
 
+      const isUnclassifiedDoc = isUnclassified || extractedDocType.includes("UNCLASSIFIED") || extractedDocType.includes("UNKNOWN");
+
+      let finalVerdict = verdict;
+      let finalVerdictDesc = verdictDesc;
+      let finalBadge = badge;
+      let finalBadgeColor = badgeColor;
+
+      if (isUnclassifiedDoc && !isProcessingFailed && !isNeedsRescan) {
+        finalVerdict = "SECONDARY SCRUTINY";
+        finalVerdictDesc = "Document format is unclassified. Document-specific mathematical check digits could not be verified, but all visible text and fields have been extracted and preserved.";
+        finalBadge = "UNCLASSIFIED DOC";
+        finalBadgeColor = "bg-amber-500/20 text-amber-800 border-amber-500/40 font-bold";
+      }
+
       const newScenario: ScenarioItem = {
         id: scanId,
         name: `Scanned: ${customFile.name}`,
-        badge: badge,
-        badgeColor: badgeColor,
+        badge: finalBadge,
+        badgeColor: finalBadgeColor,
         description: isUnsupported
           ? unsupportedReason
+          : isUnclassifiedDoc
+          ? "Document format unclassified. Full OCR and Gemini vision text extraction completed."
           : `Uploaded document screened with RapidOCR/PaddleOCR, dedicated MRZ parser, and 3-Gate forensic engine.`,
-        verdict: verdict,
-        verdictDesc: verdictDesc,
-        riskScore: effectiveRiskScore,
+        verdict: finalVerdict,
+        verdictDesc: finalVerdictDesc,
+        riskScore: isUnclassifiedDoc ? null : effectiveRiskScore,
         documentType: extractedDocType,
         docNumber: extractedDocNo,
         fullName: extractedName,
@@ -1349,14 +1399,19 @@ export default function ScreeningPage() {
           digitalSignature: `SIG_MHA_BOC_${sha256.slice(0, 24).toUpperCase()}_${Date.now()}`
         },
         boundingBoxes: isUnsupported ? [] : dynamicBoxes,
-        rawOcrText: apiData?.raw_ocr_text || apiData?.ocr?.raw_text || "",
+        rawOcrText: rawOcrTextStr,
+        allExtractedText: allExtractedTextLines,
+        ocrStatus: apiData?.ocr_status || "COMPLETED",
+        geminiStatus: apiData?.ai_status || (apiData?.gemini_used ? "COMPLETED" : "SKIPPED"),
+        imageQualityWarnings: apiData?.quality?.warnings || apiData?.warnings || [],
+        validationStatus: apiData?.validation_status || (isUnsupported ? "NOT_APPLICABLE" : isUnclassifiedDoc ? "UNCLASSIFIED" : "COMPLETED"),
         fieldConfidence: isUnsupported ? {} : confData,
         sources: isUnsupported ? {} : sourcesData,
         fieldsDetail: isUnsupported ? {} : fieldsDetail,
         mrzValidation: isUnsupported ? { detected: false, valid: false, consistency: "NOT_APPLICABLE" } : mrzValidation,
         isUnsupported: isUnsupported,
         unsupportedReason: unsupportedReason,
-        analysisStatus: analysisStatus,
+        analysisStatus: isUnclassifiedDoc ? "PARTIALLY_ANALYZED" : analysisStatus,
         externalVerificationStatus: externalVerificationStatus,
         aiProviderDisplay: aiProviderDisplay,
         additionalFields: isUnsupported ? {} : additionalFields,
@@ -2008,9 +2063,11 @@ export default function ScreeningPage() {
           )}
 
           {/* ================================================================= */}
-          {/* SECTION 17: UNRECOGNIZED / RESCAN / ERROR NOTIFICATION CARD */}
+          {/* SECTION 17: UNRECOGNIZED / RESCAN / UNCLASSIFIED NOTIFICATION */}
           {/* ================================================================= */}
-          {(currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED" || currentScenario.analysisStatus === "NEEDS_RESCAN" || currentScenario.analysisStatus === "PROCESSING_FAILED") && (
+          {((currentScenario.isUnsupported && !currentScenario.docNumber && !currentScenario.fullName && (!currentScenario.allExtractedText || currentScenario.allExtractedText.length === 0)) ||
+            currentScenario.analysisStatus === "NEEDS_RESCAN" ||
+            currentScenario.analysisStatus === "PROCESSING_FAILED") && (
             <div className={`p-6 rounded-2xl border shadow-md space-y-4 ${
               currentScenario.analysisStatus === "PROCESSING_FAILED"
                 ? "bg-rose-50 border-rose-200"
@@ -2038,14 +2095,14 @@ export default function ScreeningPage() {
                       ? "⚠ INGESTION / PROCESSING ERROR"
                       : currentScenario.analysisStatus === "NEEDS_RESCAN"
                       ? "⚠ SCAN RESOLUTION INSUFFICIENT (RESCAN REQUIRED)"
-                      : "⚠ DOCUMENT TYPE NOT RECOGNIZED"}
+                      : "⚠ NO READABLE DOCUMENT CONTENT DETECTED"}
                   </h3>
                   <p className="text-xs text-slate-700 leading-relaxed">
                     {currentScenario.analysisStatus === "PROCESSING_FAILED"
                       ? "A processing exception occurred. No fraudulent activity has been asserted. Safe retry is available."
                       : currentScenario.analysisStatus === "NEEDS_RESCAN"
                       ? "The uploaded image does not contain enough sharp character edges for reliable text extraction."
-                      : "The uploaded file could not be securely matched to any supported credential format (Passport, Aadhaar, PAN, Voter ID, Driving Licence)."}
+                      : "The uploaded file could not be read or contains no legible text characters. Please check lighting and angle."}
                   </p>
                   <p className="text-xs text-slate-600 font-mono">
                     Reason: {currentScenario.unsupportedReason || "Format unrecognized or unreadable text."}
@@ -2055,9 +2112,7 @@ export default function ScreeningPage() {
               <div className="p-3 rounded-lg bg-white border border-slate-200 text-xs font-mono text-slate-700 shadow-2xs">
                 {currentScenario.analysisStatus === "PROCESSING_FAILED"
                   ? "System integrity protected. No artificial risk score or fabricated identity attributes were generated."
-                  : currentScenario.analysisStatus === "NEEDS_RESCAN"
-                  ? "Please align document flat in even lighting without glare or blur, then click Rescan."
-                  : "No identity information was inferred. Risk score is unavailable (N/A) to prevent biased scoring."}
+                  : "Please align document flat in even lighting without glare or blur, then click Rescan."}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -2082,6 +2137,24 @@ export default function ScreeningPage() {
                   <RotateCcw className="w-4 h-4" />
                   <span>Rescan Document</span>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Informational Banner for Unclassified Documents */}
+          {((currentScenario.documentType.includes("UNCLASSIFIED") || currentScenario.documentType.includes("UNKNOWN")) &&
+            (currentScenario.docNumber || currentScenario.fullName || (currentScenario.allExtractedText && currentScenario.allExtractedText.length > 0))) && (
+            <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 shadow-xs flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 border border-blue-300 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-blue-900 tracking-wide uppercase">
+                  UNCLASSIFIED CREDENTIAL — OCR &amp; VISION TEXT EXTRACTED
+                </h4>
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Document classification format is unclassified or custom. Document-specific mathematical check digit algorithms cannot be executed, but <strong>100% of readable text, extracted fields, and biometric portraits have been preserved</strong> without any assumption of fraud.
+                </p>
               </div>
             </div>
           )}
@@ -2287,11 +2360,11 @@ export default function ScreeningPage() {
                   {Array.from({ length: 9 }).map((_, idx) => (
                     <div key={idx} className="p-3 rounded-xl bg-white border border-slate-200 animate-pulse space-y-3">
                       <div className="flex items-center justify-between">
-                        <div className="h-3 w-16 bg-slate-800 rounded"></div>
-                        <div className="h-3 w-8 bg-slate-800 rounded"></div>
+                        <div className="h-3 w-16 bg-slate-200 rounded"></div>
+                        <div className="h-3 w-8 bg-slate-200 rounded"></div>
                       </div>
-                      <div className="h-5 w-24 bg-slate-700 rounded"></div>
-                      <div className="h-3 w-20 bg-slate-800 rounded pt-1"></div>
+                      <div className="h-5 w-24 bg-slate-300 rounded"></div>
+                      <div className="h-3 w-20 bg-slate-200 rounded pt-1"></div>
                     </div>
                   ))}
                 </div>
@@ -2320,18 +2393,18 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-700 font-bold uppercase tracking-wider block">
                             DOCUMENT TYPE
                           </span>
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {meta.src}
                           </span>
                         </div>
-                        <span className={`text-xs font-bold mt-1 block truncate ${meta.hasValue ? "text-white" : "text-slate-500 italic"}`}>
+                        <span className={`text-xs font-bold mt-1 block truncate ${meta.hasValue ? "text-slate-900" : "text-slate-400 italic"}`}>
                           {meta.displayVal}
                         </span>
                       </div>
-                      <div className="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="mt-2 pt-1 border-t border-slate-200 flex items-center justify-between">
                         <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badgeColor}`}>
                           {meta.badgeText}
                         </span>
@@ -2363,18 +2436,18 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-700 font-bold uppercase tracking-wider block">
                             DOCUMENT NUMBER
                           </span>
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {meta.src}
                           </span>
                         </div>
-                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-amber-300" : "text-slate-500 italic"}`}>
+                        <span className={`text-xs font-mono font-black mt-1 block truncate ${meta.hasValue ? "text-blue-950 tracking-wider" : "text-slate-400 italic"}`}>
                           {meta.displayVal}
                         </span>
                       </div>
-                      <div className="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="mt-2 pt-1 border-t border-slate-200 flex items-center justify-between">
                         <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badgeColor}`}>
                           {meta.badgeText}
                         </span>
@@ -2406,18 +2479,18 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-700 font-bold uppercase tracking-wider block">
                             HOLDER FULL NAME
                           </span>
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {meta.src}
                           </span>
                         </div>
-                        <span className={`text-xs font-bold mt-1 block truncate ${meta.hasValue ? "text-white" : "text-slate-500 italic"}`}>
+                        <span className={`text-xs font-bold mt-1 block truncate ${meta.hasValue ? "text-slate-900" : "text-slate-400 italic"}`}>
                           {meta.displayVal}
                         </span>
                       </div>
-                      <div className="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="mt-2 pt-1 border-t border-slate-200 flex items-center justify-between">
                         <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badgeColor}`}>
                           {meta.badgeText}
                         </span>
@@ -2449,18 +2522,18 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-700 font-bold uppercase tracking-wider block">
                             NATIONALITY
                           </span>
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {meta.src}
                           </span>
                         </div>
-                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-white" : "text-slate-500 italic"}`}>
+                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-slate-900" : "text-slate-400 italic"}`}>
                           {meta.displayVal}
                         </span>
                       </div>
-                      <div className="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="mt-2 pt-1 border-t border-slate-200 flex items-center justify-between">
                         <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badgeColor}`}>
                           {meta.badgeText}
                         </span>
@@ -2492,18 +2565,18 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-700 font-bold uppercase tracking-wider block">
                             DATE OF BIRTH
                           </span>
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {meta.src}
                           </span>
                         </div>
-                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-white" : "text-slate-500 italic"}`}>
+                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-slate-900" : "text-slate-400 italic"}`}>
                           {meta.displayVal}
                         </span>
                       </div>
-                      <div className="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="mt-2 pt-1 border-t border-slate-200 flex items-center justify-between">
                         <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badgeColor}`}>
                           {meta.badgeText}
                         </span>
@@ -2535,18 +2608,18 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-700 font-bold uppercase tracking-wider block">
                             GENDER
                           </span>
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {meta.src}
                           </span>
                         </div>
-                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-white" : "text-slate-500 italic"}`}>
+                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-slate-900" : "text-slate-400 italic"}`}>
                           {meta.displayVal}
                         </span>
                       </div>
-                      <div className="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="mt-2 pt-1 border-t border-slate-200 flex items-center justify-between">
                         <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badgeColor}`}>
                           {meta.badgeText}
                         </span>
@@ -2578,18 +2651,18 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-700 font-bold uppercase tracking-wider block">
                             EXPIRY DATE
                           </span>
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {meta.src}
                           </span>
                         </div>
-                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-white" : "text-slate-500 italic"}`}>
+                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-slate-900" : "text-slate-400 italic"}`}>
                           {meta.displayVal}
                         </span>
                       </div>
-                      <div className="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="mt-2 pt-1 border-t border-slate-200 flex items-center justify-between">
                         <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badgeColor}`}>
                           {meta.badgeText}
                         </span>
@@ -2621,18 +2694,18 @@ export default function ScreeningPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider block">
+                          <span className="text-[9px] font-mono text-slate-700 font-bold uppercase tracking-wider block">
                             ISSUING COUNTRY / POST
                           </span>
-                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {meta.src}
                           </span>
                         </div>
-                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-white" : "text-slate-500 italic"}`}>
+                        <span className={`text-xs font-mono font-bold mt-1 block truncate ${meta.hasValue ? "text-slate-900" : "text-slate-400 italic"}`}>
                           {meta.displayVal}
                         </span>
                       </div>
-                      <div className="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="mt-2 pt-1 border-t border-slate-200 flex items-center justify-between">
                         <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badgeColor}`}>
                           {meta.badgeText}
                         </span>
@@ -2663,15 +2736,15 @@ export default function ScreeningPage() {
               {/* SECTION 35: ADDITIONAL EXTRACTED INFORMATION PANEL */}
               {currentScenario.additionalFields &&
                 Object.entries(currentScenario.additionalFields).filter(([_, v]) => Boolean(v && String(v).trim().length > 0 && String(v).trim() !== "— Not detected" && String(v).trim() !== "—")).length > 0 && (
-                  <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3 shadow-lg">
+                  <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3 shadow-sm">
                     <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-cyan-400" />
-                        <h4 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                        <Sparkles className="w-4 h-4 text-cyan-600" />
+                        <h4 className="text-xs font-mono font-bold text-slate-900 uppercase tracking-wider">
                           Additional Extracted Information
                         </h4>
                       </div>
-                      <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">
+                      <span className="text-[10px] font-mono font-bold text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200">
                         {Object.entries(currentScenario.additionalFields).filter(([_, v]) => Boolean(v && String(v).trim().length > 0 && String(v).trim() !== "— Not detected" && String(v).trim() !== "—")).length} Fields Detected
                       </span>
                     </div>
@@ -2679,11 +2752,11 @@ export default function ScreeningPage() {
                       {Object.entries(currentScenario.additionalFields)
                         .filter(([_, v]) => Boolean(v && String(v).trim().length > 0 && String(v).trim() !== "— Not detected" && String(v).trim() !== "—"))
                         .map(([key, val]) => (
-                          <div key={key} className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 space-y-0.5">
-                            <span className="text-[9px] font-mono uppercase text-slate-600 block tracking-wider">
+                          <div key={key} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-0.5">
+                            <span className="text-[9px] font-mono uppercase text-slate-600 block tracking-wider font-semibold">
                               {key.replace(/_/g, " ")}
                             </span>
-                            <span className="font-semibold text-slate-200 block truncate select-all">
+                            <span className="font-bold text-slate-900 block truncate select-all">
                               {String(val)}
                             </span>
                           </div>
@@ -2691,6 +2764,77 @@ export default function ScreeningPage() {
                     </div>
                   </div>
                 )}
+
+              {/* ALL EXTRACTED READABLE TEXT PANEL (OCR + GEMINI FUSION) */}
+              <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden space-y-0">
+                <div className="p-3.5 flex items-center justify-between border-b border-slate-200 bg-slate-50/70">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-mono font-bold text-slate-900 uppercase tracking-wider">
+                      ALL EXTRACTED READABLE TEXT (OCR + GEMINI FUSION)
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                      {currentScenario.allExtractedText && currentScenario.allExtractedText.length > 0
+                        ? `${currentScenario.allExtractedText.length} Lines`
+                        : `${(currentScenario.rawOcrText || "").split("\n").filter(Boolean).length} Lines`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const fullText = (currentScenario.allExtractedText && currentScenario.allExtractedText.length > 0)
+                          ? currentScenario.allExtractedText.join("\n")
+                          : (currentScenario.rawOcrText || "");
+                        if (fullText) {
+                          navigator.clipboard.writeText(fullText);
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-xs font-mono font-bold text-slate-700 border border-slate-300 transition-colors flex items-center gap-1.5 shadow-2xs"
+                      title="Copy all readable extracted lines to clipboard"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Copy Text</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 space-y-2 max-h-72 overflow-y-auto bg-slate-50/30">
+                  {currentScenario.allExtractedText && currentScenario.allExtractedText.length > 0 ? (
+                    currentScenario.allExtractedText.map((line, lIdx) => (
+                      <div
+                        key={lIdx}
+                        className="flex items-start gap-3 p-2 rounded-lg bg-white border border-slate-200 hover:border-blue-400 transition-all font-mono text-xs shadow-2xs"
+                      >
+                        <span className="text-[10px] font-bold text-slate-400 select-none min-w-[28px] pt-0.5">
+                          {String(lIdx + 1).padStart(2, "0")}
+                        </span>
+                        <span className="text-slate-800 font-semibold leading-relaxed select-all break-words flex-1">
+                          {line}
+                        </span>
+                      </div>
+                    ))
+                  ) : currentScenario.rawOcrText && currentScenario.rawOcrText.trim().length > 0 ? (
+                    currentScenario.rawOcrText.split("\n").filter(l => l.trim().length > 0).map((line, lIdx) => (
+                      <div
+                        key={lIdx}
+                        className="flex items-start gap-3 p-2 rounded-lg bg-white border border-slate-200 hover:border-blue-400 transition-all font-mono text-xs shadow-2xs"
+                      >
+                        <span className="text-[10px] font-bold text-slate-400 select-none min-w-[28px] pt-0.5">
+                          {String(lIdx + 1).padStart(2, "0")}
+                        </span>
+                        <span className="text-slate-800 font-semibold leading-relaxed select-all break-words flex-1">
+                          {line}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-4 rounded-lg bg-slate-100 border border-slate-200 text-center text-xs font-mono text-slate-500 italic">
+                      No readable text lines returned yet. Upload a document or image to scan and view extracted text.
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* RAW MACHINE READABLE ZONE (ICAO DOC 9303 MRZ BAND) - Section 28 */}
               <div className="space-y-2">
@@ -2731,12 +2875,12 @@ export default function ScreeningPage() {
               </div>
 
               {/* SECTION 27: RAW OCR TEXT PANEL (EXPANDABLE) */}
-              <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-                <div className="p-3 flex items-center justify-between border-b border-slate-200/80">
+              <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                <div className="p-3 flex items-center justify-between border-b border-slate-200">
                   <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-cyan-400" />
-                    <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
-                      RAW OCR TEXT
+                    <FileText className="w-4 h-4 text-cyan-600" />
+                    <span className="text-xs font-mono font-bold text-slate-900 uppercase tracking-wider">
+                      RAW OCR TEXT STREAM
                     </span>
                     <span className="text-[10px] font-mono text-slate-600">
                       ({(currentScenario.rawOcrText || "").length} characters extracted)
@@ -2745,7 +2889,7 @@ export default function ScreeningPage() {
                   <button
                     type="button"
                     onClick={() => setShowRawOcr(!showRawOcr)}
-                    className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-xs font-mono font-bold text-cyan-400 border border-cyan-500/30 transition-colors flex items-center gap-1.5"
+                    className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-xs font-mono font-bold text-slate-800 border border-slate-300 transition-colors flex items-center gap-1.5"
                   >
                     <span>{showRawOcr ? "[Hide OCR]" : "[Show OCR]"}</span>
                     {showRawOcr ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -2797,9 +2941,9 @@ export default function ScreeningPage() {
                           {cd.field}
                         </span>
                         <div className="my-1.5 flex items-center justify-between text-xs font-mono">
-                          <span className="text-slate-300">Ext: {cd.ext || "—"}</span>
-                          <span className="text-slate-600">|</span>
-                          <span className="text-slate-300">Calc: {cd.calc || "—"}</span>
+                          <span className="text-slate-800 font-semibold">Ext: {cd.ext || "—"}</span>
+                          <span className="text-slate-400">|</span>
+                          <span className="text-slate-800 font-semibold">Calc: {cd.calc || "—"}</span>
                         </div>
                         <div className="flex items-center gap-1 text-[11px] font-bold font-mono">
                           {cd.valid ? (
@@ -2828,37 +2972,37 @@ export default function ScreeningPage() {
 
           {/* TAB 2: MODULE 3: TAMPERING AI */}
           {moduleTab === "tamper" && (
-            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-4">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <Scan className="w-4 h-4 text-rose-400" />
+            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-4 shadow-sm">
+              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Scan className="w-4 h-4 text-rose-600" />
                 <span>Forensic Error Level Analysis & Tamper Evaluation</span>
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-600 font-mono block">Substrate Assessment</span>
-                  <span className="text-sm font-bold text-white mt-1 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[10px] text-slate-600 font-mono block font-semibold">Substrate Assessment</span>
+                  <span className="text-sm font-bold text-slate-900 mt-1 block">
                     {currentScenario.tamperingAssessment}
                   </span>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-600 font-mono block">ELA Discontinuity Metric</span>
-                  <span className="text-sm font-bold text-rose-400 mt-1 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[10px] text-slate-600 font-mono block font-semibold">ELA Discontinuity Metric</span>
+                  <span className="text-sm font-bold text-rose-700 mt-1 block">
                     {currentScenario.elaScore}
                   </span>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-600 font-mono block">Copy-Move Splicing Filter</span>
-                  <span className="text-sm font-bold text-emerald-400 mt-1 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[10px] text-slate-600 font-mono block font-semibold">Copy-Move Splicing Filter</span>
+                  <span className="text-sm font-bold text-emerald-700 mt-1 block">
                     0 Cluster Anomalies Found
                   </span>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-600 font-mono block">Typography Baseline Alignment</span>
-                  <span className="text-sm font-bold text-white mt-1 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[10px] text-slate-600 font-mono block font-semibold">Typography Baseline Alignment</span>
+                  <span className="text-sm font-bold text-slate-900 mt-1 block">
                     {isDetain ? "Discontinuity Flagged" : "Linear Font Geometry Conforming"}
                   </span>
                 </div>
@@ -2868,30 +3012,30 @@ export default function ScreeningPage() {
 
           {/* TAB 3: MODULE 4: BIOMETRICS & LIVENESS */}
           {moduleTab === "bio" && (
-            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-4">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-purple-400" />
+            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-4 shadow-sm">
+              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-purple-600" />
                 <span>Biometric Portrait Comparison & Watchlist Verification</span>
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-600 font-mono block">1:1 Biometric Face Match</span>
-                  <span className="text-sm font-bold text-purple-300 mt-1 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[10px] text-slate-600 font-mono block font-semibold">1:1 Biometric Face Match</span>
+                  <span className="text-sm font-bold text-purple-800 mt-1 block">
                     {currentScenario.biometricMatch}
                   </span>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-[10px] text-slate-600 font-mono block">Liveness & Anti-Spoof</span>
-                  <span className="text-sm font-bold text-emerald-400 mt-1 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[10px] text-slate-600 font-mono block font-semibold">Liveness & Anti-Spoof</span>
+                  <span className="text-sm font-bold text-emerald-700 mt-1 block">
                     Passed (Specular Reflection Valid)
                   </span>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 col-span-2">
-                  <span className="text-[10px] text-slate-600 font-mono block">Watchlist SLTD Registry</span>
-                  <span className="text-sm font-bold text-white mt-1 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 col-span-2">
+                  <span className="text-[10px] text-slate-600 font-mono block font-semibold">Watchlist SLTD Registry</span>
+                  <span className="text-sm font-bold text-slate-900 mt-1 block">
                     {currentScenario.watchlistStatus}
                   </span>
                 </div>
@@ -2901,9 +3045,9 @@ export default function ScreeningPage() {
 
           {/* TAB 4: BLOCKCHAIN AUDIT LEDGER */}
           {moduleTab === "blockchain" && (
-            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-3 font-mono text-xs">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2 font-sans">
-                <Shield className="w-4 h-4 text-emerald-400" />
+            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-3 font-mono text-xs shadow-sm">
+              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2 font-sans">
+                <Shield className="w-4 h-4 text-emerald-600" />
                 <span>Cryptographic Immutable Chain of Custody</span>
               </h4>
 
@@ -2946,15 +3090,15 @@ export default function ScreeningPage() {
           <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2">
-                <Shield className="w-5 h-5 text-blue-400" />
-                <h3 className="text-base font-bold text-white">
+                <Shield className="w-5 h-5 text-blue-600" />
+                <h3 className="text-base font-bold text-slate-900">
                   100-Point Forensic Document Verification Matrix
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAllChecksModal(false)}
-                className="text-slate-600 hover:text-white p-1 rounded"
+                className="text-slate-400 hover:text-slate-800 p-1 rounded text-lg font-bold"
               >
                 ✕
               </button>
@@ -2969,7 +3113,7 @@ export default function ScreeningPage() {
                   placeholder="Search checks by name or category..."
                   value={checkSearchFilter}
                   onChange={(e) => setCheckSearchFilter(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -2981,8 +3125,8 @@ export default function ScreeningPage() {
                     onClick={() => setCheckStatusFilter(status)}
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                       checkStatusFilter === status
-                        ? "bg-blue-600 text-white font-bold"
-                        : "bg-slate-900 text-slate-600 hover:text-white border border-slate-800"
+                        ? "bg-blue-600 text-white font-bold shadow-xs"
+                        : "bg-slate-100 text-slate-700 hover:text-slate-900 hover:bg-slate-200 border border-slate-300"
                     }`}
                   >
                     {status}
@@ -2994,7 +3138,7 @@ export default function ScreeningPage() {
             {/* Checks Table Scrollable */}
             <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 bg-slate-50 text-slate-600 font-mono border-b border-slate-200">
+                <thead className="sticky top-0 bg-slate-100 text-slate-700 font-mono font-bold border-b border-slate-300 shadow-2xs">
                   <tr>
                     <th className="py-2.5 px-3">Check ID</th>
                     <th className="py-2.5 px-3">Category</th>
@@ -3003,7 +3147,7 @@ export default function ScreeningPage() {
                     <th className="py-2.5 px-3">Evidence Findings</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#1e345e]/50">
+                <tbody className="divide-y divide-slate-200">
                   {scenarioChecks
                     .filter((c) => {
                       const matchesText =
@@ -3015,30 +3159,30 @@ export default function ScreeningPage() {
                       return matchesText && matchesStatus;
                     })
                     .map((c) => (
-                      <tr key={c.check_id} className="hover:bg-slate-900/60 transition-colors">
-                        <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
+                      <tr key={c.check_id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-2.5 px-3 font-mono text-slate-700 font-semibold whitespace-nowrap">
                           {c.check_id}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-300 font-medium whitespace-nowrap">
+                        <td className="py-2.5 px-3 text-slate-700 font-medium whitespace-nowrap">
                           {c.category}
                         </td>
-                        <td className="py-2.5 px-3 font-bold text-white">
+                        <td className="py-2.5 px-3 font-bold text-slate-900">
                           {c.name}
                         </td>
                         <td className="py-2.5 px-3 text-center">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
                               c.status === "PASS"
-                                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
                                 : c.status === "FAIL"
-                                ? "bg-rose-500/20 text-rose-400 border-rose-500/30"
-                                : "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                                ? "bg-rose-50 text-rose-800 border-rose-300"
+                                : "bg-amber-50 text-amber-800 border-amber-300"
                             }`}
                           >
                             {c.status}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 text-slate-600 text-[11px] leading-tight">
+                        <td className="py-2.5 px-3 text-slate-700 text-[11px] leading-tight">
                           {c.message || c.evidence}
                         </td>
                       </tr>
@@ -3072,58 +3216,58 @@ export default function ScreeningPage() {
           <div className="w-full max-w-lg p-6 rounded-2xl bg-white border border-cyan-500/40 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2">
-                <Shield className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-base font-bold text-white">Extraction Evidence</h3>
+                <Shield className="w-5 h-5 text-cyan-600" />
+                <h3 className="text-base font-bold text-slate-900">Extraction Evidence</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedFieldEvidence(null)}
-                className="text-slate-600 hover:text-white p-1 rounded"
+                className="text-slate-400 hover:text-slate-800 p-1 rounded text-lg font-bold"
               >
                 ✕
               </button>
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block font-semibold">
                   Field
                 </span>
-                <span className="text-sm font-bold text-white block">
+                <span className="text-sm font-bold text-slate-900 block">
                   {selectedFieldEvidence.label}
                 </span>
               </div>
 
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block font-semibold">
                   Extracted Value
                 </span>
-                <span className="text-sm font-mono font-bold text-amber-300 block select-all">
+                <span className="text-sm font-mono font-black text-blue-950 block select-all tracking-wider">
                   {selectedFieldEvidence.value}
                 </span>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block font-semibold">
                     Source
                   </span>
-                  <span className="text-xs font-mono font-bold text-cyan-300 block">
+                  <span className="text-xs font-mono font-bold text-slate-800 block">
                     {selectedFieldEvidence.source}
                   </span>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 block font-semibold">
                     Confidence
                   </span>
                   <span
                     className={`text-xs font-mono font-bold block ${
                       selectedFieldEvidence.confidence >= 0.9
-                        ? "text-emerald-400"
+                        ? "text-emerald-800"
                         : selectedFieldEvidence.confidence >= 0.7
-                        ? "text-amber-400"
-                        : "text-rose-400"
+                        ? "text-amber-800"
+                        : "text-rose-800"
                     }`}
                   >
                     {Math.round(selectedFieldEvidence.confidence * 100)}%
@@ -3131,18 +3275,18 @@ export default function ScreeningPage() {
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 font-semibold">
                     Cross-Validation
                   </span>
                   <span
                     className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
                       selectedFieldEvidence.validation === "MATCH" || selectedFieldEvidence.validation === "VERIFIED"
-                        ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-300"
                         : selectedFieldEvidence.validation === "MISMATCH"
-                        ? "bg-rose-500/20 text-rose-400 border-rose-500/40"
-                        : "bg-slate-800 text-slate-600 border-slate-700"
+                        ? "bg-rose-50 text-rose-800 border-rose-300"
+                        : "bg-slate-100 text-slate-700 border-slate-300"
                     }`}
                   >
                     {selectedFieldEvidence.validation}
@@ -3150,14 +3294,14 @@ export default function ScreeningPage() {
                 </div>
 
                 {selectedFieldEvidence.mrz_val || selectedFieldEvidence.ocr_val ? (
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800 text-[11px] font-mono">
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-[11px] font-mono">
                     <div>
-                      <span className="text-slate-500 block text-[9px]">MRZ VALUE</span>
-                      <span className="text-slate-300">{selectedFieldEvidence.mrz_val || "—"}</span>
+                      <span className="text-slate-500 block text-[9px] font-semibold">MRZ VALUE</span>
+                      <span className="text-slate-800 font-semibold">{selectedFieldEvidence.mrz_val || "—"}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block text-[9px]">VISIBLE OCR VALUE</span>
-                      <span className="text-slate-300">{selectedFieldEvidence.ocr_val || "—"}</span>
+                      <span className="text-slate-500 block text-[9px] font-semibold">VISIBLE OCR VALUE</span>
+                      <span className="text-slate-800 font-semibold">{selectedFieldEvidence.ocr_val || "—"}</span>
                     </div>
                   </div>
                 ) : (
@@ -3168,16 +3312,16 @@ export default function ScreeningPage() {
               </div>
 
               {/* Document Region / Field Crop Inspection (Part 6) */}
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 font-semibold">
                     Document Region Crop Inspection
                   </span>
-                  <span className="text-[9px] font-mono text-cyan-400">
+                  <span className="text-[9px] font-mono text-cyan-700 font-bold">
                     Substrate Evidence
                   </span>
                 </div>
-                <div className="max-h-36 overflow-hidden rounded-lg border border-slate-800/80 bg-black/60 flex items-center justify-center p-1">
+                <div className="max-h-36 overflow-hidden rounded-lg border border-slate-200 bg-white flex items-center justify-center p-1">
                   {currentScenario.imageUrl ? (
                     <img
                       src={currentScenario.imageUrl}
@@ -3212,25 +3356,25 @@ export default function ScreeningPage() {
           <div className="w-full max-w-xl p-6 rounded-2xl bg-white border border-slate-200 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2.5">
-                <UploadCloud className="w-5 h-5 text-blue-400" />
-                <h3 className="text-lg font-bold text-white">Upload Custom Document</h3>
+                <UploadCloud className="w-5 h-5 text-blue-600" />
+                <h3 className="text-lg font-bold text-slate-900">Upload Custom Document</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowUploadModal(false)}
-                className="text-slate-600 hover:text-white p-1 rounded"
+                className="text-slate-400 hover:text-slate-800 p-1 rounded text-lg font-bold"
               >
                 ✕
               </button>
             </div>
 
             {/* Mode toggle */}
-            <div className="flex rounded-lg bg-slate-900 p-1 border border-slate-200">
+            <div className="flex rounded-lg bg-slate-100 p-1 border border-slate-200">
               <button
                 type="button"
                 onClick={() => setUploadMode("file")}
-                className={`flex-1 py-1.5 rounded text-xs font-semibold ${
-                  uploadMode === "file" ? "bg-blue-600 text-white" : "text-slate-600"
+                className={`flex-1 py-1.5 rounded text-xs font-semibold transition-all ${
+                  uploadMode === "file" ? "bg-blue-600 text-white shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 File Upload
@@ -3238,8 +3382,8 @@ export default function ScreeningPage() {
               <button
                 type="button"
                 onClick={() => setUploadMode("camera")}
-                className={`flex-1 py-1.5 rounded text-xs font-semibold ${
-                  uploadMode === "camera" ? "bg-blue-600 text-white" : "text-slate-600"
+                className={`flex-1 py-1.5 rounded text-xs font-semibold transition-all ${
+                  uploadMode === "camera" ? "bg-blue-600 text-white shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Live Webcam Scanner
@@ -3247,10 +3391,10 @@ export default function ScreeningPage() {
             </div>
 
             {uploadMode === "file" ? (
-              <div className="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-8 text-center bg-slate-950/60 transition-colors">
+              <div className="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-8 text-center bg-slate-50 transition-colors">
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf"
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
                       const f = e.target.files[0];
@@ -3265,14 +3409,14 @@ export default function ScreeningPage() {
                   className="absolute inset-0 opacity-0 cursor-pointer"
                 />
                 <div className="space-y-2">
-                  <div className="w-12 h-12 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-500/20 flex items-center justify-center mx-auto">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center mx-auto">
                     <UploadCloud className="w-6 h-6" />
                   </div>
-                  <div className="text-sm text-slate-200 font-semibold">
-                    {customFile ? customFile.name : "Drag & drop image or browse device"}
+                  <div className="text-sm text-slate-800 font-bold">
+                    {customFile ? customFile.name : "Drag & drop image/PDF or browse device"}
                   </div>
-                  <p className="text-xs text-slate-600">
-                    Supports Indian Passport, Aadhaar, PAN, Voter ID, Driving Licence, RC, Visa (PNG, JPG, PDF max 25MB)
+                  <p className="text-xs text-slate-500">
+                    Supports any document image or PDF (Passport, Aadhaar, PAN, Voter ID, DL, RC, Visa, or custom credential)
                   </p>
                 </div>
               </div>

@@ -1303,6 +1303,7 @@ async def run_screening_pipeline(
         "fields_detail": master_fields,
         "raw_mrz": raw_mrz_list,
         "raw_ocr_text": ocr_raw_res.get("raw_text", ""),
+        "all_extracted_text": ocr_raw_res.get("all_extracted_text") or [line.strip() for line in ocr_raw_res.get("raw_text", "").split("\n") if line.strip()],
         "mrz_validation": {
             "detected": bool(ocr_raw_res.get("mrz")),
             "valid": bool(getattr(ocr_raw_res.get("mrz"), "valid", False)) if ocr_raw_res.get("mrz") else False,

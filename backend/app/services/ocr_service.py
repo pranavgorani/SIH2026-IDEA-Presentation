@@ -230,17 +230,31 @@ class ModularOCREngine(BaseOCREngine):
                     mrz_text_lines = mrz_parser.extract_mrz_lines(mrz_ocr_text)
 
         # 5. Optional Gemini Multimodal Vision (Section 21 & 22)
-        # Gemini is an assistive/validation layer, NOT the only source
+        # Gemini is an assistive/validation layer, combined conservatively with OCR
         gemini_res = self._run_gemini_vision_ocr(path)
         gemini_doc_type: Optional[str] = None
         if gemini_res:
-            if not raw_text:
-                raw_text = gemini_res.get("raw_text", "")
-                engine_used = "Google Gemini Multimodal Vision OCR"
             gemini_fields = gemini_res.get("fields", {})
             gemini_doc_type = gemini_res.get("document_type")
             if gemini_res.get("mrz_lines"):
                 gemini_mrz_lines = gemini_res["mrz_lines"]
+
+            if not raw_text:
+                raw_text = gemini_res.get("raw_text", "")
+                engine_used = "Google Gemini Multimodal Vision OCR"
+            else:
+                gemini_text = gemini_res.get("raw_text", "")
+                if gemini_text:
+                    existing_lower = set(line.strip().lower() for line in raw_text.split("\n") if line.strip())
+                    new_lines = []
+                    for g_line in gemini_text.split("\n"):
+                        g_clean = g_line.strip()
+                        if g_clean and g_clean.lower() not in existing_lower:
+                            new_lines.append(g_clean)
+                            existing_lower.add(g_clean.lower())
+                    if new_lines:
+                        raw_text = raw_text.strip() + "\n" + "\n".join(new_lines)
+                        engine_used = f"{engine_used} + Gemini Vision"
 
         # 6. MRZ Detection & Parsing (Section 7 & 8)
         # Merge candidate lines from MRZ ROI, full text, and Gemini
@@ -286,8 +300,10 @@ class ModularOCREngine(BaseOCREngine):
 
         ocr_status = "OK" if overall_conf >= 0.60 else "LOW_CONFIDENCE"
 
+        all_lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
         result = {
             "raw_text": raw_text,
+            "all_extracted_text": all_lines,
             "fields": final_extracted_fields,
             "mrz": mrz_data,
             "confidence": overall_conf,
@@ -478,11 +494,14 @@ class ModularOCREngine(BaseOCREngine):
                 }
 
             mrz_lines = scan_res.mrz.lines if scan_res.mrz else []
-            lines = [f"{k.replace('_', ' ').title()}: {fld.value}" for k, fld in scan_res.fields.items() if fld.value]
-            raw_text = "\n".join(lines)
+            gemini_raw_text = scan_res.raw_text or "\n".join(scan_res.all_extracted_text)
+            if not gemini_raw_text:
+                lines = [f"{k.replace('_', ' ').title()}: {fld.value}" for k, fld in scan_res.fields.items() if fld.value]
+                gemini_raw_text = "\n".join(lines)
 
             return {
-                "raw_text": raw_text,
+                "raw_text": gemini_raw_text,
+                "all_extracted_text": scan_res.all_extracted_text,
                 "fields": fields_dict,
                 "mrz_lines": mrz_lines,
                 "document_type": scan_res.document_type,

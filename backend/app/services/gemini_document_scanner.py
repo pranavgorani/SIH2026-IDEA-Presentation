@@ -80,6 +80,8 @@ class GeminiDocumentScanResult(BaseModel):
     qr_analysis: QRAnalysisInfo = Field(default_factory=QRAnalysisInfo)
     visual_observations: List[VisualObservation] = []
     localized_regions: List[LocalizedRegion] = []
+    all_extracted_text: List[str] = []
+    raw_text: str = ""
     uncertainties: List[str] = []
     processing_status: str = "COMPLETED"  # COMPLETED, PARTIAL, LOCAL_FALLBACK, FAILED
     model_used: str = OFFICIAL_GEMINI_MODEL
@@ -249,7 +251,12 @@ Classify into one of:
 - "DRIVING_LICENSE" (Motor vehicle driving licence or Smart Card DL)
 - "VOTER_ID" (Election Commission of India EPIC voter identity card)
 - "GENERIC_ID" (Recognizable official credential of other category)
-- "UNSUPPORTED" (Not an identity document, completely unreadable, or corrupt)
+- "UNCLASSIFIED" (Legible document whose specific type is unindexed or generic)
+- "UNSUPPORTED" (Not a document, completely unreadable, or corrupt)
+- "UNKNOWN" (Uncertain or unknown document type)
+
+### CRITICAL: EXTRACT ALL VISIBLE TEXT
+Even if the document type is UNKNOWN, UNCLASSIFIED, or GENERIC_ID, extract ALL readable visible text lines into "all_extracted_text" and "raw_text". Never halt or skip text extraction due to an unrecognized document type!
 
 ### STRICT OCR RULES (MANDATORY)
 1. NEVER FABRICATE OR GUESS MISSING CHARACTERS.
@@ -327,6 +334,8 @@ Return ONLY valid JSON matching this schema:
       "confidence": 0.95
     }}
   ],
+  "all_extracted_text": ["exact line of readable text 1", "exact line 2"],
+  "raw_text": "complete extracted text from document",
   "uncertainties": ["list any specific ambiguities or limitations"],
   "processing_status": "COMPLETED"
 }}"""
@@ -596,6 +605,16 @@ Return ONLY valid JSON matching this schema:
             doc_type = str(parsed.get("document_type", "UNKNOWN")).upper()
             class_status = str(parsed.get("classification_status", "RECOGNIZED")).upper()
 
+            # Map all extracted text lines
+            extracted_lines: List[str] = []
+            if isinstance(parsed.get("all_extracted_text"), list):
+                extracted_lines = [str(x).strip() for x in parsed["all_extracted_text"] if str(x).strip()]
+            raw_text_val = str(parsed.get("raw_text") or "").strip()
+            if not raw_text_val and extracted_lines:
+                raw_text_val = "\n".join(extracted_lines)
+            elif raw_text_val and not extracted_lines:
+                extracted_lines = [line.strip() for line in raw_text_val.split("\n") if line.strip()]
+
             res = GeminiDocumentScanResult(
                 document_type=doc_type,
                 classification_status=class_status,
@@ -606,6 +625,8 @@ Return ONLY valid JSON matching this schema:
                 qr_analysis=qr_info,
                 visual_observations=obs_list,
                 localized_regions=regions_list,
+                all_extracted_text=extracted_lines,
+                raw_text=raw_text_val,
                 uncertainties=parsed.get("uncertainties", []),
                 processing_status="COMPLETED",
                 model_used=self.model_name,
@@ -633,3 +654,7 @@ Return ONLY valid JSON matching this schema:
 
 # Singleton instance
 gemini_document_scanner = GeminiDocumentScanner()
+
+def get_gemini_scanner() -> GeminiDocumentScanner:
+    """Return singleton Gemini document scanner instance."""
+    return gemini_document_scanner
