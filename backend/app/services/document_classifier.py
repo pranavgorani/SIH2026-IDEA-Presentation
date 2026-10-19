@@ -1,5 +1,77 @@
 import re
 from typing import Dict, Any, Optional, List
+from enum import Enum
+
+class CanonicalDocType(str, Enum):
+    PAN = "PAN"
+    PAN_CARD = "PAN_CARD"
+    AADHAAR = "AADHAAR"
+    PASSPORT = "PASSPORT"
+    INDIAN_PASSPORT = "INDIAN_PASSPORT"
+    VOTER_ID = "VOTER_ID"
+    DRIVING_LICENSE = "DRIVING_LICENSE"
+    DRIVING_LICENCE = "DRIVING_LICENCE"
+    VEHICLE_RC = "VEHICLE_RC"
+    INDIAN_VISA = "INDIAN_VISA"
+    VISA = "VISA"
+    VISA_OR_PERMIT = "VISA_OR_PERMIT"
+    OCI_CARD = "OCI_CARD"
+    NATIONAL_ID = "NATIONAL_ID"
+    GENERIC_ID = "GENERIC_ID"
+    UNSUPPORTED = "UNSUPPORTED"
+    UNKNOWN = "UNKNOWN"
+
+CANONICAL_TYPE_MAP = {
+    "PAN": "PAN",
+    "PAN_CARD": "PAN",
+    "PAN CARD": "PAN",
+    "INDIAN PAN": "PAN",
+    "PERMANENT ACCOUNT NUMBER": "PAN",
+    "AADHAAR": "AADHAAR",
+    "AADHAAR_CARD": "AADHAAR",
+    "AADHAAR CARD": "AADHAAR",
+    "UIDAI": "AADHAAR",
+    "PASSPORT": "PASSPORT",
+    "INDIAN_PASSPORT": "PASSPORT",
+    "INDIAN PASSPORT": "PASSPORT",
+    "VOTER_ID": "VOTER_ID",
+    "VOTER ID": "VOTER_ID",
+    "EPIC": "VOTER_ID",
+    "ELECTOR PHOTO IDENTITY CARD": "VOTER_ID",
+    "DRIVING_LICENSE": "DRIVING_LICENSE",
+    "DRIVING_LICENCE": "DRIVING_LICENSE",
+    "DRIVING LICENSE": "DRIVING_LICENSE",
+    "DRIVING LICENCE": "DRIVING_LICENSE",
+    "VEHICLE_RC": "VEHICLE_RC",
+    "VEHICLE RC": "VEHICLE_RC",
+    "REGISTRATION CERTIFICATE": "VEHICLE_RC",
+    "INDIAN_VISA": "VISA",
+    "INDIAN VISA": "VISA",
+    "VISA": "VISA",
+    "VISA_OR_PERMIT": "VISA",
+    "OCI_CARD": "OCI_CARD",
+    "OCI CARD": "OCI_CARD",
+    "NATIONAL_ID": "NATIONAL_ID",
+    "NATIONAL ID": "NATIONAL_ID",
+    "GENERIC_ID": "GENERIC_ID",
+    "GENERIC_DOCUMENT": "GENERIC_ID",
+    "UNSUPPORTED": "UNSUPPORTED",
+    "UNKNOWN": "UNKNOWN"
+}
+
+def normalize_canonical_doc_type(val: Optional[str]) -> str:
+    if not val:
+        return "UNKNOWN"
+    clean = str(val).strip().upper().replace("-", "_")
+    if clean in CANONICAL_TYPE_MAP:
+        return CANONICAL_TYPE_MAP[clean]
+    clean_sp = clean.replace("_", " ")
+    if clean_sp in CANONICAL_TYPE_MAP:
+        return CANONICAL_TYPE_MAP[clean_sp]
+    for k, canonical in CANONICAL_TYPE_MAP.items():
+        if k in clean or k in clean_sp:
+            return canonical
+    return clean
 
 class BaseDocumentClassifier:
     def classify(self, text: str, width: int = 0, height: int = 0, has_mrz: bool = False) -> Dict[str, Any]:
@@ -235,12 +307,38 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
                 "document_type": "NATIONAL_ID",
                 "confidence": 0.82,
                 "status": "RECOGNIZED",
+                "classifier_status": "COMPLETED",
+                "processing_status": "COMPLETED",
                 "supported": True,
                 "country": "INTERNATIONAL",
                 "explanation": "National Identity Card format recognized."
             }
 
-        # If none of the recognized document patterns match:
+        # Generic Identity Credential (Section 3: Generic Document Mode)
+        # Recognizable as an official identity document or credential, but whose exact subtype
+        # remains unindexed. Requires official government or statutory authority markers.
+        OFFICIAL_ID_PATTERNS = [
+            r'\bGOVERNMENT\b', r'\bGOVT\b', r'\bBHARAT\s*SARKAR\b', r'\bUNION\s+OF\s+INDIA\b',
+            r'\bMINISTRY\b', r'\bDEPARTMENT\s+OF\b', r'\bOFFICIAL\s+IDENTITY\b',
+            r'\bNATIONAL\s+REGISTRATION\b', r'\bCIVIL\s+REGISTRATION\b',
+            r'\bSTATE\s+OF\b', r'\bREPUBLIC\s+OF\b', r'\bDIRECTORATE\b',
+            r'\bIMMIGRATION\b', r'\bCONSULAR\b', r'\bPERMANENT\s+RESIDENT\b'
+        ]
+        is_official_generic = any(re.search(p, text_clean, re.I) for p in OFFICIAL_ID_PATTERNS)
+
+        if is_official_generic:
+            return {
+                "document_type": "GENERIC_ID",
+                "confidence": 0.78,
+                "status": "RECOGNIZED",
+                "classifier_status": "NEEDS_REVIEW",
+                "processing_status": "NEEDS_REVIEW",
+                "supported": True,
+                "country": "UNKNOWN",
+                "explanation": "Generic or unindexed official credential recognized. Preserving all extracted text and fields for secondary review."
+            }
+
+        # Truly unsupported document (receipts, membership cards, photographs, tickets)
         return {
             "document_type": "UNSUPPORTED",
             "confidence": 0.20,

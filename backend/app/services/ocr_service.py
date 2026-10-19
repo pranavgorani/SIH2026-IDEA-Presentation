@@ -232,11 +232,13 @@ class ModularOCREngine(BaseOCREngine):
         # 5. Optional Gemini Multimodal Vision (Section 21 & 22)
         # Gemini is an assistive/validation layer, NOT the only source
         gemini_res = self._run_gemini_vision_ocr(path)
+        gemini_doc_type: Optional[str] = None
         if gemini_res:
             if not raw_text:
                 raw_text = gemini_res.get("raw_text", "")
                 engine_used = "Google Gemini Multimodal Vision OCR"
             gemini_fields = gemini_res.get("fields", {})
+            gemini_doc_type = gemini_res.get("document_type")
             if gemini_res.get("mrz_lines"):
                 gemini_mrz_lines = gemini_res["mrz_lines"]
 
@@ -274,7 +276,8 @@ class ModularOCREngine(BaseOCREngine):
             known_data=known_data,
             raw_text=raw_text,
             engine_used=engine_used,
-            classification=doc_classification
+            classification=doc_classification,
+            gemini_doc_type=gemini_doc_type
         )
 
         additional_fields = master_fields.get("additional_fields", {})
@@ -465,6 +468,13 @@ class ModularOCREngine(BaseOCREngine):
                     "value": fld.value,
                     "confidence": fld.confidence,
                     "status": fld.status
+                }
+
+            if scan_res.document_type and scan_res.document_type != "UNKNOWN":
+                fields_dict["document_type"] = {
+                    "value": scan_res.document_type,
+                    "confidence": 0.95,
+                    "status": "VALID"
                 }
 
             mrz_lines = scan_res.mrz.lines if scan_res.mrz else []
@@ -817,7 +827,8 @@ class ModularOCREngine(BaseOCREngine):
         known_data: Dict[str, Any],
         raw_text: str,
         engine_used: str,
-        classification: Optional[Dict[str, Any]] = None
+        classification: Optional[Dict[str, Any]] = None,
+        gemini_doc_type: Optional[str] = None
     ) -> Tuple[Dict[str, Any], ExtractedFields, float, Dict[str, Any], str]:
         """
         Cross-validates MRZ vs Visible OCR vs Gemini and constructs Master Field Result (Section 23).
@@ -827,11 +838,21 @@ class ModularOCREngine(BaseOCREngine):
         gemini_fields = gemini_fields or {}
         cls_type = (classification or {}).get("document_type", "UNKNOWN")
 
-        # 1. DOCUMENT TYPE (Section 9)
+        # 1. DOCUMENT TYPE (Section 9 & Section 3 Auto-Router)
         doc_type_val = "UNKNOWN"
         doc_type_src = "UNKNOWN"
         doc_type_conf = 0.0
         doc_type_val_status = "MATCH"
+
+        gemini_type_field = ""
+        if isinstance(gemini_fields.get("document_type"), dict):
+            gemini_type_field = str(gemini_fields["document_type"].get("value") or "").upper()
+        elif isinstance(gemini_fields.get("document_type"), str):
+            gemini_type_field = str(gemini_fields["document_type"]).upper()
+
+        effective_gemini_type = (gemini_doc_type if gemini_doc_type and gemini_doc_type not in ("UNKNOWN", "UNSUPPORTED") else None) or (
+            gemini_type_field if gemini_type_field and gemini_type_field not in ("UNKNOWN", "UNSUPPORTED") else None
+        )
 
         if kf.get("document_type"):
             doc_type_val = kf["document_type"]
@@ -841,32 +862,49 @@ class ModularOCREngine(BaseOCREngine):
             doc_type_val = mrz_data.document_type
             doc_type_src = "MRZ"
             doc_type_conf = 0.99 if mrz_data.valid else 0.85
-        elif visible_fields.get("document_type"):
+        elif effective_gemini_type:
+            doc_type_val = effective_gemini_type
+            doc_type_src = "GEMINI"
+            doc_type_conf = 0.95
+        elif visible_fields.get("document_type") and visible_fields.get("document_type") not in ("UNKNOWN", "UNSUPPORTED"):
             doc_type_val = visible_fields["document_type"]
             doc_type_src = "OCR"
             doc_type_conf = 0.92
-        elif cls_type != "UNKNOWN":
+        elif cls_type and cls_type not in ("UNKNOWN", "UNSUPPORTED"):
             doc_type_val = cls_type
             doc_type_src = "DOCUMENT_CLASSIFIER"
             doc_type_conf = classification.get("confidence", 0.85) if classification else 0.85
-        elif isinstance(gemini_fields.get("document_type"), dict) and gemini_fields["document_type"].get("value"):
-            doc_type_val = str(gemini_fields["document_type"]["value"]).upper()
-            doc_type_src = "GEMINI"
-            doc_type_conf = float(gemini_fields["document_type"].get("confidence", 0.85))
+        elif cls_type == "UNSUPPORTED" or visible_fields.get("document_type") == "UNSUPPORTED":
+            doc_type_val = "UNSUPPORTED"
+            doc_type_src = "DOCUMENT_CLASSIFIER"
+            doc_type_conf = classification.get("confidence", 0.20) if classification else 0.20
+            doc_type_val_status = "NOT_DETECTED"
+        elif visible_fields.get("document_type"):
+            doc_type_val = visible_fields["document_type"]
+            doc_type_src = "OCR"
+            doc_type_conf = 0.70
+        elif len(raw_text.strip()) >= 15 and any(kw in raw_text.upper() for kw in ("GOVERNMENT", "GOVT", "UNION", "REPUBLIC", "STATE", "MINISTRY", "IDENTITY", "AUTHORITY")):
+            doc_type_val = "GENERIC_ID"
+            doc_type_src = "OCR_FALLBACK"
+            doc_type_conf = 0.65
+        elif len(raw_text.strip()) >= 15:
+            doc_type_val = "UNSUPPORTED"
+            doc_type_src = "OCR_FALLBACK"
+            doc_type_conf = 0.20
+            doc_type_val_status = "NOT_DETECTED"
 
-        # Check for UNSUPPORTED / Non-document / Insufficient text
-        if doc_type_val == "UNSUPPORTED" or (not mrz_data and len(raw_text.strip()) < 15 and not kf):
+        # Check for truly insufficient content (< 15 characters without MRZ or ground truth)
+        is_insufficient = (not mrz_data and len(raw_text.strip()) < 15 and not kf and not effective_gemini_type)
+        if is_insufficient:
             empty_mf = self._empty_master_fields()
-            is_insufficient = (not mrz_data and len(raw_text.strip()) < 15 and not kf)
-            doc_type_label = "UNKNOWN" if is_insufficient else "UNSUPPORTED"
             empty_mf["document_type"] = {
-                "value": doc_type_label,
+                "value": "UNKNOWN",
                 "source": "DOCUMENT_CLASSIFIER",
-                "confidence": 0.05 if is_insufficient else 0.15,
+                "confidence": 0.05,
                 "validation": "NOT_DETECTED"
             }
             empty_mf["additional_fields"] = {}
-            status_label = "NEEDS_RESCAN" if is_insufficient else "UNSUPPORTED"
+            status_label = "NEEDS_RESCAN"
             empty_mf["analysis_status"] = status_label
             empty_mf["processing_status"] = status_label
             empty_fields = ExtractedFields()
@@ -1183,6 +1221,9 @@ class ModularOCREngine(BaseOCREngine):
         elif doc_type_val == "UNKNOWN":
             analysis_status = "NEEDS_RESCAN"
             processing_status = "NEEDS_RESCAN"
+        elif doc_type_val == "GENERIC_ID":
+            analysis_status = "PARTIALLY_ANALYZED"
+            processing_status = "NEEDS_REVIEW"
         elif exp_status == "EXPIRED":
             analysis_status = "EXPIRED"
             processing_status = "COMPLETED"

@@ -260,10 +260,10 @@ async def run_screening_pipeline(
         auto_doc_type = auto_route.get("document_type")
 
         if (document_type_hint == "AUTO_DETECT" or not document_type_hint):
-            if extracted_doc_type and extracted_doc_type != "UNKNOWN":
+            if extracted_doc_type and extracted_doc_type not in ("UNKNOWN", "UNSUPPORTED"):
                 detected_doc_type = extracted_doc_type
                 doc_confidence = mf.get("document_type", {}).get("confidence", 0.95)
-            elif auto_doc_type and auto_doc_type != "UNKNOWN" and auto_route.get("confidence", 0.0) >= 0.85:
+            elif auto_doc_type and auto_doc_type not in ("UNKNOWN", "UNSUPPORTED") and auto_route.get("confidence", 0.0) >= 0.70:
                 detected_doc_type = auto_doc_type
                 doc_confidence = auto_route.get("confidence", 0.90)
             else:
@@ -274,7 +274,31 @@ async def run_screening_pipeline(
                     has_mrz=has_mrz
                 )
                 detected_doc_type = class_res.get("document_type", "UNKNOWN")
-                doc_confidence = class_res.get("confidence", 0.5)
+                doc_confidence = class_res.get("confidence", 0.70 if detected_doc_type == "GENERIC_ID" else 0.5)
+
+            # Cross-check identifier patterns from extracted fields if ambiguous
+            doc_num_cand = (mf.get("document_number", {}).get("value") or getattr(ocr_raw_res.get("fields"), "document_number", "") or "").strip().upper()
+            if doc_num_cand:
+                import re as _re
+                if _re.match(r'^[A-Z]{5}[0-9]{4}[A-Z]$', doc_num_cand):
+                    detected_doc_type = "PAN"
+                    doc_confidence = max(doc_confidence, 0.98)
+                elif _re.match(r'^[2-9][0-9]{3}\s+[0-9]{4}\s+[0-9]{4}$', doc_num_cand) or _re.match(r'^[X•x*]{4}\s+[X•x*]{4}\s+[0-9]{4}$', doc_num_cand) or (len(doc_num_cand) == 12 and doc_num_cand.isdigit()):
+                    detected_doc_type = "AADHAAR"
+                    doc_confidence = max(doc_confidence, 0.96)
+                elif _re.match(r'^[A-Z]{3}[0-9]{7}$', doc_num_cand):
+                    detected_doc_type = "VOTER_ID"
+                    doc_confidence = max(doc_confidence, 0.94)
+                elif _re.match(r'^[A-Z]{2}[-\s]?[0-9]{2}[-\s]?[0-9]{4}[-\s]?[0-9]{7}$', doc_num_cand):
+                    detected_doc_type = "DRIVING_LICENSE"
+                    doc_confidence = max(doc_confidence, 0.94)
+                elif _re.match(r'^[A-Z][0-9]{7,8}$', doc_num_cand) or has_mrz:
+                    detected_doc_type = "PASSPORT"
+                    doc_confidence = max(doc_confidence, 0.95)
+
+            if detected_doc_type in ("UNKNOWN", "UNSUPPORTED") and len(ocr_raw_res.get("raw_text", "").strip()) >= 15:
+                detected_doc_type = "GENERIC_ID"
+                doc_confidence = max(doc_confidence, 0.65)
         else:
             detected_doc_type = document_type_hint
             doc_confidence = 0.95
@@ -1008,7 +1032,16 @@ async def run_screening_pipeline(
     else:
         final_doc_type = (master_fields.get("document_type", {}).get("value") if master_fields.get("document_type", {}).get("value") not in (None, "", "UNKNOWN") else None) or detected_doc_type
 
-    is_unsupported = (final_doc_type == "UNSUPPORTED")
+    # If raw text has official credential markers but exact subtype is unknown, route to GENERIC_ID
+    if (final_doc_type in ("UNKNOWN", None, "") or not final_doc_type) and len(ocr_raw_res.get("raw_text", "").strip()) >= 15:
+        raw_upper = ocr_raw_res.get("raw_text", "").upper()
+        if any(kw in raw_upper for kw in ("GOVERNMENT", "GOVT", "UNION", "REPUBLIC", "STATE", "MINISTRY", "IDENTITY", "AUTHORITY")):
+            final_doc_type = "GENERIC_ID"
+            doc_confidence = max(doc_confidence, 0.65)
+        else:
+            final_doc_type = "UNSUPPORTED"
+
+    is_unsupported = (final_doc_type == "UNSUPPORTED" or detected_doc_type == "UNSUPPORTED")
     is_needs_rescan = (final_doc_type in ("UNKNOWN", None, "") and (not ocr_raw_res.get("raw_text") or len(ocr_raw_res.get("raw_text", "").strip()) < 15))
 
     scan_id = f"SCAN-{utc_now().strftime('%Y%m%d')}-{case_id[:6].upper()}-01"
@@ -1020,36 +1053,36 @@ async def run_screening_pipeline(
         analysis_status = "UNSUPPORTED"
         doc_payload = {
             "type": "UNSUPPORTED",
-            "number": "",
-            "holder_name": "",
-            "nationality": "",
-            "date_of_birth": "",
-            "gender": "",
-            "expiry_date": "",
-            "issuing_country": "",
+            "number": master_fields.get("document_number", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "document_number", ""),
+            "holder_name": master_fields.get("holder_full_name", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "name", ""),
+            "nationality": master_fields.get("nationality", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "nationality", ""),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "date_of_birth", ""),
+            "gender": master_fields.get("gender", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "gender", ""),
+            "expiry_date": master_fields.get("expiry_date", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "date_of_expiry", ""),
+            "issuing_country": master_fields.get("issuing_country", {}).get("value", "") or getattr(ocr_raw_res.get("fields"), "issuing_country", ""),
             "confidence": 0.0
         }
         field_conf_payload = {
             "document_type": 0.0,
-            "document_number": 0.0,
-            "holder_name": 0.0,
-            "nationality": 0.0,
-            "date_of_birth": 0.0,
-            "gender": 0.0,
-            "expiry_date": 0.0,
-            "issuing_country": 0.0
+            "document_number": master_fields.get("document_number", {}).get("confidence", 0.0),
+            "holder_name": master_fields.get("holder_full_name", {}).get("confidence", 0.0),
+            "nationality": master_fields.get("nationality", {}).get("confidence", 0.0),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("confidence", 0.0),
+            "gender": master_fields.get("gender", {}).get("confidence", 0.0),
+            "expiry_date": master_fields.get("expiry_date", {}).get("confidence", 0.0),
+            "issuing_country": master_fields.get("issuing_country", {}).get("confidence", 0.0)
         }
         sources_payload = {
             "document_type": "NONE",
-            "document_number": "NONE",
-            "holder_name": "NONE",
-            "nationality": "NONE",
-            "date_of_birth": "NONE",
-            "gender": "NONE",
-            "expiry_date": "NONE",
-            "issuing_country": "NONE"
+            "document_number": master_fields.get("document_number", {}).get("source", "OCR"),
+            "holder_name": master_fields.get("holder_full_name", {}).get("source", "OCR"),
+            "nationality": master_fields.get("nationality", {}).get("source", "OCR"),
+            "date_of_birth": master_fields.get("date_of_birth", {}).get("source", "OCR"),
+            "gender": master_fields.get("gender", {}).get("source", "OCR"),
+            "expiry_date": master_fields.get("expiry_date", {}).get("source", "OCR"),
+            "issuing_country": master_fields.get("issuing_country", {}).get("source", "OCR")
         }
-        additional_fields_payload = {}
+        additional_fields_payload = ocr_raw_res.get("additional_fields", {})
         unsupported_reason = "Document type could not be confidently recognized as a supported credential."
     elif is_needs_rescan:
         processing_status = "NEEDS_RESCAN"
@@ -1089,10 +1122,14 @@ async def run_screening_pipeline(
         unsupported_reason = "Insufficient legible text detected. Document rescan recommended."
     else:
         processing_status = master_fields.get("processing_status") or (
-            "COMPLETED" if float(ocr_raw_res.get("confidence", 0)) >= 0.85 else "PARTIAL"
+            "NEEDS_REVIEW" if final_doc_type == "GENERIC_ID" else (
+                "COMPLETED" if float(ocr_raw_res.get("confidence", 0)) >= 0.85 else "PARTIAL"
+            )
         )
         analysis_status = ocr_raw_res.get("analysis_status") or (
-            "VERIFIED" if float(ocr_raw_res.get("confidence", 0)) >= 0.85 else "PARTIALLY_ANALYZED"
+            "PARTIALLY_ANALYZED" if final_doc_type == "GENERIC_ID" else (
+                "VERIFIED" if float(ocr_raw_res.get("confidence", 0)) >= 0.85 else "PARTIALLY_ANALYZED"
+            )
         )
         doc_payload = {
             "type": final_doc_type,
@@ -1261,10 +1298,10 @@ async def run_screening_pipeline(
         "document": doc_payload,
         "field_confidence": field_conf_payload,
         "sources": sources_payload,
-        "basic_fields": master_fields if not is_unsupported else {},
+        "basic_fields": master_fields,
         "additional_fields": additional_fields_payload,
-        "fields_detail": master_fields if not is_unsupported else {},
-        "raw_mrz": raw_mrz_list if not is_unsupported else [],
+        "fields_detail": master_fields,
+        "raw_mrz": raw_mrz_list,
         "raw_ocr_text": ocr_raw_res.get("raw_text", ""),
         "mrz_validation": {
             "detected": bool(ocr_raw_res.get("mrz")),

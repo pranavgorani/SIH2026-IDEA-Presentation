@@ -916,40 +916,105 @@ export default function ScreeningPage() {
       const docData = apiData?.document || {};
       const confData: Record<string, number> = apiData?.field_confidence || {};
       const sourcesData: Record<string, string> = apiData?.sources || {};
-      const fieldsDetail = apiData?.fields_detail || {};
+      const fieldsDetail = apiData?.fields_detail || apiData?.basic_fields || {};
       const additionalFields: Record<string, string> = apiData?.additional_fields || {};
 
-      let extractedDocNo = docData.number || fieldsDetail?.document_number?.value || "";
-      let rawDocType = docData.type || apiData?.ocr?.mrz?.document_type || fieldsDetail?.document_type?.value || "";
+      let extractedDocNo =
+        docData.number ||
+        apiData?.fields?.document_number?.value ||
+        apiData?.fields?.document_number ||
+        apiData?.ocr?.fields?.document_number ||
+        fieldsDetail?.document_number?.value ||
+        apiData?.document_number ||
+        "";
 
-      // Detect Indian PAN Card from number pattern if type is ambiguous
+      let rawDocType =
+        apiData?.document_type ||
+        apiData?.doc_type ||
+        docData.type ||
+        apiData?.ocr?.master_fields?.document_type?.value ||
+        apiData?.classification?.document_type ||
+        fieldsDetail?.document_type?.value ||
+        apiData?.ocr?.mrz?.document_type ||
+        "";
+
+      // Canonical normalization for Indian and international documents
+      const rawDocUpper = rawDocType.trim().toUpperCase().replace(/_/g, " ");
       const isPanFormat = /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(extractedDocNo.trim());
-      if (isPanFormat || rawDocType.toUpperCase().includes("PAN")) {
+      const isAadhaarFormat =
+        /^[2-9][0-9]{3}\s+[0-9]{4}\s+[0-9]{4}$/.test(extractedDocNo.trim()) ||
+        /^[X•x*]{4}\s+[X•x*]{4}\s+[0-9]{4}$/.test(extractedDocNo.trim()) ||
+        (extractedDocNo.trim().length === 12 && /^\d+$/.test(extractedDocNo.trim()));
+      const isVoterFormat = /^[A-Z]{3}[0-9]{7}$/i.test(extractedDocNo.trim());
+      const isDlFormat = /^[A-Z]{2}[-\s]?[0-9]{2}[-\s]?[0-9]{4}[-\s]?[0-9]{7}$/i.test(extractedDocNo.trim());
+
+      if (isPanFormat || rawDocUpper.includes("PAN")) {
         rawDocType = "PAN CARD";
+      } else if (isAadhaarFormat || rawDocUpper.includes("AADHAAR") || rawDocUpper.includes("UIDAI")) {
+        rawDocType = "AADHAAR CARD";
+      } else if (isVoterFormat || rawDocUpper.includes("VOTER") || rawDocUpper.includes("EPIC")) {
+        rawDocType = "VOTER ID (EPIC)";
+      } else if (isDlFormat || rawDocUpper.includes("DRIVING") || rawDocUpper.includes("LICEN")) {
+        rawDocType = "DRIVING LICENCE";
+      } else if (rawDocUpper.includes("INDIAN PASSPORT")) {
+        rawDocType = "INDIAN PASSPORT";
+      } else if (rawDocUpper.includes("PASSPORT") || (apiData?.raw_mrz && apiData.raw_mrz.length >= 2)) {
+        rawDocType = "PASSPORT";
+      } else if (rawDocUpper.includes("VISA")) {
+        rawDocType = "VISA / ENTRY PERMIT";
+      } else if (rawDocUpper.includes("OCI")) {
+        rawDocType = "OCI CARD";
+      } else if (rawDocUpper.includes("VEHICLE") || rawDocUpper.includes("RC")) {
+        rawDocType = "VEHICLE REGISTRATION (RC)";
+      } else if (rawDocUpper.includes("GENERIC") || rawDocUpper.includes("NATIONAL ID")) {
+        rawDocType = "GENERIC IDENTITY CREDENTIAL";
       }
 
       // Distinct pipeline states: Case A, Case B, Case C, Case D
       const processingStatus: string = apiData?.processing_status || (apiData?.status === "PROCESSING_FAILED" ? "PROCESSING_FAILED" : "COMPLETED");
       const isProcessingFailed = processingStatus === "PROCESSING_FAILED" || Boolean(apiData?.error_code);
-      const isNeedsRescan = processingStatus === "NEEDS_RESCAN" || apiData?.ocr_status === "NEEDS_RESCAN";
-      const isUnsupported = Boolean(
-        isProcessingFailed ||
-        isNeedsRescan ||
-        processingStatus === "UNSUPPORTED" ||
-        apiData?.unsupported ||
-        rawDocType === "UNSUPPORTED" ||
-        rawDocType === "UNKNOWN" ||
-        (!extractedDocNo && !docData.holder_name && (!apiData?.raw_mrz || apiData.raw_mrz.length === 0) && (!apiData?.ocr?.raw_text || apiData.ocr.raw_text.trim().length === 0))
+      const isNeedsRescan = !isProcessingFailed && (
+        processingStatus === "NEEDS_RESCAN" ||
+        apiData?.ocr_status === "NEEDS_RESCAN" ||
+        (rawDocType === "UNKNOWN" && (!apiData?.ocr?.raw_text || apiData.ocr.raw_text.trim().length < 15))
       );
 
-      const isPartial = processingStatus === "PARTIAL" || apiData?.validation_status === "PARTIAL";
+      const hasExtractedContent = Boolean(
+        extractedDocNo ||
+        docData.holder_name ||
+        apiData?.fields?.name ||
+        (apiData?.raw_mrz && apiData.raw_mrz.length > 0) ||
+        (apiData?.ocr?.raw_text && apiData.ocr.raw_text.trim().length >= 15)
+      );
+
+      // Only mark unsupported if explicitly unsupported AND no readable text or credential was inferred
+      const isUnsupported = !isProcessingFailed && !isNeedsRescan && (
+        processingStatus === "UNSUPPORTED" ||
+        apiData?.unsupported === true ||
+        (rawDocType === "UNSUPPORTED" && !hasExtractedContent) ||
+        (!rawDocType && !hasExtractedContent)
+      );
+
+      const isGeneric = !isProcessingFailed && !isNeedsRescan && !isUnsupported && (
+        rawDocType === "GENERIC IDENTITY CREDENTIAL" ||
+        rawDocType === "GENERIC_ID" ||
+        rawDocType === "UNKNOWN" ||
+        processingStatus === "NEEDS_REVIEW"
+      );
+
+      const isPartial = !isProcessingFailed && !isNeedsRescan && !isUnsupported && (
+        isGeneric ||
+        processingStatus === "PARTIAL" ||
+        processingStatus === "NEEDS_REVIEW" ||
+        apiData?.validation_status === "PARTIAL"
+      );
 
       const unsupportedReason = apiData?.unsupported_reason || (
         isProcessingFailed
           ? (apiData?.error || "Processing failed during ingestion pipeline. Please retry.")
           : isNeedsRescan
           ? "Scan resolution or contrast is insufficient for confident character extraction. Please rescan."
-          : "Document type could not be confidently recognized or supported."
+          : "Document type could not be confidently recognized as a supported credential format."
       );
 
       const analysisStatus = isProcessingFailed
@@ -972,14 +1037,53 @@ export default function ScreeningPage() {
         ? "RESCAN REQUIRED"
         : isUnsupported
         ? "UNRECOGNIZED / UNSUPPORTED"
+        : isGeneric
+        ? "GENERIC IDENTITY CREDENTIAL"
         : (rawDocType ? rawDocType.replace(/_/g, " ") : "IDENTIFIED CREDENTIAL");
 
-      const extractedName = isUnsupported ? "" : (docData.holder_name || fieldsDetail?.holder_full_name?.value || "");
-      const extractedNationality = isUnsupported ? "" : (docData.nationality || fieldsDetail?.nationality?.value || (isPanFormat ? "IND" : ""));
-      const extractedDOB = isUnsupported ? "" : (docData.date_of_birth || fieldsDetail?.date_of_birth?.value || "");
-      const extractedGender = isUnsupported ? "" : (docData.gender || fieldsDetail?.gender?.value || (isPanFormat ? "Male" : ""));
-      const extractedExpiry = isUnsupported ? "" : (docData.expiry_date || fieldsDetail?.expiry_date?.value || (isPanFormat ? "Permanent" : ""));
-      const extractedCountry = isUnsupported ? "" : (docData.issuing_country || fieldsDetail?.issuing_country?.value || (isPanFormat ? "IND" : ""));
+      // Extract real text fields - never blank them out when OCR has valid content!
+      const extractedName =
+        docData.holder_name ||
+        fieldsDetail?.holder_full_name?.value ||
+        apiData?.fields?.name?.value ||
+        apiData?.fields?.name ||
+        apiData?.fields?.holder_full_name ||
+        "";
+
+      const extractedNationality =
+        docData.nationality ||
+        fieldsDetail?.nationality?.value ||
+        apiData?.fields?.nationality?.value ||
+        apiData?.fields?.nationality ||
+        (isPanFormat ? "IND" : "");
+
+      const extractedDOB =
+        docData.date_of_birth ||
+        fieldsDetail?.date_of_birth?.value ||
+        apiData?.fields?.date_of_birth?.value ||
+        apiData?.fields?.date_of_birth ||
+        "";
+
+      const extractedGender =
+        docData.gender ||
+        fieldsDetail?.gender?.value ||
+        apiData?.fields?.gender?.value ||
+        apiData?.fields?.gender ||
+        (isPanFormat ? "Male" : "");
+
+      const extractedExpiry =
+        docData.expiry_date ||
+        fieldsDetail?.expiry_date?.value ||
+        apiData?.fields?.expiry_date?.value ||
+        apiData?.fields?.expiry_date ||
+        (isPanFormat ? "Permanent" : "");
+
+      const extractedCountry =
+        docData.issuing_country ||
+        fieldsDetail?.issuing_country?.value ||
+        apiData?.fields?.issuing_country?.value ||
+        apiData?.fields?.issuing_country ||
+        (isPanFormat ? "IND" : "");
 
       // 4. MRZ and check digits from real backend data
       const rawMrzLines: string[] = apiData?.raw_mrz || (apiData?.ocr?.mrz?.lines) || [];
@@ -1861,9 +1965,9 @@ export default function ScreeningPage() {
               </span>
             </div>
           ) : currentScenario.analysisStatus === "NEEDS_RESCAN" ? (
-            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between gap-3 text-xs font-mono">
-              <div className="flex items-center gap-2 text-amber-400 font-bold">
-                <RotateCcw className="w-4 h-4 text-amber-400" />
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-3 text-xs font-mono shadow-xs">
+              <div className="flex items-center gap-2 text-amber-800 font-bold">
+                <RotateCcw className="w-4 h-4 text-amber-700" />
                 <span>⚠ RESCAN REQUIRED</span>
               </div>
               <span className="text-[11px] text-slate-600">
@@ -1871,9 +1975,9 @@ export default function ScreeningPage() {
               </span>
             </div>
           ) : currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED" ? (
-            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between gap-3 text-xs font-mono">
-              <div className="flex items-center gap-2 text-amber-400 font-bold">
-                <AlertTriangle className="w-4 h-4 text-amber-400" />
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-3 text-xs font-mono shadow-xs">
+              <div className="flex items-center gap-2 text-amber-800 font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-700" />
                 <span>⚠ DOCUMENT TYPE NOT RECOGNIZED</span>
               </div>
               <span className="text-[11px] text-slate-600">
@@ -1881,12 +1985,12 @@ export default function ScreeningPage() {
               </span>
             </div>
           ) : currentScenario.analysisStatus === "PARTIALLY_ANALYZED" ? (
-            <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 flex items-center justify-between gap-3 text-xs font-mono">
-              <div className="flex items-center gap-2 text-cyan-400 font-bold">
-                <AlertCircle className="w-4 h-4 text-cyan-400" />
-                <span>✓ DOCUMENT RECOGNIZED (PARTIAL OCR)</span>
+            <div className="p-3.5 rounded-xl bg-cyan-50 border border-cyan-200 flex items-center justify-between gap-3 text-xs font-mono shadow-xs">
+              <div className="flex items-center gap-2 text-cyan-800 font-bold">
+                <AlertCircle className="w-4 h-4 text-cyan-700" />
+                <span>✓ DOCUMENT RECOGNIZED (SECONDARY REVIEW)</span>
               </div>
-              <span className="text-[11px] text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+              <span className="text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                 EXTERNAL VERIFICATION: NOT CONFIGURED (NOT VERIFIED)
               </span>
             </div>

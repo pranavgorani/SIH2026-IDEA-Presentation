@@ -571,7 +571,8 @@ class DifferentialROIForensics:
             return {
                 "recycled_fraud_detected": False,
                 "risk_contribution": 0,
-                "matched_identities": []
+                "matched_identities": [],
+                "evidence": []
             }
 
         emb = self.compute_face_embedding(doc_face_bgr)
@@ -721,7 +722,7 @@ class DifferentialROIForensics:
             "biometrics_1to1": bio_1to1,
             "biometrics_1toN": bio_1toN,
             "total_risk_contribution": total_risk,
-            "findings": forensic_res["findings"] + ([bio_1to1["notes"]] if bio_1to1["notes"] else []) + bio_1toN["evidence"]
+            "findings": forensic_res["findings"] + ([bio_1to1["notes"]] if bio_1to1["notes"] else []) + bio_1toN.get("evidence", [])
         }
 
 

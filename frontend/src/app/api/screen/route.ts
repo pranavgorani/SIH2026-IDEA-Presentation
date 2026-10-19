@@ -96,6 +96,7 @@ Visually inspect this identity document image (which may be an Indian Passport, 
 Extract ONLY information VISIBLY present in the document.
 NEVER guess, infer, complete or fabricate missing fields.
 If the image is not a recognizable identity or travel document, or is blank, blurry, or unsupported, return {"document_type": "UNSUPPORTED"}.
+If the document is a government or official identity credential but its specific subtype is not listed, return {"document_type": "GENERIC_ID"}.
 If a field is unreadable or absent, return null.
 Return confidence (between 0.00 and 1.00) for every extracted field.
 
@@ -103,7 +104,7 @@ For Aadhaar: If masked digits are displayed (e.g. XXXX XXXX 1234), return the EX
 
 Return ONLY a JSON object with this exact structure:
 {
-  "document_type": "INDIAN PASSPORT" | "AADHAAR" | "PAN CARD" | "VOTER ID" | "DRIVING LICENCE" | "VEHICLE RC" | "INDIAN VISA" | "OCI CARD" | "PASSPORT" | "VISA" | "NATIONAL ID" | "UNSUPPORTED",
+  "document_type": "INDIAN PASSPORT" | "AADHAAR" | "PAN CARD" | "VOTER ID" | "DRIVING LICENCE" | "VEHICLE RC" | "INDIAN VISA" | "OCI CARD" | "PASSPORT" | "VISA" | "NATIONAL ID" | "GENERIC_ID" | "UNSUPPORTED",
   "document_number": "string or null",
   "holder_full_name": "string or null",
   "father_name": "string or null",
@@ -226,8 +227,9 @@ Return ONLY a JSON object with this exact structure:
     };
 
     const isUnsupported =
-      fields.document_type === "UNSUPPORTED" ||
-      (!fields.document_number && !fields.holder_full_name);
+      fields.document_type === "UNSUPPORTED" &&
+      !fields.document_number &&
+      !fields.holder_full_name;
 
     if (isUnsupported) {
       return NextResponse.json({
