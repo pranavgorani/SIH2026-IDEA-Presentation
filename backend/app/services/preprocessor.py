@@ -140,6 +140,47 @@ class DocumentPreprocessor:
 
         return damped_bgr, glare_mask_dilated, stats
 
+    def denoise_conservative(self, bgr_img: np.ndarray) -> np.ndarray:
+        """
+        Conservative bilateral filtering: Reduces camera sensor noise while
+        strictly preserving fine text edges, guilloche patterns, and stamps.
+        """
+        try:
+            return cv2.bilateralFilter(bgr_img, d=5, sigmaColor=35, sigmaSpace=35)
+        except Exception:
+            return bgr_img
+
+    def map_bbox_norm_to_orig(self, bbox: Dict[str, int], scale_factor: float, orig_w: Optional[int] = None, orig_h: Optional[int] = None) -> Dict[str, int]:
+        """Maps bounding box from normalized image coordinates back to original image space."""
+        if not scale_factor or scale_factor <= 0:
+            return bbox
+        inv_scale = 1.0 / scale_factor
+        nx = int(round(bbox.get("x", 0) * inv_scale))
+        ny = int(round(bbox.get("y", 0) * inv_scale))
+        nw = int(round(bbox.get("width", 0) * inv_scale))
+        nh = int(round(bbox.get("height", 0) * inv_scale))
+        if orig_w is not None and orig_h is not None:
+            nx = max(0, min(orig_w - 1, nx))
+            ny = max(0, min(orig_h - 1, ny))
+            nw = min(orig_w - nx, nw)
+            nh = min(orig_h - ny, nh)
+        return {"x": nx, "y": ny, "width": nw, "height": nh}
+
+    def map_bbox_orig_to_norm(self, bbox: Dict[str, int], scale_factor: float, norm_w: Optional[int] = None, norm_h: Optional[int] = None) -> Dict[str, int]:
+        """Maps bounding box from original image space to normalized image coordinates."""
+        if not scale_factor or scale_factor <= 0:
+            return bbox
+        nx = int(round(bbox.get("x", 0) * scale_factor))
+        ny = int(round(bbox.get("y", 0) * scale_factor))
+        nw = int(round(bbox.get("width", 0) * scale_factor))
+        nh = int(round(bbox.get("height", 0) * scale_factor))
+        if norm_w is not None and norm_h is not None:
+            nx = max(0, min(norm_w - 1, nx))
+            ny = max(0, min(norm_h - 1, ny))
+            nw = min(norm_w - nx, nw)
+            nh = min(norm_h - ny, nh)
+        return {"x": nx, "y": ny, "width": nw, "height": nh}
+
     def auto_route_document(
         self,
         raw_text: str = "",
@@ -149,10 +190,13 @@ class DocumentPreprocessor:
         """
         Zero-Click Document Auto-Router:
         Automatically classifies document from OCR text / layout into:
-        - PASSPORT: Keywords: REPUBLIC OF INDIA, PASSPORT, or 2-line 44-char MRZ starting with P<
-        - PAN: Keywords: INCOME TAX DEPARTMENT, Permanent Account Number, or regex [A-Z]{5}[0-9]{4}[A-Z]{1}
-        - AADHAAR: Keywords: GOVERNMENT OF INDIA, Unique Identification, DOB, or 12-digit layout with Verhoeff checksum
-        - VISA_OR_PERMIT: Keywords: VISA, ENTRY, STAY, PERMIT
+        - PASSPORT
+        - PAN
+        - AADHAAR
+        - VISA
+        - DRIVING_LICENSE
+        - GENERIC_ID
+        - UNKNOWN
         """
         text_upper = (raw_text or "").upper()
         lines = mrz_lines or []
@@ -163,6 +207,7 @@ class DocumentPreprocessor:
                     lines.append(cleaned)
 
         matched_indicators: List[str] = []
+        competing: List[Dict[str, Any]] = []
         conf = 0.50
         doc_type = "UNKNOWN"
 
@@ -186,6 +231,7 @@ class DocumentPreprocessor:
                 "document_type": doc_type,
                 "confidence": conf,
                 "matched_indicators": matched_indicators,
+                "competing_classifications": competing,
                 "is_supported": True,
                 "requires_mrz": True
             }
@@ -206,6 +252,7 @@ class DocumentPreprocessor:
                 "document_type": doc_type,
                 "confidence": conf,
                 "matched_indicators": matched_indicators,
+                "competing_classifications": competing,
                 "is_supported": True,
                 "requires_mrz": False
             }
@@ -225,11 +272,31 @@ class DocumentPreprocessor:
                 "document_type": doc_type,
                 "confidence": conf,
                 "matched_indicators": matched_indicators,
+                "competing_classifications": competing,
                 "is_supported": True,
                 "requires_mrz": False
             }
 
-        # 4. VISA OR ENTRY PERMIT check
+        # 4. DRIVING LICENCE check
+        has_dl_kw = bool(re.search(r"\b(DRIVING\s+LICEN[SC]E|UNION\s+OF\s+INDIA|AUTHORISED\s+TO\s+DRIVE|DL\s*NO|MOTOR\s+VEHICLES?\s+ACT|TRANSPORT\s+DEPARTMENT|SARATHI|PARIVAHAN)\b", text_upper))
+        dl_match = re.search(r"\b[A-Z]{2}[-\s]?[0-9]{2}[-\s]?[0-9]{4}[-\s]?[0-9]{7}\b", text_upper)
+        if has_dl_kw or dl_match:
+            doc_type = "DRIVING_LICENSE"
+            conf = 0.95 if (has_dl_kw and dl_match) else 0.85
+            if dl_match:
+                matched_indicators.append(f"Driving licence identifier pattern matched: {dl_match.group(0)}")
+            if has_dl_kw:
+                matched_indicators.append("Driving licence regulatory authority labels detected")
+            return {
+                "document_type": doc_type,
+                "confidence": conf,
+                "matched_indicators": matched_indicators,
+                "competing_classifications": competing,
+                "is_supported": True,
+                "requires_mrz": False
+            }
+
+        # 5. VISA OR ENTRY PERMIT check
         has_visa_kw = bool(re.search(r"\b(VISA|ENTRY\s+PERMIT|STAY\s+PERMIT|VISA\s+TYPE|IMMIGRATION)\b", text_upper))
         has_visa_mrz = any(l.startswith("V<") for l in lines)
         if has_visa_kw or has_visa_mrz:
@@ -243,6 +310,7 @@ class DocumentPreprocessor:
                 "document_type": doc_type,
                 "confidence": conf,
                 "matched_indicators": matched_indicators,
+                "competing_classifications": competing,
                 "is_supported": True,
                 "requires_mrz": True
             }
@@ -261,16 +329,31 @@ class DocumentPreprocessor:
             doc_type = "PASSPORT"
             conf = 0.70
             matched_indicators.append("Classified by user/system type hint")
+        elif clean_hint in ("DRIVING_LICENSE", "DRIVING_LICENCE"):
+            doc_type = "DRIVING_LICENSE"
+            conf = 0.70
+            matched_indicators.append("Classified by user/system type hint")
+        elif clean_hint in ("VISA", "VISA_OR_PERMIT", "INDIAN_VISA"):
+            doc_type = "VISA"
+            conf = 0.70
+            matched_indicators.append("Classified by user/system type hint")
+        elif len(text_upper.strip()) > 30:
+            doc_type = "GENERIC_ID"
+            conf = 0.55
+            matched_indicators.append("General identity card textual layout detected")
         else:
-            doc_type = "GENERAL_ID"
-            conf = 0.50
+            doc_type = "UNKNOWN"
+            conf = 0.10
+            matched_indicators.append("No specific credential markers identified")
 
+        is_supported = doc_type not in ("UNKNOWN", "UNSUPPORTED")
         return {
             "document_type": doc_type,
             "confidence": conf,
-            "matched_indicators": matched_indicators or ["Standard credential layout"],
-            "is_supported": True,
-            "requires_mrz": doc_type == "PASSPORT"
+            "matched_indicators": matched_indicators,
+            "competing_classifications": competing,
+            "is_supported": is_supported,
+            "requires_mrz": doc_type in ("PASSPORT", "VISA")
         }
 
     def preprocess(
@@ -285,7 +368,8 @@ class DocumentPreprocessor:
         1. Decode & auto-orient
         2. Standardize width to 1000px preserving aspect ratio
         3. Suppress laminate glare (LAB CLAHE + HSV glare mask)
-        4. Auto-route document taxonomy
+        4. Conservative denoising
+        5. Auto-route document taxonomy
         """
         bgr, meta = self.load_and_orient(image_input)
         if bgr is None:
@@ -293,6 +377,7 @@ class DocumentPreprocessor:
                 "success": False,
                 "error": meta.get("error", "Decoding error"),
                 "normalized_bgr": None,
+                "damped_bgr": None,
                 "glare_mask": None,
                 "glare_stats": {},
                 "routing": {"document_type": "UNKNOWN", "confidence": 0.0}
@@ -307,17 +392,52 @@ class DocumentPreprocessor:
         # Glare suppression
         damped_bgr, glare_mask, glare_stats = self.suppress_specular_glare(normalized_bgr)
 
+        # Conservative denoising on normalized working copy
+        denoised_bgr = self.denoise_conservative(damped_bgr)
+
         # Auto-routing
         routing = self.auto_route_document(raw_text=raw_text, mrz_lines=mrz_lines, type_hint=type_hint)
 
         return {
             "success": True,
+            "original_bgr": bgr,
             "normalized_bgr": normalized_bgr,
             "damped_bgr": damped_bgr,
+            "denoised_bgr": denoised_bgr,
             "glare_mask": glare_mask,
             "glare_stats": glare_stats,
             "routing": routing,
             "metadata": meta
+        }
+
+    def normalize_document(
+        self,
+        image_input: Union[str, Path, bytes, np.ndarray],
+        raw_text: str = "",
+        mrz_lines: Optional[List[str]] = None,
+        type_hint: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Public Pre-Flight Ingestion & Normalization API:
+        Returns normalized BGR image, denoised copy, glare mask, coordinate scale factor,
+        and auto-route prediction without altering original forensic source.
+        """
+        res = self.preprocess(image_input, raw_text=raw_text, mrz_lines=mrz_lines, type_hint=type_hint)
+        meta = res.get("metadata", {})
+        return {
+            "success": res.get("success", True),
+            "original_bgr": res.get("original_bgr"),
+            "normalized_bgr": res.get("normalized_bgr"),
+            "damped_bgr": res.get("damped_bgr"),
+            "denoised_bgr": res.get("denoised_bgr"),
+            "glare_mask": res.get("glare_mask"),
+            "scale_factor": float(meta.get("scale_factor", 1.0)),
+            "original_dimensions": (int(meta.get("original_width", 1000)), int(meta.get("original_height", 600))),
+            "normalized_dimensions": (int(meta.get("normalized_width", 1000)), int(meta.get("normalized_height", 600))),
+            "metadata": meta,
+            "glare_details": res.get("glare_stats", {}),
+            "transformations_applied": ["auto_orient", "normalize_1000px", "lab_clahe", "bilateral_denoise"],
+            "auto_route": res.get("routing", {})
         }
 
 

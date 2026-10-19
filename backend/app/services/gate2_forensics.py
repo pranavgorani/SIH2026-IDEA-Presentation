@@ -79,16 +79,34 @@ class DifferentialROIForensics:
                 face_box = None
 
         # Fallback face zone for typical ID card (left or right side portrait)
+        face_fallback = False
         if face_box is None:
             # Conservative portrait guess: left side 15-45% width, 20-75% height
             face_box = (int(w * 0.08), int(h * 0.20), int(w * 0.28), int(h * 0.55))
+            face_fallback = True
 
         # 2. Text Zone (from OCR boxes or standard layout)
+        parsed_boxes: List[Tuple[int, int, int, int]] = []
         if ocr_boxes and len(ocr_boxes) > 0:
-            min_x = min(b.get("x", 0) for b in ocr_boxes)
-            min_y = min(b.get("y", 0) for b in ocr_boxes)
-            max_x = max(b.get("x", 0) + b.get("width", 0) for b in ocr_boxes)
-            max_y = max(b.get("y", 0) + b.get("height", 0) for b in ocr_boxes)
+            for b in ocr_boxes:
+                if isinstance(b, dict):
+                    bx = int(b.get("x", 0))
+                    by = int(b.get("y", 0))
+                    bw = int(b.get("width", 0))
+                    bh = int(b.get("height", 0))
+                else:
+                    bx = int(getattr(b, "x", 0))
+                    by = int(getattr(b, "y", 0))
+                    bw = int(getattr(b, "width", 0))
+                    bh = int(getattr(b, "height", 0))
+                if bw > 0 and bh > 0:
+                    parsed_boxes.append((bx, by, bw, bh))
+
+        if parsed_boxes:
+            min_x = min(b[0] for b in parsed_boxes)
+            min_y = min(b[1] for b in parsed_boxes)
+            max_x = max(b[0] + b[2] for b in parsed_boxes)
+            max_y = max(b[1] + b[3] for b in parsed_boxes)
             text_box = (
                 max(0, min_x),
                 max(0, min_y),
@@ -102,7 +120,28 @@ class DifferentialROIForensics:
             text_w = max(50, w - text_x - int(w * 0.05))
             text_box = (text_x, int(h * 0.18), text_w, int(h * 0.65))
 
-        # 3. Background Mask: entire canvas minus face box, text box, and borders
+        # 3. MRZ Zone (typically bottom 20% of canvas if MRZ document)
+        mrz_box = (int(w * 0.05), int(h * 0.74), int(w * 0.90), int(h * 0.22))
+
+        # 4. Stamp / Seal Detection heuristic (circular contours with high saturation/red/blue)
+        stamp_box = None
+        try:
+            hsv = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2HSV)
+            # Detect colored ink stamps (blue or magenta/purple)
+            blue_mask = cv2.inRange(hsv, (90, 50, 50), (135, 255, 255))
+            contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for cnt in contours:
+                area = cv2.contourArea(cnt)
+                if (w * h * 0.01) < area < (w * h * 0.15):
+                    sx, sy, sw, sh = cv2.boundingRect(cnt)
+                    aspect = float(sw) / float(max(1, sh))
+                    if 0.7 <= aspect <= 1.4:
+                        stamp_box = (int(sx), int(sy), int(sw), int(sh))
+                        break
+        except Exception:
+            stamp_box = None
+
+        # 5. Background Mask: entire canvas minus face box, text box, mrz, and borders
         bg_mask = np.ones((h, w), dtype=np.uint8) * 255
         # Exclude borders (5%)
         margin_x = int(w * 0.05)
@@ -132,11 +171,88 @@ class DifferentialROIForensics:
             -1
         )
 
+        if stamp_box:
+            sx, sy, sw, sh = stamp_box
+            cv2.rectangle(
+                bg_mask,
+                (max(0, sx - 5), max(0, sy - 5)),
+                (min(w, sx + sw + 5), min(h, sy + sh + 5)),
+                0,
+                -1
+            )
+
         return {
             "face_box": face_box,
             "text_box": text_box,
+            "mrz_box": mrz_box,
+            "stamp_box": stamp_box,
+            "face_fallback": face_fallback,
             "bg_mask": bg_mask
         }
+
+    def detect_copy_move_candidates(
+        self,
+        bgr_img: np.ndarray,
+        min_cluster_size: int = 5,
+        min_distance_px: int = 45
+    ) -> List[Dict[str, Any]]:
+        """
+        ORB-based copy-move candidate detector.
+        Extracts keypoints and matches candidate regions, filtering out trivial
+        adjacent matches, identical font glyphs, and unclustered points.
+        """
+        candidates: List[Dict[str, Any]] = []
+        try:
+            gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
+            orb = cv2.ORB_create(nfeatures=600, scaleFactor=1.2, nlevels=4)
+            keypoints, descriptors = orb.detectAndCompute(gray, None)
+
+            if descriptors is None or len(descriptors) < 15:
+                return []
+
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+            matches = bf.knnMatch(descriptors, descriptors, k=2)
+
+            displaced_matches = []
+            for m_pair in matches:
+                if len(m_pair) < 2:
+                    continue
+                m, n = m_pair
+                # Lowe's ratio test
+                if m.distance < 0.72 * n.distance:
+                    pt1 = keypoints[m.queryIdx].pt
+                    pt2 = keypoints[m.trainIdx].pt
+                    dist = np.hypot(pt1[0] - pt2[0], pt1[1] - pt2[1])
+                    # Reject trivial adjacent matches (e.g. adjacent characters or background grain)
+                    if dist > min_distance_px:
+                        displaced_matches.append((pt1, pt2, dist))
+
+            if len(displaced_matches) >= min_cluster_size:
+                # Group candidate points into bounding clusters
+                src_pts = np.array([m[0] for m in displaced_matches])
+                dst_pts = np.array([m[1] for m in displaced_matches])
+
+                min_x = int(np.min(src_pts[:, 0]))
+                min_y = int(np.min(src_pts[:, 1]))
+                max_x = int(np.max(src_pts[:, 0]))
+                max_y = int(np.max(src_pts[:, 1]))
+
+                candidates.append({
+                    "type": "COPY_MOVE_CANDIDATE",
+                    "bbox": {
+                        "x": min_x,
+                        "y": min_y,
+                        "width": max(20, max_x - min_x),
+                        "height": max(20, max_y - min_y)
+                    },
+                    "matched_points_count": len(displaced_matches),
+                    "confidence": round(min(0.85, 0.40 + len(displaced_matches) * 0.04), 2),
+                    "finding": "Spatially displaced matching descriptor cluster detected (potential cloned patch)"
+                })
+        except Exception:
+            pass
+
+        return candidates
 
     def compute_differential_ela(
         self,
@@ -146,11 +262,11 @@ class DifferentialROIForensics:
     ) -> Dict[str, Any]:
         """
         Differential Error Level Analysis (ELA 90%):
-        1. Re-saves image at 90% JPEG quality to compute absolute difference map.
-        2. Masks out high-contrast text edges (Canny dilation) and specular glare.
-        3. Computes Mean and Std inside ROI_Background.
-        4. Calculates Differential Z-Scores (ΔZ_face, ΔZ_text).
-        5. Calibrates risk contribution and flags anomalous bounding boxes.
+        1. In-memory JPEG recompression at 90%.
+        2. Masks sharp text edges & specular laminate glare.
+        3. Computes Mean & Std separately for Face, Text, Stamp, and Background.
+        4. Calculates region-to-background ratios and differential Z-Scores.
+        5. Formulates localized bounding-box findings.
         """
         h, w = bgr_img.shape[:2]
         gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
@@ -195,17 +311,18 @@ class DifferentialROIForensics:
         mu_bg = float(np.mean(bg_pixels))
         sigma_bg = float(np.std(bg_pixels))
         effective_sigma = max(sigma_bg, 1.5)
+        epsilon = 1e-4
 
-        # 3. Differential Z-Scores
+        # 3. Differential Z-Scores & ROI Ratios
         # A. Face ROI
         fx, fy, fw, fh = rois["face_box"]
         face_sub = combined_energy[max(0, fy):min(h, fy + fh), max(0, fx):min(w, fx + fw)]
         mu_face = float(np.mean(face_sub)) if face_sub.size > 0 else mu_bg
         delta_z_face = float(abs(mu_face - mu_bg) / effective_sigma)
+        ratio_face = float(mu_face / max(mu_bg, epsilon))
 
         # B. Text ROI
         tx, ty, tw, th = rois["text_box"]
-        # Apply non-edge mask so text glyph boundaries themselves don't inflate text ROI
         text_zone_energy = combined_energy[max(0, ty):min(h, ty + th), max(0, tx):min(w, tx + tw)]
         text_zone_non_edge = non_edge_mask[max(0, ty):min(h, ty + th), max(0, tx):min(w, tx + tw)]
         if np.count_nonzero(text_zone_non_edge) > 20:
@@ -214,27 +331,46 @@ class DifferentialROIForensics:
             mu_text = float(np.mean(text_zone_energy)) if text_zone_energy.size > 0 else mu_bg
 
         delta_z_text = float(abs(mu_text - mu_bg) / effective_sigma)
+        ratio_text = float(mu_text / max(mu_bg, epsilon))
+
+        # C. Stamp ROI (if present)
+        stamp_box = rois.get("stamp_box")
+        mu_stamp = mu_bg
+        delta_z_stamp = 0.0
+        if stamp_box:
+            sx, sy, sw, sh = stamp_box
+            stamp_sub = combined_energy[max(0, sy):min(h, sy + sh), max(0, sx):min(w, sx + sw)]
+            if stamp_sub.size > 0:
+                mu_stamp = float(np.mean(stamp_sub))
+                delta_z_stamp = float(abs(mu_stamp - mu_bg) / effective_sigma)
 
         # 4. Calibration & Splicing Localization
         flagged_rois: List[Dict[str, Any]] = []
+        localized_findings: List[Dict[str, Any]] = []
         risk_contribution = 0
         splicing_detected = False
         findings: List[str] = []
 
         max_delta_z = max(delta_z_face, delta_z_text)
 
-        # Face calibration
+        # Face calibration (provisional thresholds: 1.8 clean, 2.6 splicing)
         if delta_z_face > 2.6:
             splicing_detected = True
             face_risk = int(min(75, 45 + (delta_z_face - 2.6) * 15))
             risk_contribution = max(risk_contribution, face_risk)
-            flagged_rois.append({
-                "region": "FACE_PORTRAIT",
-                "x": fx, "y": fy, "width": fw, "height": fh,
+            finding_obj = {
+                "region": "ROI_FACE",
+                "bbox": {"x": fx, "y": fy, "width": fw, "height": fh},
+                "coordinate_space": "working_image",
+                "finding": "REGIONAL_ANOMALY",
+                "confidence": round(min(0.95, 0.70 + delta_z_face * 0.08), 2),
+                "evidence_type": "DIFFERENTIAL_ELA",
                 "delta_z": round(delta_z_face, 2),
                 "severity": "CRITICAL",
                 "description": f"Photo splice detected: Face box ELA variance strongly deviates from card substrate (ΔZ = {delta_z_face:.2f} > 2.6)"
-            })
+            }
+            flagged_rois.append(finding_obj)
+            localized_findings.append(finding_obj)
             findings.append(f"Localized photo splicing detected in ID portrait region (ΔZ = {delta_z_face:.2f})")
         elif delta_z_face > 1.8:
             risk_contribution = max(risk_contribution, int(15 + (delta_z_face - 1.8) * 16))
@@ -249,13 +385,19 @@ class DifferentialROIForensics:
             splicing_detected = True
             text_risk = int(min(75, 45 + (delta_z_text - 2.6) * 15))
             risk_contribution = max(risk_contribution, text_risk)
-            flagged_rois.append({
-                "region": "TEXT_CREDENTIALS",
-                "x": tx, "y": ty, "width": tw, "height": th,
+            finding_obj = {
+                "region": "ROI_TEXT",
+                "bbox": {"x": tx, "y": ty, "width": tw, "height": th},
+                "coordinate_space": "working_image",
+                "finding": "REGIONAL_ANOMALY",
+                "confidence": round(min(0.95, 0.70 + delta_z_text * 0.08), 2),
+                "evidence_type": "DIFFERENTIAL_ELA",
                 "delta_z": round(delta_z_text, 2),
                 "severity": "CRITICAL",
                 "description": f"Digital text splice detected: Credential text patch has anomalous compression vs background (ΔZ = {delta_z_text:.2f} > 2.6)"
-            })
+            }
+            flagged_rois.append(finding_obj)
+            localized_findings.append(finding_obj)
             findings.append(f"Pasted text box / digital alteration detected in ID fields (ΔZ = {delta_z_text:.2f})")
         elif delta_z_text > 1.8:
             risk_contribution = max(risk_contribution, int(15 + (delta_z_text - 1.8) * 16))
@@ -265,27 +407,60 @@ class DifferentialROIForensics:
             risk_contribution = max(risk_contribution, text_pts)
             findings.append(f"Text credentials substrate is uniform and consistent (ΔZ = {delta_z_text:.2f} <= 1.8)")
 
-        # If clean: cap risk contribution strictly <= 12
-        if max_delta_z <= 1.8:
-            risk_contribution = min(12, risk_contribution)
-            status = "UNIFORM_CLEAN"
-        elif max_delta_z <= 2.6:
-            risk_contribution = min(28, max(15, risk_contribution))
-            status = "MINOR_ANOMALY"
-        else:
+        # ORB copy-move analysis
+        copy_move_candidates = self.detect_copy_move_candidates(bgr_img)
+        for cm in copy_move_candidates:
+            localized_findings.append({
+                "region": "ROI_COPY_MOVE",
+                "bbox": cm["bbox"],
+                "coordinate_space": "working_image",
+                "finding": "COPY_MOVE_CANDIDATE",
+                "confidence": cm["confidence"],
+                "evidence_type": "ORB_DESCRIPTOR_MATCH"
+            })
+            findings.append(cm["finding"])
+
+        # Determine Gate 2 status
+        if splicing_detected:
+            status = "STRONG_ANOMALY_EVIDENCE"
             risk_contribution = min(75, max(45, risk_contribution))
-            status = "LOCALIZED_SPLICING_DETECTED"
+        elif max_delta_z > 1.8 or len(copy_move_candidates) > 0:
+            status = "ANOMALY_CANDIDATE"
+            risk_contribution = min(28, max(15, risk_contribution))
+        else:
+            status = "NO_SUPPORTED_ANOMALY_DETECTED"
+            risk_contribution = min(12, risk_contribution)
+
+        limitations: List[str] = [
+            "Forensic thresholds are provisional configuration values.",
+            "Re-compression and messenger app noise were safely decoupled from fraud scoring."
+        ]
+        if rois.get("face_fallback"):
+            limitations.append("Portrait zone was estimated from standard credential geometry.")
 
         return {
-            "splicing_detected": splicing_detected,
             "status": status,
+            "splicing_detected": splicing_detected,
             "delta_z_face": round(delta_z_face, 3),
             "delta_z_text": round(delta_z_text, 3),
+            "delta_z_stamp": round(delta_z_stamp, 3),
             "max_delta_z": round(max_delta_z, 3),
-            "mu_bg": round(mu_bg, 2),
-            "sigma_bg": round(sigma_bg, 2),
+            "relative_anomaly_ratios": {
+                "delta_face": round(ratio_face, 3),
+                "delta_text": round(ratio_text, 3)
+            },
+            "ela_statistics": {
+                "mu_bg": round(mu_bg, 2),
+                "sigma_bg": round(sigma_bg, 2),
+                "mu_face": round(mu_face, 2),
+                "mu_text": round(mu_text, 2),
+                "mu_stamp": round(mu_stamp, 2)
+            },
             "risk_contribution": risk_contribution,
             "flagged_rois": flagged_rois,
+            "copy_move_candidates": copy_move_candidates,
+            "localized_findings": localized_findings,
+            "limitations": limitations,
             "findings": findings
         }
 
@@ -493,14 +668,44 @@ class DifferentialROIForensics:
             bio_1to1["risk_contribution"],
             bio_1toN["risk_contribution"]
         )
+        critical_anomaly = bool(forensic_res.get("splicing_detected") or bio_1to1.get("risk_contribution", 0) >= 50 or bio_1toN.get("recycled_fraud_detected"))
 
-        critical_anomaly = (
-            forensic_res["splicing_detected"] or
-            bio_1to1["status"] == "MISMATCH_DETECTED" or
-            bio_1toN["recycled_fraud_detected"]
-        )
+        roi_results = [
+            {
+                "region": "ROI_FACE",
+                "bbox": {"x": fx, "y": fy, "width": fw, "height": fh},
+                "coordinate_space": "working_image",
+                "fallback_used": rois.get("face_fallback", False),
+                "delta_z": forensic_res["delta_z_face"]
+            },
+            {
+                "region": "ROI_TEXT",
+                "bbox": {"x": rois["text_box"][0], "y": rois["text_box"][1], "width": rois["text_box"][2], "height": rois["text_box"][3]},
+                "coordinate_space": "working_image",
+                "fallback_used": False,
+                "delta_z": forensic_res["delta_z_text"]
+            }
+        ]
+        if rois.get("stamp_box"):
+            roi_results.append({
+                "region": "ROI_STAMP",
+                "bbox": {"x": rois["stamp_box"][0], "y": rois["stamp_box"][1], "width": rois["stamp_box"][2], "height": rois["stamp_box"][3]},
+                "coordinate_space": "working_image",
+                "fallback_used": False,
+                "delta_z": forensic_res.get("delta_z_stamp", 0.0)
+            })
 
         return {
+            # Standard Gate 2 Output Contract
+            "status": forensic_res["status"],
+            "roi_results": roi_results,
+            "ela_statistics": forensic_res["ela_statistics"],
+            "relative_anomaly_ratios": forensic_res["relative_anomaly_ratios"],
+            "copy_move_candidates": forensic_res["copy_move_candidates"],
+            "localized_findings": forensic_res["localized_findings"],
+            "limitations": forensic_res["limitations"],
+
+            # Backward-compatible fields
             "gate2_passed": not critical_anomaly,
             "forensic_status": forensic_res["status"],
             "delta_z_face": forensic_res["delta_z_face"],
@@ -510,7 +715,8 @@ class DifferentialROIForensics:
             "flagged_rois": forensic_res["flagged_rois"],
             "rois": {
                 "face_box": rois["face_box"],
-                "text_box": rois["text_box"]
+                "text_box": rois["text_box"],
+                "stamp_box": rois.get("stamp_box")
             },
             "biometrics_1to1": bio_1to1,
             "biometrics_1toN": bio_1toN,

@@ -176,14 +176,33 @@ async def run_screening_pipeline(
         return make_error_response("UPLOAD", "STORAGE_ERROR", "Failed to securely save uploaded document.", recoverable=True, http_status=500)
 
     # =========================================================================
-    # STAGE 2: IMAGE QUALITY
+    # STAGE 2: PRE-FLIGHT NORMALIZATION & IMAGE QUALITY
     # =========================================================================
     current_stage = "IMAGE_QUALITY"
     t_pp_start = time.perf_counter()
+    prep_result: Dict[str, Any] = {}
+    try:
+        prep_result = document_preprocessor.normalize_document(front_path)
+    except Exception as pe:
+        logger.warning(f"Pre-flight normalization degraded: {pe}")
+        prep_result = {
+            "scale_factor": 1.0,
+            "original_dimensions": (f_w, f_h),
+            "normalized_dimensions": (f_w, f_h),
+            "glare_mask": None,
+            "transformations_applied": ["load_raw"],
+            "auto_route": {"document_type": "UNKNOWN", "confidence": 0.0}
+        }
+
     try:
         quality_res = image_quality_service.analyze(front_path)
         logger.info(f"IMAGE_VALIDATED: score={quality_res.quality_score} acceptable={quality_res.is_acceptable}")
-        log_stage_completion("IMAGE_QUALITY", {"score": quality_res.quality_score, "is_acceptable": quality_res.is_acceptable})
+        log_stage_completion("IMAGE_QUALITY", {
+            "score": quality_res.quality_score,
+            "is_acceptable": quality_res.is_acceptable,
+            "scale_factor": prep_result.get("scale_factor", 1.0),
+            "glare_area_ratio": prep_result.get("glare_details", {}).get("glare_area_ratio", 0.0)
+        })
     except Exception as e:
         logger.warning(f"Image quality assessment error: {e}")
         from backend.app.models.schemas import ImageQualityResult
@@ -231,24 +250,31 @@ async def run_screening_pipeline(
     has_mrz = ocr_raw_res.get("mrz") is not None and getattr(ocr_raw_res["mrz"], "valid", False)
 
     # =========================================================================
-    # STAGE 4: DOCUMENT CLASSIFICATION
+    # STAGE 4: DOCUMENT CLASSIFICATION & ZERO-CLICK AUTO-ROUTER
     # =========================================================================
     current_stage = "DOCUMENT_CLASSIFICATION"
     try:
         mf = ocr_raw_res.get("master_fields") or {}
         extracted_doc_type = mf.get("document_type", {}).get("value")
-        if (document_type_hint == "AUTO_DETECT" or not document_type_hint) and extracted_doc_type and extracted_doc_type != "UNKNOWN":
-            detected_doc_type = extracted_doc_type
-            doc_confidence = mf.get("document_type", {}).get("confidence", 0.95)
-        elif document_type_hint == "AUTO_DETECT" or not document_type_hint:
-            class_res = document_classifier.classify_document(
-                text=ocr_raw_res["raw_text"],
-                width=f_w,
-                height=f_h,
-                has_mrz=has_mrz
-            )
-            detected_doc_type = class_res.get("document_type", "UNKNOWN")
-            doc_confidence = class_res.get("confidence", 0.5)
+        auto_route = prep_result.get("auto_route", {})
+        auto_doc_type = auto_route.get("document_type")
+
+        if (document_type_hint == "AUTO_DETECT" or not document_type_hint):
+            if extracted_doc_type and extracted_doc_type != "UNKNOWN":
+                detected_doc_type = extracted_doc_type
+                doc_confidence = mf.get("document_type", {}).get("confidence", 0.95)
+            elif auto_doc_type and auto_doc_type != "UNKNOWN" and auto_route.get("confidence", 0.0) >= 0.85:
+                detected_doc_type = auto_doc_type
+                doc_confidence = auto_route.get("confidence", 0.90)
+            else:
+                class_res = document_classifier.classify_document(
+                    text=ocr_raw_res["raw_text"],
+                    width=f_w,
+                    height=f_h,
+                    has_mrz=has_mrz
+                )
+                detected_doc_type = class_res.get("document_type", "UNKNOWN")
+                doc_confidence = class_res.get("confidence", 0.5)
         else:
             detected_doc_type = document_type_hint
             doc_confidence = 0.95
@@ -419,9 +445,13 @@ async def run_screening_pipeline(
     log_stage_completion(s8_log[0], s8_log[1], status=s8_log[2])
 
     # =========================================================================
-    # STAGE 9: MULTI-SIGNAL RISK FUSION
+    # STAGE 9: MULTI-SIGNAL RISK FUSION & 3-GATE CALIBRATION
     # =========================================================================
     current_stage = "RISK_ASSESSMENT"
+    gate1_res: Dict[str, Any] = {}
+    gate2_res: Dict[str, Any] = {}
+    gate3_res: Dict[str, Any] = {}
+    final_gate_decision: Optional[str] = None
     try:
         fields_input = ocr_raw_res.get("fields")
         if not isinstance(fields_input, (dict, ExtractedFields)):
@@ -438,6 +468,81 @@ async def run_screening_pipeline(
             ocr_status=str(ocr_raw_res.get("ocr_status", "OK"))
         )
 
+        # 1. Gate 1: Deterministic Structural & Mathematical Validation
+        doc_fields_dict: Dict[str, Any] = {}
+        if hasattr(ocr_raw_res.get("fields"), "model_dump"):
+            doc_fields_dict = ocr_raw_res["fields"].model_dump()
+        elif isinstance(ocr_raw_res.get("fields"), dict):
+            doc_fields_dict = dict(ocr_raw_res["fields"])
+        for k, v in mf.items():
+            if isinstance(v, dict) and v.get("value"):
+                doc_fields_dict[k] = v.get("value")
+
+        mrz_lines_list: List[str] = []
+        if ocr_raw_res.get("mrz"):
+            if hasattr(ocr_raw_res["mrz"], "raw_mrz") and ocr_raw_res["mrz"].raw_mrz:
+                mrz_lines_list = list(ocr_raw_res["mrz"].raw_mrz)
+            elif isinstance(ocr_raw_res["mrz"], dict) and ocr_raw_res["mrz"].get("raw_mrz"):
+                mrz_lines_list = list(ocr_raw_res["mrz"]["raw_mrz"])
+
+        gate1_res = gate1_validator.validate_gate1(
+            document_type=detected_doc_type,
+            fields=doc_fields_dict,
+            mrz_lines=mrz_lines_list,
+            image_input=prep_result.get("normalized_bgr") if prep_result else None
+        )
+
+        # 2. Gate 2: Differential ROI Forensics & Biometric Analysis
+        norm_img = prep_result.get("normalized_bgr") if prep_result else None
+        if norm_img is None:
+            import cv2
+            norm_img = cv2.imread(front_path)
+
+        live_bgr = None
+        if live_path:
+            import cv2
+            live_bgr = cv2.imread(live_path)
+
+        raw_doc_num = str(doc_fields_dict.get("document_number") or "").strip()
+        candidate_holder = str(doc_fields_dict.get("name") or doc_fields_dict.get("holder_full_name") or "").strip()
+
+        gate2_res = gate2_forensics.execute_gate2(
+            bgr_img=norm_img,
+            ocr_boxes=ocr_raw_res.get("bounding_boxes", []),
+            glare_mask=prep_result.get("glare_mask") if prep_result else None,
+            live_selfie_bgr=live_bgr,
+            document_number=raw_doc_num,
+            holder_name=candidate_holder,
+            case_id=case_id
+        )
+
+        # Map Gate 2 findings back to original unscaled coordinates
+        scale_fac = prep_result.get("scale_factor", 1.0) if prep_result else 1.0
+        orig_w, orig_h = prep_result.get("original_dimensions", (f_w, f_h)) if prep_result else (f_w, f_h)
+
+        for item in gate2_res.get("localized_findings", []):
+            if "bbox" in item:
+                orig_bbox = document_preprocessor.map_bbox_norm_to_orig(item["bbox"], scale_fac, orig_w, orig_h)
+                item["bbox_original"] = orig_bbox
+                item["coordinate_space"] = "original_image"
+                item["bbox"] = orig_bbox
+
+        for roi in gate2_res.get("roi_results", []):
+            if "bbox" in roi:
+                orig_bbox = document_preprocessor.map_bbox_norm_to_orig(roi["bbox"], scale_fac, orig_w, orig_h)
+                roi["bbox_original"] = orig_bbox
+                roi["coordinate_space"] = "original_image"
+                roi["bbox"] = orig_bbox
+
+        # 3. Gate 3: Calibrated Multi-Gate Decision Scorer
+        gate3_res = gate3_scorer.evaluate_multi_gate(
+            gate1_result=gate1_res,
+            gate2_result=gate2_res,
+            image_quality_data={"quality_score": getattr(quality_res, "quality_score", 90.0)},
+            record_verification_data={"status": getattr(record_res, "status", "NOT_VERIFIED")},
+            ocr_confidence=float(ocr_raw_res.get("confidence", 0.90))
+        )
+
         risk_assessment = risk_engine.evaluate(
             quality=quality_res,
             ocr=ocr_response_obj,
@@ -447,10 +552,25 @@ async def run_screening_pipeline(
             record=record_res,
             document_type=detected_doc_type
         )
-        logger.info(f"RISK_COMPLETE: score={risk_assessment.risk_score} level={risk_assessment.risk_level}")
+
+        # Calibrate risk_assessment with Gate 3 findings
+        risk_assessment.risk_score = gate3_res["risk_score"]
+        risk_assessment.risk_level = gate3_res["risk_level"]
+        risk_assessment.recommended_action = gate3_res["recommended_action"]
+        risk_assessment.explanation = gate3_res["explanation"]
+        final_gate_decision = gate3_res.get("decision", "LOW_RISK")
+        if gate3_res.get("risk_factors"):
+            risk_assessment.risk_factors = gate3_res["risk_factors"]
+        if gate3_res.get("positive_signals"):
+            risk_assessment.positive_signals = gate3_res["positive_signals"]
+
+        logger.info(f"RISK_COMPLETE: score={risk_assessment.risk_score} level={risk_assessment.risk_level} decision={final_gate_decision}")
         log_stage_completion("RISK_ASSESSMENT", {
             "score": risk_assessment.risk_score,
             "level": risk_assessment.risk_level,
+            "decision": final_gate_decision,
+            "gate1_passed": gate1_res.get("gate1_passed", False),
+            "gate2_passed": gate2_res.get("gate2_passed", True),
             "confidence": risk_assessment.confidence
         })
     except Exception as e:
@@ -1063,7 +1183,7 @@ async def run_screening_pipeline(
     else:
         contract_risk_score = risk_assessment.risk_score
         contract_risk_level = risk_assessment.risk_level
-        contract_decision = getattr(risk_assessment, "final_decision", None) or (
+        contract_decision = final_gate_decision or (
             "LOW_RISK" if risk_assessment.risk_level == "LOW" else ("NEEDS_REVIEW" if risk_assessment.risk_level == "MEDIUM" else "HIGH_RISK")
         )
         conf_val = float(ocr_raw_res.get("confidence", 0))
@@ -1175,17 +1295,31 @@ async def run_screening_pipeline(
         "recommendation": contract_decision if (is_unsupported or is_needs_rescan) else risk_assessment.recommended_action,
         "summary": narrative_report,
 
+        # 3-Gate Forensic Screening Engine Contract
+        "gate1": gate1_res,
+        "gate2": gate2_res,
+        "gate3": gate3_res,
+        "localized_findings": gate2_res.get("localized_findings", []),
+        "roi_boxes": gate2_res.get("roi_results", []),
+        "preflight": {
+            "scale_factor": prep_result.get("scale_factor", 1.0) if prep_result else 1.0,
+            "original_dimensions": list(prep_result.get("original_dimensions", (f_w, f_h))) if prep_result else [f_w, f_h],
+            "normalized_dimensions": list(prep_result.get("normalized_dimensions", (f_w, f_h))) if prep_result else [f_w, f_h],
+            "glare_details": prep_result.get("glare_details", {}) if prep_result else {},
+            "transformations": prep_result.get("transformations_applied", []) if prep_result else []
+        },
+
         # 3-Gate Deterministic-First Architecture Signals
         "three_gate_architecture": {
-            "version": "3-Gate Deterministic-First v2.0",
+            "version": "3-Gate Forensic Engine v2.5",
             "golden_rule_enforced": True,
-            "gate1_deterministic_clarity": {
+            "gate1_deterministic_clarity": gate1_res if gate1_res else {
                 "status": "PASSED" if risk_assessment.risk_score <= 30.0 or not any("Validation failure" in rf for rf in risk_assessment.risk_factors) else "FAILED",
                 "structural_trust_baseline": risk_assessment.risk_score <= 30.0,
                 "document_type": detected_doc_type,
                 "rules_enforced": ["Regex Syntax", "Entity Check / Verhoeff Checksum", "ICAO 9303 Check Digits", "VIZ-MRZ Cross-Check", "QR Payload"]
             },
-            "gate2_differential_forensics": {
+            "gate2_differential_forensics": gate2_res if gate2_res else {
                 "status": "CLEAN" if tamper_res.signals.get("max_delta_z", 0.0) <= 1.8 else ("ANOMALY" if tamper_res.signals.get("max_delta_z", 0.0) <= 2.6 else "SPLICING_DETECTED"),
                 "delta_z_face": tamper_res.signals.get("delta_z_face", 0.0),
                 "delta_z_text": tamper_res.signals.get("delta_z_text", 0.0),
@@ -1195,7 +1329,7 @@ async def run_screening_pipeline(
                 "biometrics_1to1": face_res.status,
                 "recycled_identity_fraud": False
             },
-            "gate3_calibrated_scoring": {
+            "gate3_calibrated_scoring": gate3_res if gate3_res else {
                 "risk_score": risk_assessment.risk_score,
                 "risk_level": risk_assessment.risk_level,
                 "badge_color": "GREEN" if risk_assessment.risk_score <= 30.0 else ("YELLOW" if risk_assessment.risk_score <= 65.0 else "RED"),

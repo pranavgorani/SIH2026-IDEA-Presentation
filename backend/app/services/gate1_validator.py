@@ -106,8 +106,65 @@ class Gate1DeterministicValidator:
     - Establishes the Structural Trust Baseline.
     """
 
-    # Valid 4th characters for Indian PAN cards representing entity types
-    PAN_ENTITY_TYPES = {'P', 'C', 'H', 'F', 'A', 'T', 'B', 'L', 'J', 'G'}
+# Valid 4th characters for Indian PAN cards representing entity types
+PAN_ENTITY_TYPES = {'P', 'C', 'H', 'F', 'A', 'T', 'B', 'L', 'J', 'G'}
+
+# =============================================================================
+# POSITION-AWARE OCR AMBIGUITY NORMALIZERS
+# =============================================================================
+def normalize_numeric_positions(raw_str: str) -> Tuple[str, List[str]]:
+    """
+    Position-aware normalization for strictly numeric slots.
+    Preserves original, returns normalized value and audit trail.
+    """
+    repl = {
+        'O': '0', 'o': '0', 'Q': '0', 'D': '0',
+        'I': '1', 'l': '1', '|': '1', '[': '1', ']': '1',
+        'Z': '2', 'z': '2',
+        'S': '5', 's': '5',
+        'B': '8'
+    }
+    reasons: List[str] = []
+    chars = []
+    for idx, c in enumerate(raw_str):
+        if c in repl:
+            target = repl[c]
+            chars.append(target)
+            reasons.append(f"Position {idx}: Ambiguous character '{c}' normalized to digit '{target}'")
+        else:
+            chars.append(c)
+    return "".join(chars), reasons
+
+
+def normalize_alpha_positions(raw_str: str) -> Tuple[str, List[str]]:
+    """
+    Position-aware normalization for strictly alphabetical slots.
+    Preserves original, returns normalized value and audit trail.
+    """
+    repl = {
+        '0': 'O',
+        '1': 'I',
+        '2': 'Z',
+        '5': 'S',
+        '8': 'B'
+    }
+    reasons: List[str] = []
+    chars = []
+    for idx, c in enumerate(raw_str):
+        if c in repl:
+            target = repl[c]
+            chars.append(target)
+            reasons.append(f"Position {idx}: Ambiguous digit '{c}' normalized to letter '{target}'")
+        else:
+            chars.append(c)
+    return "".join(chars), reasons
+
+
+class Gate1DeterministicValidator:
+    """
+    Gate 1: Deterministic Structural and Mathematical Validation Engine.
+    """
+    PAN_ENTITY_TYPES = {'A', 'B', 'C', 'F', 'G', 'H', 'L', 'J', 'P', 'T'}
 
     def validate_pan(self, document_number: str, dob_str: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -511,6 +568,56 @@ class Gate1DeterministicValidator:
             "notes": "QR payload successfully decoded and cross-checked against OCR text" if qr_matched else "QR payload does not align with visual OCR fields"
         }
 
+    def validate_driving_license(self, document_number: str, dob_str: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Validates Driving Licence deterministic rules:
+        1. Syntax check: State code + RTO code + year + 7 digits, or standard format.
+        2. Does not require an MRZ.
+        3. Logical DOB check (1920-current_year).
+        """
+        doc_num = (document_number or "").strip().upper()
+        failed_rules: List[str] = []
+        passed_rules: List[str] = []
+        trust_bonus = 0
+        current_year = date.today().year
+
+        if not doc_num:
+            return {
+                "valid": False,
+                "trust_bonus": 0,
+                "failed_rules": ["Driving licence number missing or unreadable"],
+                "passed_rules": [],
+                "masked_identifier": "UNAVAILABLE"
+            }
+
+        is_std_dl = bool(re.match(r'^[A-Z]{2}[-\s]?[0-9]{2}[-\s]?[0-9]{4}[-\s]?[0-9]{7}$', doc_num))
+        is_general_dl = bool(re.match(r'^[A-Z]{2}[0-9A-Z]{8,15}$', doc_num.replace("-", "").replace(" ", "")))
+
+        if is_std_dl or is_general_dl:
+            passed_rules.append("Driving licence identifier syntax verified against standard format")
+            trust_bonus += 20
+            structural_valid = True
+        else:
+            failed_rules.append(f"Driving licence identifier '{doc_num}' deviates from standard syntax")
+            structural_valid = False
+
+        if dob_str:
+            parsed_dob = parse_date_safe(dob_str)
+            if parsed_dob:
+                if 1920 <= parsed_dob.year <= current_year:
+                    passed_rules.append(f"Date of birth verified in logical range ({parsed_dob.year})")
+                    trust_bonus += 5
+                else:
+                    failed_rules.append(f"Date of birth year {parsed_dob.year} out of logical range")
+
+        return {
+            "valid": structural_valid and len(failed_rules) == 0,
+            "trust_bonus": trust_bonus if (structural_valid and len(failed_rules) == 0) else 0,
+            "failed_rules": failed_rules,
+            "passed_rules": passed_rules,
+            "masked_identifier": doc_num
+        }
+
     def validate_gate1(
         self,
         document_type: str,
@@ -521,33 +628,83 @@ class Gate1DeterministicValidator:
         """
         Master Gate 1 Orchestrator:
         Extracts fields, enforces hard deterministic rules, and establishes
-        the Structural Trust Baseline.
+        the Structural Trust Baseline with a fully typed, explainable schema.
         """
         doc_type_clean = (document_type or "PASSPORT").upper().replace(" ", "_")
-        doc_num = str(fields.get("document_number") or "").strip()
+        raw_doc_num = str(fields.get("document_number") or "").strip()
         dob = str(fields.get("date_of_birth") or "").strip()
 
         failed_rules: List[str] = []
         passed_rules: List[str] = []
+        warnings: List[str] = []
+        field_results: List[Dict[str, Any]] = []
         trust_bonus = 0
         structural_valid = False
         details: Dict[str, Any] = {}
 
+        # Position-aware ambiguity normalization for document number
+        norm_doc_num = raw_doc_num
+        if "PAN" in doc_type_clean and len(raw_doc_num) == 10:
+            p1, r1 = normalize_alpha_positions(raw_doc_num[:5])
+            p2, r2 = normalize_numeric_positions(raw_doc_num[5:9])
+            p3, r3 = normalize_alpha_positions(raw_doc_num[9:])
+            norm_doc_num = p1 + p2 + p3
+            for r in (r1 + r2 + r3):
+                warnings.append(f"OCR Normalization: {r}")
+        elif "AADHAAR" in doc_type_clean and len(raw_doc_num.replace(" ", "").replace("-", "")) == 12:
+            clean_digits = raw_doc_num.replace(" ", "").replace("-", "")
+            norm_digits, r_dig = normalize_numeric_positions(clean_digits)
+            norm_doc_num = norm_digits
+            for r in r_dig:
+                warnings.append(f"Aadhaar OCR Normalization: {r}")
+
         if "PAN" in doc_type_clean:
-            pan_res = self.validate_pan(doc_num, dob)
+            pan_res = self.validate_pan(norm_doc_num or raw_doc_num, dob)
             structural_valid = pan_res["valid"]
             trust_bonus = pan_res["trust_bonus"]
             failed_rules.extend(pan_res["failed_rules"])
             passed_rules.extend(pan_res["passed_rules"])
             details["pan_validation"] = pan_res
+            field_results.append({
+                "field": "document_number",
+                "raw_value": pan_res.get("masked_identifier", raw_doc_num),
+                "normalized_value": pan_res.get("masked_identifier", norm_doc_num),
+                "source": "VIZ",
+                "validation_status": "PASS" if structural_valid else ("WARNING" if raw_doc_num else "UNREADABLE"),
+                "explanation": "PAN alphanumeric syntax & entity classification checked"
+            })
 
         elif "AADHAAR" in doc_type_clean:
-            aadhaar_res = self.validate_aadhaar(doc_num, dob)
+            aadhaar_res = self.validate_aadhaar(norm_doc_num or raw_doc_num, dob)
             structural_valid = aadhaar_res["valid"]
             trust_bonus = aadhaar_res["trust_bonus"]
             failed_rules.extend(aadhaar_res["failed_rules"])
             passed_rules.extend(aadhaar_res["passed_rules"])
             details["aadhaar_validation"] = aadhaar_res
+            field_results.append({
+                "field": "document_number",
+                "raw_value": aadhaar_res.get("masked_identifier", "XXXX-XXXX-XXXX"),
+                "normalized_value": aadhaar_res.get("masked_identifier", "XXXX-XXXX-XXXX"),
+                "source": "VIZ",
+                "validation_status": "PASS" if structural_valid else "FAIL",
+                "explanation": "Verhoeff Modulo-10 checksum algorithm & privacy masking enforced"
+            })
+
+        elif "DRIVING_LICENSE" in doc_type_clean or "DRIVING_LICENCE" in doc_type_clean:
+            dl_res = self.validate_driving_license(norm_doc_num or raw_doc_num, dob)
+            structural_valid = dl_res["valid"]
+            trust_bonus = dl_res["trust_bonus"]
+            failed_rules.extend(dl_res["failed_rules"])
+            passed_rules.extend(dl_res["passed_rules"])
+            details["dl_validation"] = dl_res
+            field_results.append({
+                "field": "document_number",
+                "raw_value": raw_doc_num,
+                "normalized_value": norm_doc_num,
+                "source": "VIZ",
+                "validation_status": "PASS" if structural_valid else "WARNING",
+                "explanation": "Driving licence identifier syntax validated"
+            })
 
         elif "PASSPORT" in doc_type_clean or "VISA" in doc_type_clean:
             mrz_res = self.validate_passport_mrz(mrz_lines or [], viz_data=fields)
@@ -558,14 +715,30 @@ class Gate1DeterministicValidator:
             details["mrz_validation"] = mrz_res
             if mrz_res.get("viz_mismatch"):
                 trust_bonus = 0
+            field_results.append({
+                "field": "document_number",
+                "raw_value": raw_doc_num,
+                "normalized_value": mrz_res.get("mrz_fields", {}).get("passport_number", norm_doc_num),
+                "source": "MRZ" if mrz_lines else "VIZ",
+                "validation_status": "PASS" if structural_valid else "FAIL",
+                "explanation": "ICAO 9303 Modulo-10 check digits & cross-verification"
+            })
 
         else:
-            structural_valid = bool(doc_num)
+            structural_valid = bool(raw_doc_num)
             trust_bonus = 10 if structural_valid else 0
             if structural_valid:
                 passed_rules.append("General credential document number detected")
             else:
                 failed_rules.append("Document number unreadable or not extracted")
+            field_results.append({
+                "field": "document_number",
+                "raw_value": raw_doc_num,
+                "normalized_value": norm_doc_num,
+                "source": "VIZ",
+                "validation_status": "PASS" if structural_valid else "UNREADABLE",
+                "explanation": "General credential format checked"
+            })
 
         if image_input is not None:
             qr_res = self.verify_qr_payload(image_input, expected_fields=fields)
@@ -580,7 +753,28 @@ class Gate1DeterministicValidator:
 
         gate1_passed = structural_valid and len(failed_rules) == 0
 
+        # Determine Gate 1 high-level status
+        if gate1_passed:
+            gate1_status = "VERIFIED"
+        elif len(failed_rules) > 0:
+            gate1_status = "FAILED_CHECKSUM_OR_LOGIC"
+        elif not raw_doc_num:
+            gate1_status = "OCR_PARTIAL"
+        else:
+            gate1_status = "OCR_PARTIAL"
+
         return {
+            # Standard Gate 1 output schema
+            "doc_type": doc_type_clean,
+            "status": gate1_status,
+            "ocr_status": "COMPLETED" if raw_doc_num else "PARTIAL",
+            "classification_confidence": 0.95 if gate1_passed else 0.70,
+            "field_results": field_results,
+            "checks_performed": passed_rules + failed_rules,
+            "failures": failed_rules,
+            "warnings": warnings,
+
+            # Backward-compatible fields
             "gate1_passed": gate1_passed,
             "structural_valid": structural_valid,
             "trust_bonus": min(40, trust_bonus),

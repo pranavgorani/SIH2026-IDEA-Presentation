@@ -264,7 +264,7 @@ export default function DashboardPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#24365d]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
@@ -283,7 +283,7 @@ export default function DashboardPage() {
           <button
             onClick={fetchData}
             title="Refresh Data"
-            className="p-2 rounded-lg bg-slate-900 border border-[#24365d] text-slate-400 hover:text-white transition-colors"
+            className="p-2 rounded-lg bg-slate-900 border border-slate-200 text-slate-400 hover:text-white transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
@@ -296,7 +296,7 @@ export default function DashboardPage() {
           </Link>
           <Link
             href="/demo"
-            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-xs border border-[#24365d] flex items-center gap-2 transition-all"
+            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-xs border border-slate-200 flex items-center gap-2 transition-all"
           >
             <Cpu className="w-4 h-4" />
             <span>Launch Demo</span>
@@ -307,7 +307,7 @@ export default function DashboardPage() {
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {/* Total Screened */}
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-[#24365d] shadow-sm">
+        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-[11px] font-bold uppercase tracking-wider">Screened</span>
             <FileText className="w-4 h-4 text-blue-400" />
@@ -350,7 +350,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Tampering Flags */}
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-[#24365d] shadow-sm">
+        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-[11px] font-bold uppercase tracking-wider">Tamper Flags</span>
             <Scan className="w-4 h-4 text-purple-400" />
@@ -362,7 +362,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Avg Processing Time */}
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-[#24365d] shadow-sm">
+        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-[11px] font-bold uppercase tracking-wider">Avg Latency</span>
             <Clock className="w-4 h-4 text-sky-400" />
@@ -376,7 +376,7 @@ export default function DashboardPage() {
 
       {/* Secondary Signal Telemetry */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-3.5 rounded-lg bg-slate-900/60 border border-[#24365d] flex items-center justify-between">
+        <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-200 flex items-center justify-between">
           <div>
             <div className="text-xs text-slate-400">Biometric Alerts</div>
             <div className="text-lg font-bold text-white font-mono">
@@ -385,7 +385,7 @@ export default function DashboardPage() {
           </div>
           <UserX className="w-5 h-5 text-amber-400 opacity-80" />
         </div>
-        <div className="p-3.5 rounded-lg bg-slate-900/60 border border-[#24365d] flex items-center justify-between">
+        <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-200 flex items-center justify-between">
           <div>
             <div className="text-xs text-slate-400">Expired Documents</div>
             <div className="text-lg font-bold text-white font-mono">
@@ -394,7 +394,7 @@ export default function DashboardPage() {
           </div>
           <CalendarX className="w-5 h-5 text-red-400 opacity-80" />
         </div>
-        <div className="p-3.5 rounded-lg bg-slate-900/60 border border-[#24365d] flex items-center justify-between">
+        <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-200 flex items-center justify-between">
           <div>
             <div className="text-xs text-slate-400">Low Risk Cases</div>
             <div className="text-lg font-bold text-emerald-400 font-mono">
@@ -403,7 +403,7 @@ export default function DashboardPage() {
           </div>
           <FileCheck className="w-5 h-5 text-emerald-400 opacity-80" />
         </div>
-        <div className="p-3.5 rounded-lg bg-slate-900/60 border border-[#24365d] flex items-center justify-between">
+        <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-200 flex items-center justify-between">
           <div>
             <div className="text-xs text-slate-400">Average Risk Index</div>
             <div className="text-lg font-bold text-sky-400 font-mono">
@@ -419,7 +419,7 @@ export default function DashboardPage() {
       {/* ========================================================================= */}
       <div className="p-6 rounded-2xl bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border-2 border-blue-900/60 space-y-6 shadow-2xl">
         {/* Benchmark Section Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-[#24365d]">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-200">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-400 flex items-center justify-center">
@@ -472,7 +472,7 @@ export default function DashboardPage() {
 
         {/* 100-Doc Top Metrics (5 Summary Cards Including Risk Out of 10) */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
-          <div className="p-3.5 rounded-xl bg-slate-950/70 border border-[#24365d] shadow-sm">
+          <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-200 shadow-sm">
             <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
               Total Batch
             </span>
@@ -538,7 +538,7 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-slate-950/70 border border-[#24365d] shadow-sm col-span-2 sm:col-span-1">
+          <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-200 shadow-sm col-span-2 sm:col-span-1">
             <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
               High-Volume Throughput
             </span>
@@ -558,7 +558,7 @@ export default function DashboardPage() {
         {/* GRAPHS: 100 CHECKS VISUAL FORENSIC ANALYTICS & RISK SCORING GRAPHS */}
         {/* ========================================================================= */}
         <div className="space-y-4 pt-2">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[#24365d]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200">
             <div className="flex items-center gap-2">
               <BarChart2 className="w-4 h-4 text-cyan-400" />
               <h3 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
@@ -572,7 +572,7 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Graph 1: 100 Checks Pass vs Fail by Inspection Category (10 Categories × 10 Checks) */}
-            <div className="lg:col-span-7 p-4 rounded-xl bg-slate-950/90 border border-[#24365d] space-y-3">
+            <div className="lg:col-span-7 p-4 rounded-xl bg-slate-950/90 border border-slate-200 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h4 className="text-xs font-bold text-white uppercase tracking-wider">
@@ -626,7 +626,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Graph 2: Document Risk Score Distribution Out of 10 (Low Risk = Pass vs High Risk = Fail) */}
-            <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/90 border border-[#24365d] space-y-3">
+            <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/90 border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-bold text-white uppercase tracking-wider">
@@ -784,7 +784,7 @@ export default function DashboardPage() {
 
         {/* 4 SIH Architecture Modules Overview Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-2">
+          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-blue-400" />
@@ -802,7 +802,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-2">
+          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <FileCheck className="w-3.5 h-3.5 text-amber-400" />
@@ -820,7 +820,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-2">
+          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <Scan className="w-3.5 h-3.5 text-purple-400" />
@@ -838,7 +838,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-[#24365d] space-y-2">
+          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <UserCheck className="w-3.5 h-3.5 text-sky-400" />
@@ -876,7 +876,7 @@ export default function DashboardPage() {
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                   benchmarkFilter === tab.id
                     ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                    : "bg-slate-950 text-slate-400 hover:text-slate-200 border border-[#24365d]"
+                    : "bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-200"
                 }`}
               >
                 {tab.label}
@@ -892,7 +892,7 @@ export default function DashboardPage() {
               value={benchmarkSearch}
               onChange={(e) => setBenchmarkSearch(e.target.value)}
               placeholder="Search by name, ID or threat..."
-              className="w-full bg-slate-950 border border-[#24365d] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-slate-950 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             {benchmarkSearch && (
               <button
@@ -906,9 +906,9 @@ export default function DashboardPage() {
         </div>
 
         {/* 100-Document Interactive Table (With Risk Score Out of 10) */}
-        <div className="overflow-x-auto rounded-xl border border-[#24365d] bg-slate-950/60 max-h-[520px] overflow-y-auto">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-950/60 max-h-[520px] overflow-y-auto">
           <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 z-10 bg-slate-950 border-b border-[#24365d] text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
+            <thead className="sticky top-0 z-10 bg-slate-950 border-b border-slate-200 text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
               <tr>
                 <th className="py-2.5 px-3">Case / Doc ID</th>
                 <th className="py-2.5 px-3">Type & Country</th>
@@ -1095,7 +1095,7 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-slate-900 border-2 border-blue-900 p-6 space-y-5 shadow-2xl">
             {/* Modal Header */}
-            <div className="flex items-start justify-between pb-4 border-b border-[#24365d]">
+            <div className="flex items-start justify-between pb-4 border-b border-slate-200">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm font-bold text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800">
@@ -1134,7 +1134,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Extracted Identity Credential Metadata */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-950 border border-[#24365d] text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-950 border border-slate-200 text-xs">
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-mono">Document #</span>
                 <span className="font-mono font-bold text-white block mt-0.5">
@@ -1299,7 +1299,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Action Footer */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#24365d]">
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
               <button
                 onClick={() => setSelectedBenchmarkDoc(null)}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
@@ -1340,7 +1340,7 @@ export default function DashboardPage() {
           <>
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Weekly Screening Volume */}
-              <div className="lg:col-span-8 p-5 rounded-2xl bg-slate-900/90 border border-[#24365d]">
+              <div className="lg:col-span-8 p-5 rounded-2xl bg-slate-900/90 border border-slate-200">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="text-sm font-bold text-white uppercase tracking-wider">
@@ -1365,7 +1365,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Risk Distribution Donut */}
-              <div className="lg:col-span-4 p-5 rounded-2xl bg-slate-900/90 border border-[#24365d]">
+              <div className="lg:col-span-4 p-5 rounded-2xl bg-slate-900/90 border border-slate-200">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1">
                   Risk Tier Distribution
                 </h3>
@@ -1403,7 +1403,7 @@ export default function DashboardPage() {
 
             {/* Detection Categories Breakdown */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="p-5 rounded-2xl bg-slate-900/90 border border-[#24365d]">
+              <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-200">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1">
                   Tampering & Detection Categories
                 </h3>
@@ -1422,7 +1422,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="p-5 rounded-2xl bg-slate-900/90 border border-[#24365d]">
+              <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-200">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1">
                   Documents by Credential Class
                 </h3>
@@ -1446,7 +1446,7 @@ export default function DashboardPage() {
       })()}
 
       {/* Recent Screening Queue Table */}
-      <div className="p-6 rounded-2xl bg-slate-900/90 border border-[#24365d] space-y-4">
+      <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-200 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-base font-bold text-white">Recent Screening Cases</h3>
@@ -1463,7 +1463,7 @@ export default function DashboardPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="border-b border-[#24365d] text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
+            <thead className="border-b border-slate-200 text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
               <tr>
                 <th className="py-3 px-3">Case ID</th>
                 <th className="py-3 px-3">Credential Type</th>

@@ -334,36 +334,28 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
   },
   {
     id: "scenario-2",
-    name: "Scenario 2: Income Tax PAN Card (Tampered)",
-    badge: "FRAUD DETECTED",
-    badgeColor: "bg-rose-500/20 text-rose-400 border-rose-500/40",
-    description: "Permanent Account Number Card with digital photo splice & checksum discrepancy.",
-    verdict: "DETAIN / FRAUD ALERT",
-    verdictDesc: "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match.",
-    riskScore: 100.0,
+    name: "Scenario 2: Income Tax PAN Card (Verified Genuine)",
+    badge: "CLEARED",
+    badgeColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
+    description: "Permanent Account Number Card with verified alphanumeric regex, individual entity code, and authentic substrate.",
+    verdict: "CLEAR TO ENTER",
+    verdictDesc: "Auto-gate clearance approved. PAN syntax and individual entity code validated. No MRZ or expiry date required.",
+    riskScore: 8.0,
     documentType: "PAN CARD",
     docNumber: "EXYPG5811G",
     fullName: "PRANAV MAHESH GORANI",
     nationality: "IND",
     dob: "2007-07-20",
-    gender: "7",
-    expiryDate: "2025-08-01",
+    gender: "M",
+    expiryDate: "PERMANENT",
     issuingCountry: "IND",
     visionAccelerator: "⚡ GEMINI 2.5 FLASH NEURAL VISION",
-    rawMrz: [
-      "IDINDEXYPG5811G0<<<<<<<<<<<<<<<",
-      "0707207M2508011IND<<<<<<<<<<<8"
-    ],
-    checkDigits: [
-      { field: "DOCUMENT NUMBER", ext: "0", calc: "9", valid: false },
-      { field: "DATE OF BIRTH", ext: "7", calc: "2", valid: false },
-      { field: "DATE OF EXPIRY", ext: "1", calc: "8", valid: false },
-      { field: "COMPOSITE", ext: "8", calc: "4", valid: false }
-    ],
+    rawMrz: [],
+    checkDigits: [],
     documentSha256: "2482cb9e4f04f23be0133a2c98d011f0a8d3b2e71fa0c29f451e09c8b671a532",
     resolution: "800 x 520 px",
-    tamperingAssessment: "AUTHENTIC SUBSTRATE",
-    elaScore: "94.6% ELA Discontinuity in Portrait Zone",
+    tamperingAssessment: "AUTHENTIC SUBSTRATE / UNIFORM NOISE",
+    elaScore: "Differential ΔZ: 1.12 (Uniform Substrate)",
     biometricMatch: "VERIFIED MATCH (98.4%)",
     watchlistStatus: "NEGATIVE CLEARANCE",
     blockchain: {
@@ -374,14 +366,14 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
     },
     boundingBoxes: [
       {
-        label: "Cardholder Photo",
+        label: "Cardholder Photo (ROI_FACE)",
         boxStyle: { top: "33%", left: "16%", width: "13%", height: "23%" },
         color: "border-cyan-400 bg-cyan-400/10"
       },
       {
-        label: "ID Number & Biographics",
+        label: "ID Number & Biographics (ROI_TEXT)",
         boxStyle: { top: "37%", left: "56%", width: "24%", height: "18%" },
-        color: "border-cyan-400 bg-cyan-400/10"
+        color: "border-amber-400 bg-amber-400/10"
       }
     ]
   },
@@ -1116,6 +1108,107 @@ export default function ScreeningPage() {
         badgeColor = "bg-rose-500/20 text-rose-400 border-rose-500/40";
       }
 
+      // Parse real bounding boxes from Gate 2 / OCR
+      let dynamicBoxes: Array<{
+        label: string;
+        boxStyle: { top: string; left: string; width: string; height: string };
+        color?: string;
+      }> = [];
+
+      const rawRoiBoxes = apiData?.roi_boxes || apiData?.gate2?.roi_results || [];
+      const roiList = Array.isArray(rawRoiBoxes) ? rawRoiBoxes : Object.entries(rawRoiBoxes).map(([region, bbox]) => ({ region, bbox }));
+      const findingsList = Array.isArray(apiData?.localized_findings) ? apiData.localized_findings : (apiData?.gate2?.localized_findings || []);
+
+      // 1. Process localized anomaly findings
+      findingsList.forEach((f: any) => {
+        const b = f.bbox;
+        if (b && realWidth > 0 && realHeight > 0) {
+          const top = `${Math.max(0, Math.min(95, (b.y / realHeight) * 100)).toFixed(1)}%`;
+          const left = `${Math.max(0, Math.min(95, (b.x / realWidth) * 100)).toFixed(1)}%`;
+          const width = `${Math.max(3, Math.min(100, (b.width / realWidth) * 100)).toFixed(1)}%`;
+          const height = `${Math.max(3, Math.min(100, (b.height / realHeight) * 100)).toFixed(1)}%`;
+          dynamicBoxes.push({
+            label: `⚠️ ${f.finding || 'ANOMALY'} [${f.evidence_type || 'ELA'}]`,
+            boxStyle: { top, left, width, height },
+            color: "border-rose-600 bg-rose-600/20 shadow-md shadow-rose-600/30"
+          });
+        }
+      });
+
+      // 2. Process ROI regions
+      roiList.forEach((roi: any) => {
+        const b = roi.bbox;
+        if (b && realWidth > 0 && realHeight > 0) {
+          const top = `${Math.max(0, Math.min(95, (b.y / realHeight) * 100)).toFixed(1)}%`;
+          const left = `${Math.max(0, Math.min(95, (b.x / realWidth) * 100)).toFixed(1)}%`;
+          const width = `${Math.max(3, Math.min(100, (b.width / realWidth) * 100)).toFixed(1)}%`;
+          const height = `${Math.max(3, Math.min(100, (b.height / realHeight) * 100)).toFixed(1)}%`;
+          
+          let label = String(roi.region || "REGION");
+          let color = "border-cyan-500 bg-cyan-500/10";
+          if (label === "ROI_FACE") {
+            label = "Cardholder Portrait (ROI_FACE)";
+            color = "border-cyan-500 bg-cyan-500/15";
+          } else if (label === "ROI_TEXT") {
+            label = "Printed Text / Biographics (ROI_TEXT)";
+            color = "border-blue-500 bg-blue-500/15";
+          } else if (label === "ROI_MRZ") {
+            label = "Machine Readable Zone (ROI_MRZ)";
+            color = "border-emerald-500 bg-emerald-500/15";
+          } else if (label === "ROI_STAMP") {
+            label = "Official Seal / Stamp (ROI_STAMP)";
+            color = "border-amber-500 bg-amber-500/15";
+          } else if (label === "ROI_BACKGROUND") {
+            label = "Substrate (ROI_BACKGROUND)";
+            color = "border-slate-400 bg-slate-400/10";
+          }
+
+          dynamicBoxes.push({
+            label,
+            boxStyle: { top, left, width, height },
+            color
+          });
+        }
+      });
+
+      // Fallback if no specific ROIs returned but document recognized
+      if (dynamicBoxes.length === 0 && !isUnsupported) {
+        if (extractedDocType === "PAN CARD") {
+          dynamicBoxes = [
+            {
+              label: "Cardholder Portrait (ROI_FACE)",
+              boxStyle: { top: "33%", left: "16%", width: "13%", height: "23%" },
+              color: "border-cyan-500 bg-cyan-500/15"
+            },
+            {
+              label: "ID Number & Biographics (ROI_TEXT)",
+              boxStyle: { top: "37%", left: "56%", width: "24%", height: "18%" },
+              color: "border-blue-500 bg-blue-500/15"
+            }
+          ];
+        } else {
+          dynamicBoxes = [
+            {
+              label: "Primary Facial Portrait (ROI_FACE)",
+              boxStyle: { top: "25%", left: "10%", width: "20%", height: "45%" },
+              color: "border-cyan-500 bg-cyan-500/15"
+            },
+            {
+              label: "Biographic Data Fields (ROI_TEXT)",
+              boxStyle: { top: "25%", left: "45%", width: "45%", height: "35%" },
+              color: "border-blue-500 bg-blue-500/15"
+            }
+          ];
+          if (rawMrzLines.length >= 2) {
+            dynamicBoxes.push({
+              label: "Machine Readable Zone (ROI_MRZ)",
+              boxStyle: { top: "75%", left: "5%", width: "90%", height: "20%" },
+              color: "border-emerald-500 bg-emerald-500/15"
+            });
+          }
+        }
+      }
+
       const newScenario: ScenarioItem = {
         id: scanId,
         name: `Scanned: ${customFile.name}`,
@@ -1123,7 +1216,7 @@ export default function ScreeningPage() {
         badgeColor: badgeColor,
         description: isUnsupported
           ? unsupportedReason
-          : `Uploaded document screened with RapidOCR/PaddleOCR, dedicated MRZ parser, and cross-validation engine.`,
+          : `Uploaded document screened with RapidOCR/PaddleOCR, dedicated MRZ parser, and 3-Gate forensic engine.`,
         verdict: verdict,
         verdictDesc: verdictDesc,
         riskScore: effectiveRiskScore,
@@ -1151,23 +1244,7 @@ export default function ScreeningPage() {
           previousHash: "e481b092ca83fd1192837bc901aefb2049182371982bca819203810293847aef",
           digitalSignature: `SIG_MHA_BOC_${sha256.slice(0, 24).toUpperCase()}_${Date.now()}`
         },
-        boundingBoxes: isUnsupported ? [] : [
-          {
-            label: extractedDocType === "PAN CARD" ? "Cardholder Photo" : "Primary Facial Portrait",
-            boxStyle: { top: "25%", left: "10%", width: "20%", height: "45%" },
-            color: "border-cyan-400 bg-cyan-400/10"
-          },
-          {
-            label: extractedDocType === "PAN CARD" ? "ID Number & Biographics" : "Biographic Data Fields",
-            boxStyle: { top: "25%", left: "45%", width: "45%", height: "35%" },
-            color: "border-amber-400 bg-amber-400/10"
-          },
-          {
-            label: "Machine Readable Zone (ICAO Doc 9303)",
-            boxStyle: { top: "75%", left: "5%", width: "90%", height: "20%" },
-            color: "border-emerald-400 bg-emerald-400/10"
-          }
-        ],
+        boundingBoxes: isUnsupported ? [] : dynamicBoxes,
         rawOcrText: apiData?.raw_ocr_text || apiData?.ocr?.raw_text || "",
         fieldConfidence: isUnsupported ? {} : confData,
         sources: isUnsupported ? {} : sourcesData,
@@ -1201,10 +1278,10 @@ export default function ScreeningPage() {
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
         {/* Left Card: Scenario Selector */}
-        <div className="md:col-span-6 p-4 rounded-xl bg-[#0b162c] border border-[#1e345e] shadow-xl flex items-center justify-between gap-4">
+        <div className="md:col-span-6 p-4 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
-              <h2 className="text-base font-bold text-white tracking-wide truncate max-w-[240px]">
+              <h2 className="text-base font-bold text-slate-900 tracking-wide truncate max-w-[240px]">
                 {currentScenario.name}
               </h2>
               <span
@@ -1213,7 +1290,7 @@ export default function ScreeningPage() {
                 {currentScenario.badge}
               </span>
             </div>
-            <p className="text-xs text-slate-400 line-clamp-1">
+            <p className="text-xs text-slate-500 line-clamp-1">
               {currentScenario.description}
             </p>
           </div>
@@ -1228,7 +1305,7 @@ export default function ScreeningPage() {
                 setSelectedScenarioIndex(Number(e.target.value));
               }}
               aria-label="Select Test Scenario"
-              className="px-3 py-2 rounded-lg bg-slate-900 border border-[#24365d] text-white text-xs font-semibold focus:outline-none focus:border-blue-500 cursor-pointer shadow-inner"
+              className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-800 text-xs font-semibold focus:outline-none focus:border-blue-500 cursor-pointer shadow-xs"
             >
               {customScenario && (
                 <option value="custom">
@@ -1248,48 +1325,48 @@ export default function ScreeningPage() {
         <button
           type="button"
           onClick={() => setShowUploadModal(true)}
-          className="md:col-span-4 p-4 rounded-xl bg-[#0b162c] hover:bg-[#112242] border border-[#1e345e] hover:border-blue-500/60 shadow-xl transition-all flex items-center gap-4 text-left group"
+          className="md:col-span-4 p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-blue-400 shadow-xs transition-all flex items-center gap-4 text-left group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
             <UploadCloud className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
+            <div className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
               Upload Custom Document
             </div>
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[11px] text-slate-500">
               Passport / Aadhaar / PAN / DL / RC / Visa
             </div>
           </div>
         </button>
 
-        {/* Right Card: Refresh Button (Requirements 27-29) */}
+        {/* Right Card: Refresh Button */}
         <button
           type="button"
           onClick={handleRefresh}
           disabled={refreshState !== "idle"}
           title="Clear transient scanner state and reload current data from backend"
-          className={`md:col-span-2 p-4 rounded-xl border shadow-xl flex items-center justify-center gap-2 font-mono font-bold text-xs transition-all ${
+          className={`md:col-span-2 p-4 rounded-xl border shadow-xs flex items-center justify-center gap-2 font-mono font-bold text-xs transition-all ${
             refreshState === "refreshing"
-              ? "bg-blue-600/20 text-blue-300 border-blue-500/50 cursor-wait"
+              ? "bg-blue-50 text-blue-700 border-blue-300 cursor-wait"
               : refreshState === "refreshed"
-              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50"
-              : "bg-[#0b162c] hover:bg-[#112242] text-slate-200 hover:text-white border-[#1e345e] hover:border-blue-500/60 cursor-pointer"
+              ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+              : "bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border-slate-200 hover:border-slate-300 cursor-pointer"
           }`}
         >
           {refreshState === "refreshing" ? (
             <>
-              <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+              <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
               <span>↻ Refreshing...</span>
             </>
           ) : refreshState === "refreshed" ? (
             <>
-              <Check className="w-4 h-4 text-emerald-400" />
+              <Check className="w-4 h-4 text-emerald-600" />
               <span>✓ Refreshed</span>
             </>
           ) : (
             <>
-              <RefreshCw className="w-4 h-4 text-slate-400" />
+              <RefreshCw className="w-4 h-4 text-slate-500" />
               <span>↻ Refresh</span>
             </>
           )}
@@ -1305,14 +1382,14 @@ export default function ScreeningPage() {
         {/* ===================================================================== */}
         <div className="lg:col-span-5 space-y-4">
           {/* Top 4 Tool Tabs */}
-          <div className="grid grid-cols-4 gap-1 p-1 bg-[#0b162c] rounded-xl border border-[#1e345e]">
+          <div className="grid grid-cols-4 gap-1 p-1 bg-white rounded-xl border border-slate-200 shadow-xs">
             <button
               type="button"
               onClick={() => setDocToolTab("scan")}
-              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                 docToolTab === "scan"
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-blue-600 text-white shadow-xs font-bold"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
@@ -1322,10 +1399,10 @@ export default function ScreeningPage() {
             <button
               type="button"
               onClick={() => setDocToolTab("ela")}
-              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                 docToolTab === "ela"
-                  ? "bg-rose-600 text-white shadow-md shadow-rose-600/30 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-rose-600 text-white shadow-xs font-bold"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
               }`}
             >
               <span>🔥 ELA Heatmap</span>
@@ -1334,10 +1411,10 @@ export default function ScreeningPage() {
             <button
               type="button"
               onClick={() => setDocToolTab("zones")}
-              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                 docToolTab === "zones"
-                  ? "bg-purple-600 text-white shadow-md shadow-purple-600/30 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-purple-600 text-white shadow-xs font-bold"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
               }`}
             >
               <span>🔲 AI Zones</span>
@@ -1346,10 +1423,10 @@ export default function ScreeningPage() {
             <button
               type="button"
               onClick={() => setDocToolTab("loupe")}
-              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                 docToolTab === "loupe"
-                  ? "bg-amber-600 text-white shadow-md shadow-amber-600/30 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-amber-600 text-white shadow-xs font-bold"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
               }`}
             >
               <span>🔍 Forensic Loupe</span>
@@ -1361,15 +1438,15 @@ export default function ScreeningPage() {
             ref={docContainerRef}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
-            className="relative rounded-2xl bg-[#081021] border border-[#1e345e] p-3 shadow-2xl flex flex-col items-center justify-center overflow-hidden cursor-crosshair group"
+            className="relative rounded-2xl bg-white border border-slate-200 p-3 shadow-md flex flex-col items-center justify-center overflow-hidden cursor-crosshair group"
           >
-            <div className="relative w-full aspect-[800/520] rounded-xl overflow-hidden shadow-2xl border border-slate-700/60 bg-black flex items-center justify-center">
+            <div className="relative w-full aspect-[800/520] rounded-xl overflow-hidden shadow-md border border-slate-300 bg-slate-900 flex items-center justify-center">
               {/* If user uploaded an actual document image, display the real image! */}
               {currentScenario.imageUrl ? (
                 <img
                   src={currentScenario.imageUrl}
                   alt="Actual Screened Document"
-                  className="w-full h-full object-contain bg-black"
+                  className="w-full h-full object-contain bg-slate-900"
                 />
               ) : currentScenario.documentType === "PAN CARD" ? (
                 /* PAN Card Graphic */
@@ -1536,25 +1613,44 @@ export default function ScreeningPage() {
               )}
             </div>
 
+            {/* Localized Anomaly Banner: Explicit Confirmation per Spec */}
+            {currentScenario.boundingBoxes.some(b => b.label.includes("ANOMALY")) ? (
+              <div className="w-full mt-2.5 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-mono flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+                  <span>Localized differential anomaly candidate detected</span>
+                </div>
+                <span className="text-[10px] text-rose-600">Differential ROI Analysis</span>
+              </div>
+            ) : (
+              <div className="w-full mt-2.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-mono flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <span>No localized anomaly detected by the configured checks</span>
+                </div>
+                <span className="text-[10px] text-emerald-600 font-semibold">Uniform Substrate</span>
+              </div>
+            )}
+
             {/* Metadata Line Under Image */}
-            <div className="w-full mt-2.5 px-1 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <div className="w-full mt-2 px-1 flex items-center justify-between text-[11px] font-mono text-slate-500">
               <div className="truncate max-w-[280px]">
-                <strong className="text-slate-300">DOCUMENT SHA-256:</strong>{" "}
+                <strong className="text-slate-700">DOCUMENT SHA-256:</strong>{" "}
                 <span>{currentScenario.documentSha256.slice(0, 20)}...</span>
               </div>
               <div>
-                <strong className="text-slate-300">RESOLUTION:</strong>{" "}
+                <strong className="text-slate-700">RESOLUTION:</strong>{" "}
                 <span>{currentScenario.resolution}</span>
               </div>
             </div>
           </div>
 
           {/* =================================================================== */}
-          {/* DOWNLOAD / PRINT / EXPORT ACTION BAR (Requested in Left Section) */}
+          {/* DOWNLOAD / PRINT / EXPORT ACTION BAR */}
           {/* =================================================================== */}
-          <div className="p-3.5 rounded-xl bg-[#0b162c] border border-[#1e345e] shadow-xl flex flex-wrap items-center justify-between gap-2.5">
-            <span className="text-[11px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
-              <Download className="w-3.5 h-3.5 text-blue-400" />
+          <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-2.5">
+            <span className="text-[11px] font-mono font-bold text-slate-700 flex items-center gap-1.5">
+              <Download className="w-3.5 h-3.5 text-blue-600" />
               <span>Export Reports &amp; Data:</span>
             </span>
 
@@ -1563,7 +1659,7 @@ export default function ScreeningPage() {
               <button
                 type="button"
                 onClick={handlePrintDossier}
-                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/30 flex items-center gap-1.5 transition-all"
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
                 title="Print Official 2-Page MHA Dossier (A4 / PDF)"
               >
                 <Printer className="w-3.5 h-3.5" />
@@ -1574,7 +1670,7 @@ export default function ScreeningPage() {
               <button
                 type="button"
                 onClick={handleExportExcel}
-                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 flex items-center gap-1.5 transition-all"
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
                 title="Download complete forensic analysis and 100 checks in Excel format (.xls)"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -1585,7 +1681,7 @@ export default function ScreeningPage() {
               <button
                 type="button"
                 onClick={handleExportCsv}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-all"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-300 transition-all cursor-pointer"
                 title="Download CSV format"
               >
                 <span>CSV</span>
@@ -1594,22 +1690,22 @@ export default function ScreeningPage() {
           </div>
 
           {/* =================================================================== */}
-          {/* FORENSIC VERIFICATION ANALYSIS MATRIX (PASS / FAIL IN LEFT SECTION) */}
+          {/* FORENSIC VERIFICATION ANALYSIS MATRIX */}
           {/* =================================================================== */}
-          <div className="p-4 rounded-xl bg-[#0b162c] border border-[#1e345e] shadow-xl space-y-3.5">
+          <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs space-y-3.5">
             {/* Verdict Status Banner */}
             <div
               className={`p-3 rounded-lg border flex items-center justify-between text-xs font-bold ${
                 isDetain
-                  ? "bg-rose-950/40 border-rose-500/60 text-rose-300"
-                  : "bg-emerald-950/40 border-emerald-500/60 text-emerald-300"
+                  ? "bg-rose-50 border-rose-300 text-rose-800"
+                  : "bg-emerald-50 border-emerald-300 text-emerald-800"
               }`}
             >
               <div className="flex items-center gap-2">
                 {isDetain ? (
-                  <XCircle className="w-4 h-4 text-rose-400" />
+                  <XCircle className="w-4 h-4 text-rose-600" />
                 ) : (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                 )}
                 <span>
                   {isDetain
@@ -1617,44 +1713,44 @@ export default function ScreeningPage() {
                     : "VERIFICATION PASSED — DOCUMENT AUTHENTIC"}
                 </span>
               </div>
-              <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-black/40">
+              <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-800 shadow-2xs">
                 RISK: {currentScenario.riskScore}/100
               </span>
             </div>
 
             {/* Checks Tally Header */}
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
-              <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                <span className="text-[9px] font-mono text-slate-400 block uppercase">Total Checks</span>
-                <span className="font-mono font-bold text-white text-sm">100</span>
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                <span className="text-[9px] font-mono text-slate-500 block uppercase">Total Checks</span>
+                <span className="font-mono font-bold text-slate-900 text-sm">100</span>
               </div>
-              <div className="p-2 rounded-lg bg-slate-950 border border-emerald-900/60">
-                <span className="text-[9px] font-mono text-emerald-400 block uppercase">Passed</span>
-                <span className="font-mono font-bold text-emerald-400 text-sm">{passedChecksCount}</span>
+              <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                <span className="text-[9px] font-mono text-emerald-700 block uppercase">Passed</span>
+                <span className="font-mono font-bold text-emerald-700 text-sm">{passedChecksCount}</span>
               </div>
-              <div className="p-2 rounded-lg bg-slate-950 border border-rose-900/60">
-                <span className="text-[9px] font-mono text-rose-400 block uppercase">Failed</span>
-                <span className="font-mono font-bold text-rose-400 text-sm">{failedChecksCount}</span>
+              <div className="p-2 rounded-lg bg-rose-50 border border-rose-200">
+                <span className="text-[9px] font-mono text-rose-700 block uppercase">Failed</span>
+                <span className="font-mono font-bold text-rose-700 text-sm">{failedChecksCount}</span>
               </div>
-              <div className="p-2 rounded-lg bg-slate-950 border border-amber-900/60">
-                <span className="text-[9px] font-mono text-amber-400 block uppercase">Warnings</span>
-                <span className="font-mono font-bold text-amber-400 text-sm">{warningChecksCount}</span>
+              <div className="p-2 rounded-lg bg-amber-50 border border-amber-200">
+                <span className="text-[9px] font-mono text-amber-700 block uppercase">Warnings</span>
+                <span className="font-mono font-bold text-amber-700 text-sm">{warningChecksCount}</span>
               </div>
             </div>
 
             {/* 6 Category Forensic Pass / Fail Breakdown Cards */}
             <div className="space-y-2 text-xs">
               {/* Category 1: Substrate */}
-              <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-slate-200">1. Substrate &amp; Material Forensics</div>
-                  <div className="text-[10px] text-slate-400">Error Level Analysis (ELA) &amp; noise profiling</div>
+                  <div className="font-semibold text-slate-800">1. Substrate &amp; Material Forensics</div>
+                  <div className="text-[10px] text-slate-500">Error Level Analysis (ELA) &amp; noise profiling</div>
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
                     currentScenario.tamperingAssessment.includes("AUTHENTIC")
-                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                      : "bg-rose-500/20 text-rose-400 border-rose-500/30"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-rose-50 text-rose-700 border-rose-300"
                   }`}
                 >
                   {currentScenario.tamperingAssessment.includes("AUTHENTIC") ? "PASS" : "FAIL"}
@@ -1662,27 +1758,27 @@ export default function ScreeningPage() {
               </div>
 
               {/* Category 2: OCR Integrity */}
-              <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-slate-200">2. OCR &amp; Biographic Fields</div>
-                  <div className="text-[10px] text-slate-400">Typography alignment &amp; logical dates sequence</div>
+                  <div className="font-semibold text-slate-800">2. OCR &amp; Biographic Fields</div>
+                  <div className="text-[10px] text-slate-500">Typography alignment &amp; logical dates sequence</div>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-300">
                   PASS
                 </span>
               </div>
 
               {/* Category 3: MRZ Checksums */}
-              <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-slate-200">3. ICAO 9303 Checksum Math</div>
-                  <div className="text-[10px] text-slate-400">7-3-1 weight check digits &amp; composite check</div>
+                  <div className="font-semibold text-slate-800">3. ICAO 9303 Checksum Math</div>
+                  <div className="text-[10px] text-slate-500">7-3-1 weight check digits &amp; composite check</div>
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
                     currentScenario.checkDigits.every(c => c.valid)
-                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                      : "bg-rose-500/20 text-rose-400 border-rose-500/30"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-rose-50 text-rose-700 border-rose-300"
                   }`}
                 >
                   {currentScenario.checkDigits.every(c => c.valid) ? "PASS" : "FAIL"}
@@ -1690,16 +1786,16 @@ export default function ScreeningPage() {
               </div>
 
               {/* Category 4: Biometrics */}
-              <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-slate-200">4. Facial Biometrics &amp; Liveness</div>
-                  <div className="text-[10px] text-slate-400">1:1 facial portrait vector &amp; sharpness match</div>
+                  <div className="font-semibold text-slate-800">4. Facial Biometrics &amp; Liveness</div>
+                  <div className="text-[10px] text-slate-500">1:1 facial portrait vector &amp; sharpness match</div>
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
                     currentScenario.biometricMatch.includes("VERIFIED")
-                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                      : "bg-rose-500/20 text-rose-400 border-rose-500/30"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-rose-50 text-rose-700 border-rose-300"
                   }`}
                 >
                   {currentScenario.biometricMatch.includes("VERIFIED") ? "PASS" : "FAIL"}
@@ -1707,16 +1803,16 @@ export default function ScreeningPage() {
               </div>
 
               {/* Category 5: Watchlist */}
-              <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-slate-200">5. Watchlist &amp; Central Registry</div>
-                  <div className="text-[10px] text-slate-400">INTERPOL SLTD and cross-border blacklist</div>
+                  <div className="font-semibold text-slate-800">5. Watchlist &amp; Central Registry</div>
+                  <div className="text-[10px] text-slate-500">INTERPOL SLTD and cross-border blacklist</div>
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
                     currentScenario.watchlistStatus.includes("NEGATIVE")
-                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                      : "bg-rose-500/20 text-rose-400 border-rose-500/30"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-rose-50 text-rose-700 border-rose-300"
                   }`}
                 >
                   {currentScenario.watchlistStatus.includes("NEGATIVE") ? "PASS" : "FAIL"}
@@ -1724,12 +1820,12 @@ export default function ScreeningPage() {
               </div>
 
               {/* Category 6: Blockchain */}
-              <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-slate-200">6. Cryptographic Chain of Custody</div>
-                  <div className="text-[10px] text-slate-400">SHA-256 fingerprint &amp; digital signature</div>
+                  <div className="font-semibold text-slate-800">6. Cryptographic Chain of Custody</div>
+                  <div className="text-[10px] text-slate-500">SHA-256 fingerprint &amp; digital signature</div>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-300">
                   SEALED
                 </span>
               </div>
@@ -1739,9 +1835,9 @@ export default function ScreeningPage() {
             <button
               type="button"
               onClick={() => setShowAllChecksModal(true)}
-              className="w-full py-2.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-800 text-xs font-semibold flex items-center justify-center gap-2 transition-all"
+              className="w-full py-2.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
-              <Search className="w-3.5 h-3.5 text-blue-400" />
+              <Search className="w-3.5 h-3.5 text-blue-600" />
               <span>Inspect All 100 Forensic Checks Detail →</span>
             </button>
           </div>
@@ -1795,12 +1891,12 @@ export default function ScreeningPage() {
               </span>
             </div>
           ) : (
-            <div className="p-3.5 rounded-xl bg-[#0b162c] border border-cyan-800/60 flex items-center justify-between gap-3 text-xs font-mono">
-              <div className="flex items-center gap-2 text-emerald-400 font-bold">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center justify-between gap-3 text-xs font-mono">
+              <div className="flex items-center gap-2 text-emerald-600 font-bold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                 <span>✓ DOCUMENT ANALYZED &amp; RECOGNIZED</span>
               </div>
-              <div className="flex items-center gap-1.5 text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 text-[10px]">
+              <div className="flex items-center gap-1.5 text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[10px]">
                 <AlertTriangle className="w-3 h-3" />
                 <span>EXTERNAL VERIFICATION: NOT CONFIGURED (NOT VERIFIED)</span>
               </div>
@@ -1811,16 +1907,16 @@ export default function ScreeningPage() {
           {/* SECTION 17: UNRECOGNIZED / RESCAN / ERROR NOTIFICATION CARD */}
           {/* ================================================================= */}
           {(currentScenario.isUnsupported || currentScenario.analysisStatus === "NOT_VERIFIED" || currentScenario.analysisStatus === "NEEDS_RESCAN" || currentScenario.analysisStatus === "PROCESSING_FAILED") && (
-            <div className={`p-6 rounded-2xl border-2 shadow-2xl space-y-4 ${
+            <div className={`p-6 rounded-2xl border shadow-md space-y-4 ${
               currentScenario.analysisStatus === "PROCESSING_FAILED"
-                ? "bg-rose-950/30 border-rose-500/50"
-                : "bg-amber-950/30 border-amber-500/50"
+                ? "bg-rose-50 border-rose-200"
+                : "bg-amber-50 border-amber-200"
             }`}>
               <div className="flex items-start gap-3.5">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 border ${
                   currentScenario.analysisStatus === "PROCESSING_FAILED"
-                    ? "bg-rose-500/20 text-rose-400 border-rose-500/40"
-                    : "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                    ? "bg-rose-100 text-rose-600 border-rose-300"
+                    : "bg-amber-100 text-amber-600 border-amber-300"
                 }`}>
                   {currentScenario.analysisStatus === "PROCESSING_FAILED" ? (
                     <AlertCircle className="w-6 h-6" />
@@ -1832,7 +1928,7 @@ export default function ScreeningPage() {
                 </div>
                 <div className="space-y-1">
                   <h3 className={`text-base font-black tracking-wide ${
-                    currentScenario.analysisStatus === "PROCESSING_FAILED" ? "text-rose-300" : "text-amber-300"
+                    currentScenario.analysisStatus === "PROCESSING_FAILED" ? "text-rose-900" : "text-amber-900"
                   }`}>
                     {currentScenario.analysisStatus === "PROCESSING_FAILED"
                       ? "⚠ INGESTION / PROCESSING ERROR"
@@ -1840,19 +1936,19 @@ export default function ScreeningPage() {
                       ? "⚠ SCAN RESOLUTION INSUFFICIENT (RESCAN REQUIRED)"
                       : "⚠ DOCUMENT TYPE NOT RECOGNIZED"}
                   </h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
+                  <p className="text-xs text-slate-700 leading-relaxed">
                     {currentScenario.analysisStatus === "PROCESSING_FAILED"
                       ? "A processing exception occurred. No fraudulent activity has been asserted. Safe retry is available."
                       : currentScenario.analysisStatus === "NEEDS_RESCAN"
                       ? "The uploaded image does not contain enough sharp character edges for reliable text extraction."
                       : "The uploaded file could not be securely matched to any supported credential format (Passport, Aadhaar, PAN, Voter ID, Driving Licence)."}
                   </p>
-                  <p className="text-xs text-slate-400 font-mono">
+                  <p className="text-xs text-slate-600 font-mono">
                     Reason: {currentScenario.unsupportedReason || "Format unrecognized or unreadable text."}
                   </p>
                 </div>
               </div>
-              <div className="p-3 rounded-lg bg-black/60 border border-slate-700/40 text-xs font-mono text-slate-300">
+              <div className="p-3 rounded-lg bg-white border border-slate-200 text-xs font-mono text-slate-700 shadow-2xs">
                 {currentScenario.analysisStatus === "PROCESSING_FAILED"
                   ? "System integrity protected. No artificial risk score or fabricated identity attributes were generated."
                   : currentScenario.analysisStatus === "NEEDS_RESCAN"
@@ -1863,7 +1959,7 @@ export default function ScreeningPage() {
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(true)}
-                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-lg shadow-amber-600/30 flex items-center gap-2 transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs flex items-center gap-2 transition-colors cursor-pointer"
                 >
                   <UploadCloud className="w-4 h-4" />
                   <span>Upload Another Document</span>
@@ -1877,7 +1973,7 @@ export default function ScreeningPage() {
                       setShowUploadModal(true);
                     }
                   }}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer border border-slate-700"
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer border border-slate-300"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>Rescan Document</span>
@@ -1888,27 +1984,27 @@ export default function ScreeningPage() {
 
           {/* BORDER CLEARANCE VERDICT CARD */}
           <div
-            className={`p-5 sm:p-6 rounded-2xl border shadow-2xl flex items-center justify-between gap-5 transition-all ${
+            className={`p-5 sm:p-6 rounded-2xl border shadow-sm flex items-center justify-between gap-5 transition-all ${
               isDetain
-                ? "bg-[#180a15] border-rose-500/40 shadow-rose-950/20"
-                : "bg-[#0b162c] border-[#1e345e] shadow-blue-950/20"
+                ? "bg-rose-50/70 border-rose-300 shadow-rose-100"
+                : "bg-white border-slate-200 shadow-slate-100"
             }`}
           >
             <div className="space-y-1.5 flex-1">
-              <span className="text-[10px] font-mono font-bold tracking-widest text-slate-400 uppercase block">
+              <span className="text-[10px] font-mono font-bold tracking-widest text-slate-500 uppercase block">
                 BORDER CLEARANCE VERDICT
               </span>
               <div className="flex items-center gap-2.5">
                 <span
                   className={`w-4 h-4 rounded-full flex-shrink-0 ${
-                    isDetain ? "bg-rose-500 animate-pulse" : "bg-emerald-400"
+                    isDetain ? "bg-rose-500 animate-pulse" : "bg-emerald-500"
                   }`}
                 />
-                <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
                   {currentScenario.verdict}
                 </h3>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
+              <p className="text-xs text-slate-600 leading-relaxed max-w-xl">
                 {currentScenario.verdictDesc}
               </p>
 
@@ -1924,7 +2020,7 @@ export default function ScreeningPage() {
                       setShowUploadModal(true);
                     }
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 border border-blue-500/40 text-blue-200 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                  className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
                   title="Rescan document through multi-tier OCR engine"
                 >
                   <RotateCcw className={`w-3.5 h-3.5 ${isProcessingUpload ? "animate-spin" : ""}`} />
@@ -1934,18 +2030,18 @@ export default function ScreeningPage() {
                 <button
                   type="button"
                   onClick={handleExportCsv}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+                  className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs active:scale-95 cursor-pointer"
                   title="Export official screening report"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download Screening Report</span>
                 </button>
 
-                <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700/60 text-[10px] font-mono text-slate-300">
-                  <Cpu className="w-3 h-3 text-cyan-400" />
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[10px] font-mono text-slate-700">
+                  <Cpu className="w-3 h-3 text-blue-600" />
                   <span>RapidOCR ONNX + ICAO Parser</span>
-                  <span className="text-slate-600">•</span>
-                  <span className="text-emerald-400 font-bold">{currentScenario.analysisStatus || "VERIFIED"}</span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-emerald-700 font-bold">{currentScenario.analysisStatus || "VERIFIED"}</span>
                 </div>
               </div>
             </div>
@@ -1955,7 +2051,7 @@ export default function ScreeningPage() {
               <div className="relative w-20 h-20 flex items-center justify-center">
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                   <path
-                    className="text-slate-800"
+                    className="text-slate-200"
                     strokeWidth="3.5"
                     stroke="currentColor"
                     fill="none"
@@ -1963,7 +2059,7 @@ export default function ScreeningPage() {
                   />
                   {currentScenario.riskScore !== null && (
                     <path
-                      className={isDetain ? "text-rose-500" : "text-emerald-400"}
+                      className={isDetain ? "text-rose-600" : "text-emerald-600"}
                       strokeDasharray={`${Math.min(100, Math.max(5, currentScenario.riskScore))}, 100`}
                       strokeWidth="3.5"
                       strokeLinecap="round"
@@ -1976,14 +2072,14 @@ export default function ScreeningPage() {
                 <div className="absolute text-center">
                   <span
                     className={`font-mono font-black ${currentScenario.riskScore !== null ? "text-xl" : "text-base"} ${
-                      isDetain ? "text-rose-400" : (currentScenario.riskScore === null ? "text-slate-500" : "text-emerald-300")
+                      isDetain ? "text-rose-600" : (currentScenario.riskScore === null ? "text-slate-400" : "text-emerald-700")
                     }`}
                   >
                     {currentScenario.riskScore !== null ? currentScenario.riskScore.toFixed(1) : "N/A"}
                   </span>
                 </div>
               </div>
-              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-400 mt-1">
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500 mt-1">
                 AI RISK SCORE
               </span>
             </div>
@@ -1991,18 +2087,18 @@ export default function ScreeningPage() {
 
           {/* Section: Unreadable/Unsupported Error Notice (Part 6) */}
           {currentScenario.isUnsupported && (
-            <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-500/50 flex items-start gap-3 text-amber-200 text-xs shadow-lg animate-in fade-in">
-              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3 text-amber-900 text-xs shadow-xs animate-in fade-in">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <p className="font-bold text-amber-300 text-sm">Document Scan Unreadable or Unsupported</p>
-                <p className="text-amber-200/90 text-xs leading-relaxed">
+                <p className="font-bold text-amber-800 text-sm">Document Scan Unreadable or Unsupported</p>
+                <p className="text-amber-800/90 text-xs leading-relaxed">
                   {currentScenario.unsupportedReason || "The uploaded file could not be recognized as an authorized travel or identity credential. No sample data or artificial values have been fabricated."}
                 </p>
                 <div className="pt-1 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setShowUploadModal(true)}
-                    className="px-3 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-semibold text-[11px] transition-all"
+                    className="px-3 py-1 rounded bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-800 font-semibold text-[11px] transition-all cursor-pointer"
                   >
                     Upload Clearer Document
                   </button>
@@ -2012,14 +2108,14 @@ export default function ScreeningPage() {
           )}
 
           {/* 5 MODULE NAVIGATION TABS */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-[#1e345e]">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200">
             <button
               type="button"
               onClick={() => setModuleTab("ocr")}
-              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                 moduleTab === "ocr"
-                  ? "bg-[#0b162c] text-blue-400 border-t-2 border-blue-500 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-white text-blue-700 border-t-2 border-blue-600 font-bold shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
@@ -2029,10 +2125,10 @@ export default function ScreeningPage() {
             <button
               type="button"
               onClick={() => setModuleTab("tamper")}
-              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                 moduleTab === "tamper"
-                  ? "bg-[#0b162c] text-rose-400 border-t-2 border-rose-500 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-white text-rose-700 border-t-2 border-rose-600 font-bold shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
             >
               <Scan className="w-3.5 h-3.5" />
@@ -2042,10 +2138,10 @@ export default function ScreeningPage() {
             <button
               type="button"
               onClick={() => setModuleTab("bio")}
-              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                 moduleTab === "bio"
-                  ? "bg-[#0b162c] text-purple-400 border-t-2 border-purple-500 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-white text-purple-700 border-t-2 border-purple-600 font-bold shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
             >
               <UserCheck className="w-3.5 h-3.5" />
@@ -2055,10 +2151,10 @@ export default function ScreeningPage() {
             <button
               type="button"
               onClick={() => setModuleTab("blockchain")}
-              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                 moduleTab === "blockchain"
-                  ? "bg-[#0b162c] text-emerald-400 border-t-2 border-emerald-500 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-white text-emerald-700 border-t-2 border-emerald-600 font-bold shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
             >
               <Shield className="w-3.5 h-3.5" />
@@ -2068,10 +2164,10 @@ export default function ScreeningPage() {
             <button
               type="button"
               onClick={() => setModuleTab("dossier")}
-              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
+              className={`px-3 py-2 rounded-t-lg text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                 moduleTab === "dossier"
-                  ? "bg-[#0b162c] text-amber-400 border-t-2 border-amber-500 font-bold"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-white text-amber-700 border-t-2 border-amber-600 font-bold shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               }`}
             >
               <FileCheck className="w-3.5 h-3.5" />
@@ -2085,7 +2181,7 @@ export default function ScreeningPage() {
               {isProcessingUpload ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
                   {Array.from({ length: 9 }).map((_, idx) => (
-                    <div key={idx} className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] animate-pulse space-y-3">
+                    <div key={idx} className="p-3 rounded-xl bg-white border border-slate-200 animate-pulse space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="h-3 w-16 bg-slate-800 rounded"></div>
                         <div className="h-3 w-8 bg-slate-800 rounded"></div>
@@ -2115,7 +2211,7 @@ export default function ScreeningPage() {
                           ocr_val: meta.detail?.ocr_val
                         })
                       }
-                      className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
+                      className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
                       title="Click to view field extraction evidence & cross-validation"
                     >
                       <div>
@@ -2158,7 +2254,7 @@ export default function ScreeningPage() {
                           ocr_val: meta.detail?.ocr_val
                         })
                       }
-                      className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
+                      className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
                       title="Click to view field extraction evidence & cross-validation"
                     >
                       <div>
@@ -2201,7 +2297,7 @@ export default function ScreeningPage() {
                           ocr_val: meta.detail?.ocr_val
                         })
                       }
-                      className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between col-span-2 sm:col-span-1 group shadow-sm"
+                      className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between col-span-2 sm:col-span-1 group shadow-sm"
                       title={`Full Name: ${currentScenario.fullName || "Not detected"}. Click to view evidence.`}
                     >
                       <div>
@@ -2244,7 +2340,7 @@ export default function ScreeningPage() {
                           ocr_val: meta.detail?.ocr_val
                         })
                       }
-                      className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
+                      className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
                       title="Click to view field extraction evidence & cross-validation"
                     >
                       <div>
@@ -2287,7 +2383,7 @@ export default function ScreeningPage() {
                           ocr_val: meta.detail?.ocr_val
                         })
                       }
-                      className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
+                      className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
                       title="Click to view field extraction evidence & cross-validation"
                     >
                       <div>
@@ -2330,7 +2426,7 @@ export default function ScreeningPage() {
                           ocr_val: meta.detail?.ocr_val
                         })
                       }
-                      className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
+                      className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
                       title="Click to view field extraction evidence & cross-validation"
                     >
                       <div>
@@ -2373,7 +2469,7 @@ export default function ScreeningPage() {
                           ocr_val: meta.detail?.ocr_val
                         })
                       }
-                      className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
+                      className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
                       title="Click to view field extraction evidence & cross-validation"
                     >
                       <div>
@@ -2416,7 +2512,7 @@ export default function ScreeningPage() {
                           ocr_val: meta.detail?.ocr_val
                         })
                       }
-                      className="p-3 rounded-xl bg-[#0b162c] border border-[#1e345e] hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
+                      className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-500/60 transition-all cursor-pointer flex flex-col justify-between group shadow-sm"
                       title="Click to view field extraction evidence & cross-validation"
                     >
                       <div>
@@ -2443,7 +2539,7 @@ export default function ScreeningPage() {
                 })()}
 
                 {/* AI VISION ACCELERATOR CARD (Section 37) */}
-                <div className="p-3 rounded-xl bg-[#0b162c] border border-cyan-800/60 col-span-2 sm:col-span-3 lg:col-span-2 flex flex-col justify-between">
+                <div className="p-3 rounded-xl bg-white border border-cyan-800/60 col-span-2 sm:col-span-3 lg:col-span-2 flex flex-col justify-between">
                   <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-wider block">
                     AI VISION ACCELERATOR & PIPELINE
                   </span>
@@ -2463,8 +2559,8 @@ export default function ScreeningPage() {
               {/* SECTION 35: ADDITIONAL EXTRACTED INFORMATION PANEL */}
               {currentScenario.additionalFields &&
                 Object.entries(currentScenario.additionalFields).filter(([_, v]) => Boolean(v && String(v).trim().length > 0 && String(v).trim() !== "— Not detected" && String(v).trim() !== "—")).length > 0 && (
-                  <div className="p-4 rounded-xl bg-[#0b162c] border border-[#1e345e] space-y-3 shadow-lg">
-                    <div className="flex items-center justify-between border-b border-[#1e345e] pb-2">
+                  <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3 shadow-lg">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-cyan-400" />
                         <h4 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
@@ -2531,8 +2627,8 @@ export default function ScreeningPage() {
               </div>
 
               {/* SECTION 27: RAW OCR TEXT PANEL (EXPANDABLE) */}
-              <div className="rounded-xl border border-[#1e345e] bg-[#0b162c] overflow-hidden">
-                <div className="p-3 flex items-center justify-between border-b border-[#1e345e]/80">
+              <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                <div className="p-3 flex items-center justify-between border-b border-slate-200/80">
                   <div className="flex items-center gap-2">
                     <FileText className="w-4 h-4 text-cyan-400" />
                     <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
@@ -2552,7 +2648,7 @@ export default function ScreeningPage() {
                   </button>
                 </div>
                 {showRawOcr && (
-                  <div className="p-4 bg-black/90 border-t border-[#1e345e] space-y-2">
+                  <div className="p-4 bg-black/90 border-t border-slate-200 space-y-2">
                     <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
                       <span>Source Engine: RapidOCR PP-OCRv4 / Tesseract Optical Stream</span>
                       <button
@@ -2589,7 +2685,7 @@ export default function ScreeningPage() {
                         key={idx}
                         className={`p-3 rounded-xl border flex flex-col justify-between ${
                           cd.valid
-                            ? "bg-[#0b162c] border-emerald-800/60 text-emerald-400"
+                            ? "bg-white border-emerald-800/60 text-emerald-400"
                             : "bg-rose-950/30 border-rose-500/60 text-rose-400"
                         }`}
                       >
@@ -2628,7 +2724,7 @@ export default function ScreeningPage() {
 
           {/* TAB 2: MODULE 3: TAMPERING AI */}
           {moduleTab === "tamper" && (
-            <div className="p-6 rounded-2xl bg-[#0b162c] border border-[#1e345e] space-y-4">
+            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-4">
               <h4 className="text-sm font-bold text-white flex items-center gap-2">
                 <Scan className="w-4 h-4 text-rose-400" />
                 <span>Forensic Error Level Analysis & Tamper Evaluation</span>
@@ -2668,7 +2764,7 @@ export default function ScreeningPage() {
 
           {/* TAB 3: MODULE 4: BIOMETRICS & LIVENESS */}
           {moduleTab === "bio" && (
-            <div className="p-6 rounded-2xl bg-[#0b162c] border border-[#1e345e] space-y-4">
+            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-4">
               <h4 className="text-sm font-bold text-white flex items-center gap-2">
                 <UserCheck className="w-4 h-4 text-purple-400" />
                 <span>Biometric Portrait Comparison & Watchlist Verification</span>
@@ -2701,7 +2797,7 @@ export default function ScreeningPage() {
 
           {/* TAB 4: BLOCKCHAIN AUDIT LEDGER */}
           {moduleTab === "blockchain" && (
-            <div className="p-6 rounded-2xl bg-[#0b162c] border border-[#1e345e] space-y-3 font-mono text-xs">
+            <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-3 font-mono text-xs">
               <h4 className="text-sm font-bold text-white flex items-center gap-2 font-sans">
                 <Shield className="w-4 h-4 text-emerald-400" />
                 <span>Cryptographic Immutable Chain of Custody</span>
@@ -2743,8 +2839,8 @@ export default function ScreeningPage() {
       {/* ========================================================================= */}
       {showAllChecksModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-4xl bg-[#0b162c] border border-[#1e345e] rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-[#1e345e] pb-3">
+          <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-blue-400" />
                 <h3 className="text-base font-bold text-white">
@@ -2792,9 +2888,9 @@ export default function ScreeningPage() {
             </div>
 
             {/* Checks Table Scrollable */}
-            <div className="flex-1 overflow-y-auto border border-[#1e345e] rounded-xl">
+            <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 bg-[#081021] text-slate-400 font-mono border-b border-[#1e345e]">
+                <thead className="sticky top-0 bg-slate-50 text-slate-400 font-mono border-b border-slate-200">
                   <tr>
                     <th className="py-2.5 px-3">Check ID</th>
                     <th className="py-2.5 px-3">Category</th>
@@ -2847,7 +2943,7 @@ export default function ScreeningPage() {
               </table>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-[#1e345e] text-xs">
+            <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
               <span className="text-slate-400 font-mono">
                 Total: 100 Forensic Verification Tests
               </span>
@@ -2869,8 +2965,8 @@ export default function ScreeningPage() {
       {/* ========================================================================= */}
       {selectedFieldEvidence && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg p-6 rounded-2xl bg-[#0b162c] border border-cyan-500/40 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-[#1e345e] pb-3">
+          <div className="w-full max-w-lg p-6 rounded-2xl bg-white border border-cyan-500/40 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-cyan-400" />
                 <h3 className="text-base font-bold text-white">Extraction Evidence</h3>
@@ -2991,7 +3087,7 @@ export default function ScreeningPage() {
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-[#1e345e]">
+            <div className="flex justify-end pt-2 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setSelectedFieldEvidence(null)}
@@ -3009,8 +3105,8 @@ export default function ScreeningPage() {
       {/* ========================================================================= */}
       {showUploadModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-xl p-6 rounded-2xl bg-[#0b162c] border border-[#1e345e] shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-[#1e345e] pb-3">
+          <div className="w-full max-w-xl p-6 rounded-2xl bg-white border border-slate-200 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2.5">
                 <UploadCloud className="w-5 h-5 text-blue-400" />
                 <h3 className="text-lg font-bold text-white">Upload Custom Document</h3>
@@ -3025,7 +3121,7 @@ export default function ScreeningPage() {
             </div>
 
             {/* Mode toggle */}
-            <div className="flex rounded-lg bg-slate-900 p-1 border border-[#1e345e]">
+            <div className="flex rounded-lg bg-slate-900 p-1 border border-slate-200">
               <button
                 type="button"
                 onClick={() => setUploadMode("file")}
@@ -3047,7 +3143,7 @@ export default function ScreeningPage() {
             </div>
 
             {uploadMode === "file" ? (
-              <div className="relative border-2 border-dashed border-[#24365d] hover:border-blue-500 rounded-xl p-8 text-center bg-slate-950/60 transition-colors">
+              <div className="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-8 text-center bg-slate-950/60 transition-colors">
                 <input
                   type="file"
                   accept="image/*"
@@ -3094,7 +3190,7 @@ export default function ScreeningPage() {
             )}
 
             {customPreview && (
-              <div className="relative max-h-48 rounded-lg overflow-hidden border border-[#24365d] bg-black flex items-center justify-center">
+              <div className="relative max-h-48 rounded-lg overflow-hidden border border-slate-300 bg-black flex items-center justify-center">
                 <img
                   src={customPreview}
                   alt="Custom Preview"
@@ -3103,7 +3199,7 @@ export default function ScreeningPage() {
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#1e345e]">
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setShowUploadModal(false)}
