@@ -28,6 +28,8 @@ interface GeminiExtractedDoc {
 }
 
 export async function POST(req: NextRequest) {
+  const correlationId = req.headers.get("x-correlation-id") || req.headers.get("X-Correlation-ID") || crypto.randomUUID();
+
   try {
     const formData = await req.formData();
     const file = (formData.get("front_image") ||
@@ -36,8 +38,8 @@ export async function POST(req: NextRequest) {
 
     if (!file) {
       return NextResponse.json(
-        { success: false, error: "No document image uploaded" },
-        { status: 400 }
+        { success: false, error: "No document image uploaded", correlation_id: correlationId },
+        { status: 400, headers: { "X-Correlation-ID": correlationId } }
       );
     }
 
@@ -77,13 +79,18 @@ export async function POST(req: NextRequest) {
           const backendResp = await fetch(endpoint, {
             method: "POST",
             body: fwdFormData,
+            headers: {
+              "X-Correlation-ID": correlationId
+            },
             signal: controller.signal,
           });
           clearTimeout(timeoutId);
 
           if (backendResp.ok) {
             successfulBackendData = await backendResp.json();
-            return NextResponse.json(successfulBackendData);
+            return NextResponse.json(successfulBackendData, {
+              headers: { "X-Correlation-ID": correlationId }
+            });
           } else if (backendResp.status === 404) {
             // Try next route endpoint on this host
             continue;
@@ -91,7 +98,10 @@ export async function POST(req: NextRequest) {
             // Backend returned structured error (e.g. 400 for corrupted image, 422, etc.)
             const errJson = await backendResp.json().catch(() => null);
             if (errJson) {
-              return NextResponse.json(errJson, { status: backendResp.status });
+              return NextResponse.json(errJson, {
+                status: backendResp.status,
+                headers: { "X-Correlation-ID": correlationId }
+              });
             }
           }
         } catch (err: any) {
@@ -154,42 +164,57 @@ Return ONLY a JSON object with this exact structure:
   "confidence": 0.95
 }`;
 
-        const geminiResp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [
-                    { text: prompt },
+        const candidateModels = [
+          process.env.GEMINI_MODEL || "gemini-2.5-flash",
+          "gemini-2.5-flash",
+          "gemini-2.0-flash",
+          "gemini-1.5-flash"
+        ];
+        const uniqueModels = Array.from(new Set(candidateModels.filter(Boolean)));
+
+        for (const model of uniqueModels) {
+          try {
+            const geminiResp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [
                     {
-                      inline_data: {
-                        mime_type: mimeType,
-                        data: base64Data,
-                      },
+                      parts: [
+                        { text: prompt },
+                        {
+                          inline_data: {
+                            mime_type: mimeType,
+                            data: base64Data,
+                          },
+                        },
+                      ],
                     },
                   ],
-                },
-              ],
-              generationConfig: {
-                temperature: 0.1,
-                response_mime_type: "application/json",
-                thinkingConfig: {
-                  thinkingLevel: "high",
-                },
-              },
-            }),
-          }
-        );
+                  generationConfig: {
+                    temperature: 0.1,
+                    response_mime_type: "application/json"
+                  },
+                }),
+                signal: AbortSignal.timeout(15000),
+              }
+            );
 
-        if (geminiResp.ok) {
-          const geminiJson = await geminiResp.json();
-          const textCandidate = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (textCandidate) {
-            geminiFields = JSON.parse(textCandidate);
-            geminiUsed = true;
+            if (geminiResp.ok) {
+              const geminiJson = await geminiResp.json();
+              const textCandidate = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (textCandidate) {
+                geminiFields = JSON.parse(textCandidate);
+                geminiUsed = true;
+                break;
+              }
+            } else {
+              console.warn(`Gemini model ${model} HTTP status ${geminiResp.status}`);
+            }
+          } catch (mErr) {
+            console.warn(`Gemini model ${model} attempt error:`, mErr);
           }
         }
       } catch (geminiErr) {
@@ -228,8 +253,9 @@ Return ONLY a JSON object with this exact structure:
           },
           recoverable: true,
           user_action: "Start the Python FastAPI backend server (python -m uvicorn backend.app.main:app --port 8000) and retry.",
+          correlation_id: correlationId
         },
-        { status: 503 }
+        { status: 503, headers: { "X-Correlation-ID": correlationId } }
       );
     }
 

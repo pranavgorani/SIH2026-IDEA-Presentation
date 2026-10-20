@@ -13,7 +13,7 @@ for _p in [str(_workspace_dir), str(_backend_dir)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 
@@ -75,6 +75,14 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# Correlation ID Middleware
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    corr_id = request.headers.get("x-correlation-id") or request.headers.get("X-Correlation-ID") or generate_uuid()
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = corr_id
+    return response
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -112,7 +120,7 @@ logger = logging.getLogger("trustid.gateway")
 # Global Exception Handlers
 @app.exception_handler(Exception)
 async def global_unhandled_exception_handler(request: Request, exc: Exception):
-    req_id = generate_uuid()
+    req_id = request.headers.get("x-correlation-id") or generate_uuid()
     logger.exception(f"GLOBAL_UNHANDLED_EXCEPTION: request_id={req_id} path={request.url.path}: {exc}")
     return JSONResponse(
         status_code=500,
@@ -125,34 +133,39 @@ async def global_unhandled_exception_handler(request: Request, exc: Exception):
             "message": "Screening service encountered an internal error. Please retry or execute with local computer-vision fallback.",
             "user_action": "Retry screening or execute with local computer-vision fallback.",
             "recoverable": True
-        }
+        },
+        headers={"X-Correlation-ID": req_id}
     )
 
-# Standard Health Endpoints
+# -----------------------------------------------------------------------------
+# Standard Health, Liveness, and Readiness Endpoints
+# -----------------------------------------------------------------------------
 @app.get("/health", tags=["Health"])
-def health_root():
-    # Database check
-    try:
-        with SessionLocal() as db:
-            db.execute(text("SELECT 1"))
-        db_status = True
-    except Exception:
-        db_status = False
-
-    storage_status = settings.STORAGE_DIR.exists()
+@app.get("/live", tags=["Health"])
+@app.get("/healthz", tags=["Health"])
+def liveness():
+    """
+    Lightweight Liveness Probe: Confirms the FastAPI application process is up and responding.
+    Returns HTTP 200 immediately without executing heavy external database or API calls.
+    """
     return {
         "status": "ok",
-        "api": True,
-        "database": db_status,
-        "ocr": True,
-        "ai": True,
-        "storage": storage_status
+        "alive": True,
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION
     }
 
+@app.get("/ready", tags=["Health"])
+@app.get("/api/ready", tags=["Health"])
 @app.get("/api/health", tags=["Health"])
 @app.get("/api/backend/health", tags=["Health"])
-def health():
+def readiness():
+    """
+    Readiness Probe: Verifies availability of internal components (database, OCR, OpenCV, storage, AI).
+    A Gemini outage or DB disconnect does not crash the process; individual statuses are reported cleanly.
+    """
     # Database check
+    db_status = "offline"
     try:
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))
@@ -161,29 +174,43 @@ def health():
         db_status = "offline"
 
     # OpenCV check
+    opencv_status = "offline"
     try:
         import cv2
         opencv_status = "online"
     except Exception:
         opencv_status = "offline"
 
+    # OCR check
+    ocr_status = "offline"
+    try:
+        from backend.app.services.ocr_service import ocr_service
+        ocr_status = "online"
+    except Exception:
+        ocr_status = "offline"
+
     # Gemini check
     gemini_status = "configured" if gemini_provider.is_configured else "unconfigured"
 
-    # Storage check
+    # Storage directory check
     storage_status = "online" if settings.STORAGE_DIR.exists() else "offline"
 
+    # Pipeline is ready to process uploads if OCR or AI is available
+    is_ready = (ocr_status == "online" or gemini_status == "configured")
+
     return {
-        "status": "healthy",
+        "status": "healthy" if is_ready else "degraded",
+        "ready": is_ready,
         "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
         "api": True,
         "database": db_status == "online",
-        "ocr": True,
-        "ai": True,
+        "ocr": ocr_status == "online",
+        "ai": gemini_status == "configured",
         "storage": storage_status == "online",
         "services": {
             "database": db_status,
-            "ocr": "online",
+            "ocr": ocr_status,
             "opencv": opencv_status,
             "gemini": gemini_status,
             "storage": storage_status
@@ -210,6 +237,7 @@ def health_screening():
         "ocr_engine": settings.OCR_ENGINE_PRIMARY or "auto",
         "database_connected": db_connected
     }
+
 
 @app.get("/api/health/ai", tags=["Health"])
 @app.get("/api/backend/health/ai", tags=["Health"])

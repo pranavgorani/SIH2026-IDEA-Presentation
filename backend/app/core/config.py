@@ -60,10 +60,21 @@ def get_default_storage_dir() -> Path:
     return BASE_DIR / "storage"
 
 def get_default_cors() -> List[str]:
-    env_cors = os.getenv("CORS_ORIGINS")
+    env_cors = os.getenv("CORS_ORIGINS", "").strip()
     if env_cors:
-        # Strictly reject wildcard in production/authenticated APIs
-        origins = [o.strip() for o in env_cors.split(",") if o.strip() and o.strip() != "*"]
+        origins: List[str] = []
+        if env_cors.startswith("[") and env_cors.endswith("]"):
+            try:
+                import json
+                parsed = json.loads(env_cors)
+                if isinstance(parsed, list):
+                    origins = [str(o).strip().rstrip("/") for o in parsed if str(o).strip() and str(o).strip() != "*"]
+            except Exception:
+                pass
+        if not origins:
+            # Comma-separated or fallback
+            cleaned = env_cors.strip("[]").replace('"', "").replace("'", "")
+            origins = [o.strip().rstrip("/") for o in cleaned.split(",") if o.strip() and o.strip() != "*"]
         if origins:
             return origins
     # Safe explicit default origins for development and local previews
@@ -132,7 +143,7 @@ class Settings(BaseSettings):
     # System Providers (LOCAL_CV_FALLBACK or GEMINI_VISION_HYBRID)
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "LOCAL_CV_FALLBACK")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     # OCR & Pipeline Configuration
     OCR_ENGINE_PRIMARY: str = os.getenv("OCR_ENGINE_PRIMARY", "auto")

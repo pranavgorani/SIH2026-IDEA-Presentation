@@ -356,8 +356,10 @@ Execute the full automated test suite covering OCR parsers, ICAO check digit mat
 | `GET` | `/api/dashboard/stats` | Aggregate dashboard KPIs, distributions, and trends | JWT |
 | `GET` | `/api/settings` | Retrieve active risk weights and decision thresholds | JWT |
 | `PUT` | `/api/settings` | Update risk weights and thresholds (must sum to 1.0) | JWT (Admin Only) |
+| `GET` | `/health` | Lightweight liveness probe (Docker / Render / orchestrator heartbeat) | Public |
+| `GET` | `/api/health` | Comprehensive readiness probe (DB, OCR, OpenCV, Gemini, storage) | Public |
+| `GET` | `/health/screening` | Screening pipeline engine status and provider configuration | Public |
 | `GET` | `/api/settings/health` | Sub-engine telemetry, latencies, and operational status | Public |
-| `GET` | `/api/health` | Fast gateway liveness probe | Public |
 
 ---
 

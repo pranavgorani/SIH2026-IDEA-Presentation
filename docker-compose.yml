@@ -12,12 +12,13 @@ services:
     environment:
       - PORT=8000
       - HOST=0.0.0.0
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-trustid_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-trustid_db}
-      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-trustid_user}:${POSTGRES_PASSWORD:-trustid_dev_secure_password}@postgres:5432/${POSTGRES_DB:-trustid_db}
+      - JWT_SECRET=${JWT_SECRET:-trustid_jwt_local_dev_secret_secure_key_123456789}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
-      - AI_PROVIDER=${AI_PROVIDER:-LOCAL_CV_FALLBACK}
-      - VERIFICATION_MODE=${VERIFICATION_MODE:-MOCK_SIMULATED}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      - AI_PROVIDER=${AI_PROVIDER:-GEMINI_VISION_HYBRID}
+      - VERIFICATION_MODE=${VERIFICATION_MODE:-SANDBOX_GATEWAY}
       - STORAGE_DIR=/app/backend/storage
     volumes:
       - backend-storage:/app/backend/storage
@@ -54,7 +55,7 @@ services:
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-trustid_db}
       - POSTGRES_USER=${POSTGRES_USER:-trustid_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-trustid_dev_secure_password}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

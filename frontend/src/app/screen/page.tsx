@@ -916,7 +916,7 @@ export default function ScreeningPage() {
 
       let apiData: any = null;
       try {
-        setUploadScanStage("Executing RapidOCR / PaddleOCR and Gemini 3.8 Flash...");
+        setUploadScanStage("Executing Document Forensics and AI Multimodal Analysis...");
         const response = await fetch("/api/screen", {
           method: "POST",
           body: formData,

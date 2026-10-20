@@ -10,6 +10,7 @@ services:
     dockerfilePath: ./Dockerfile.backend
     plan: standard
     region: singapore
+    healthCheckPath: /health
     envVars:
       - key: PORT
         value: 8000
@@ -18,11 +19,15 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS
-        value: "" # Set to your deployed Vercel domain e.g. https://sih2026-idea-presentation.vercel.app
+        value: "https://sih2026-idea-presentation.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
       - key: AI_PROVIDER
-        value: LOCAL_CV_FALLBACK
+        value: GEMINI_VISION_HYBRID
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_API_KEY
+        sync: false # Set securely in Render Dashboard Environment Secrets
       - key: VERIFICATION_MODE
-        value: MOCK_SIMULATED
+        value: SANDBOX_GATEWAY
       - key: DATABASE_URL
         fromDatabase:
           name: trustid-postgres

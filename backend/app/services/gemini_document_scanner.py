@@ -15,7 +15,7 @@ from backend.app.core.config import settings
 logger = logging.getLogger("trustid.gemini_scanner")
 
 # Official model code and thinking level as mandated
-OFFICIAL_GEMINI_MODEL = "gemini-3.8-flash"
+OFFICIAL_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 OFFICIAL_THINKING_LEVEL = "high"
 
 def mask_credential(val: Optional[str]) -> str:
@@ -354,25 +354,36 @@ Return ONLY valid JSON matching this schema:
 
         from google.genai import types
 
-        thinking_config = types.ThinkingConfig(thinking_level="high")
-        gen_config = types.GenerateContentConfig(
-            thinking_config=thinking_config,
-            response_mime_type="application/json",
-            temperature=0.1
-        )
+        gen_kwargs = {
+            "response_mime_type": "application/json",
+            "temperature": 0.1
+        }
+        if "3.8" in str(self.model_name):
+            try:
+                gen_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="high")
+            except Exception:
+                pass
+        gen_config = types.GenerateContentConfig(**gen_kwargs)
 
         image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
         contents = [prompt, image_part]
 
-        # Execute generation
-        response = client.models.generate_content(
-            model=self.model_name,
-            contents=contents,
-            config=gen_config
-        )
+        # Execute generation with model fallback
+        candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        unique_models = list(dict.fromkeys(candidate_models))
 
-        if response and response.text:
-            return response.text.strip()
+        for m in unique_models:
+            try:
+                response = client.models.generate_content(
+                    model=m,
+                    contents=contents,
+                    config=gen_config
+                )
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as ge:
+                logger.warning(f"SDK model {m} attempt failed: {ge}")
+                continue
         return None
 
     def _call_gemini_with_rest(
@@ -382,10 +393,9 @@ Return ONLY valid JSON matching this schema:
         prompt: str,
         timeout: float = 20.0
     ) -> Optional[str]:
-        """High-performance REST API fallback with thinkingLevel='high'."""
+        """High-performance REST API fallback with multi-model cascade."""
         import httpx
         encoded = base64.b64encode(image_bytes).decode("utf-8")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent"
 
         payload = {
             "contents": [
@@ -403,10 +413,7 @@ Return ONLY valid JSON matching this schema:
             ],
             "generationConfig": {
                 "temperature": 0.1,
-                "response_mime_type": "application/json",
-                "thinkingConfig": {
-                    "thinkingLevel": "high"
-                }
+                "response_mime_type": "application/json"
             }
         }
 
@@ -415,17 +422,26 @@ Return ONLY valid JSON matching this schema:
             "Content-Type": "application/json"
         }
 
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.post(url, json=payload, headers=headers)
-            if resp.status_code == 200:
-                data = resp.json()
-                candidates = data.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts:
-                        return parts[0].get("text", "").strip()
-            else:
-                logger.warning(f"Gemini REST response status {resp.status_code}: {resp.text[:200]}")
+        candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        unique_models = list(dict.fromkeys(candidate_models))
+
+        for m in unique_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+            try:
+                with httpx.Client(timeout=timeout) as client:
+                    resp = client.post(url, json=payload, headers=headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            if parts:
+                                return parts[0].get("text", "").strip()
+                    else:
+                        logger.warning(f"Gemini REST response status {resp.status_code} for {m}: {resp.text[:150]}")
+            except Exception as e:
+                logger.warning(f"Gemini REST request error for {m}: {e}")
+                continue
         return None
 
     def scan_document(

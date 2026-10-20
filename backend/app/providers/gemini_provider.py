@@ -41,9 +41,9 @@ class GeminiVisionHybridProvider(AIProvider):
 
     @property
     def model_name(self) -> str:
-        model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
-        allowed_models = ["gemini-3.8-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]
-        return model if model in allowed_models else "gemini-3.8-flash"
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        allowed_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-3.8-flash"]
+        return model if model in allowed_models else "gemini-2.5-flash"
 
     def analyze_document(self, image_path: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         # Step 1: Run deterministic local CV analysis first to guarantee baseline metrics
@@ -153,8 +153,10 @@ class GeminiVisionHybridProvider(AIProvider):
             '{"anomalies_detected": boolean, "confidence": float, "summary": string}'
         )
 
-        model = self.model_name
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        # Deduplicate while preserving order
+        unique_models = list(dict.fromkeys(candidate_models))
+
         payload = {
             "contents": [
                 {
@@ -171,10 +173,7 @@ class GeminiVisionHybridProvider(AIProvider):
             ],
             "generationConfig": {
                 "temperature": 0.1,
-                "response_mime_type": "application/json",
-                "thinkingConfig": {
-                    "thinkingLevel": "high"
-                }
+                "response_mime_type": "application/json"
             }
         }
 
@@ -183,28 +182,41 @@ class GeminiVisionHybridProvider(AIProvider):
             "Content-Type": "application/json"
         }
 
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.post(url, json=payload, headers=headers)
-            if resp.status_code == 200:
-                data = resp.json()
-                candidates = data.get("candidates", [])
-                if not candidates:
-                    raise ValueError("Gemini returned empty candidate response")
-                content = candidates[0].get("content", {})
-                parts = content.get("parts", [])
-                if not parts:
-                    raise ValueError("Gemini returned empty parts")
-                text = parts[0].get("text", "").strip()
-                if not text:
-                    raise ValueError("Gemini returned blank response text")
-                
-                # Parse JSON
-                parsed = json.loads(text)
-                if not isinstance(parsed, dict):
-                    raise ValueError("Gemini response is not a valid JSON object")
-                return parsed
-            else:
-                raise RuntimeError(f"Gemini API returned status code {resp.status_code}: {resp.text[:120]}")
+        last_error = None
+        for model in unique_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            try:
+                with httpx.Client(timeout=12.0) as client:
+                    resp = client.post(url, json=payload, headers=headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if not candidates:
+                            raise ValueError("Gemini returned empty candidate response")
+                        content = candidates[0].get("content", {})
+                        parts = content.get("parts", [])
+                        if not parts:
+                            raise ValueError("Gemini returned empty parts")
+                        text = parts[0].get("text", "").strip()
+                        if not text:
+                            raise ValueError("Gemini returned blank response text")
+                        
+                        # Parse JSON
+                        parsed = json.loads(text)
+                        if not isinstance(parsed, dict):
+                            raise ValueError("Gemini response is not a valid JSON object")
+                        return parsed
+                    elif resp.status_code in (400, 404):
+                        # Try next model in candidate cascade
+                        last_error = f"Model {model} returned status {resp.status_code}: {resp.text[:120]}"
+                        continue
+                    else:
+                        raise RuntimeError(f"Gemini API returned status code {resp.status_code}: {resp.text[:120]}")
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        raise RuntimeError(f"All Gemini models failed. Last error: {last_error}")
 
     def _call_gemini_explanation(self, risk_score: float, risk_factors: List[str], positive_signals: List[str]) -> str:
         prompt = (
