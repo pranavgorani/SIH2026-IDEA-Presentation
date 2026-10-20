@@ -581,7 +581,7 @@ export default function CaseInvestigationPage() {
                   </div>
                   <div className="text-[11px] text-slate-300 bg-slate-950/70 p-2.5 rounded-lg border border-purple-500/20">
                     <strong className="text-purple-300 block mb-0.5">Forensic Finding:</strong>
-                    "This region shows signals consistent with possible manipulation."
+                    &ldquo;This region shows signals consistent with possible manipulation.&rdquo;
                     <p className="text-slate-600 mt-1">{selectedRegion.explanation}</p>
                   </div>
                   <div className="text-[10px] text-slate-600 italic">

@@ -439,7 +439,7 @@ export default function CaseChecksPage() {
                   Forensic Evidence & Region Analysis
                 </span>
                 <div className="mt-1 p-3 rounded-lg bg-slate-950/80 border border-slate-800 text-slate-300 leading-relaxed font-mono text-[11px]">
-                  "{selectedCheck.evidence || "No anomalous variance detected in document substrate."}"
+                  &ldquo;{selectedCheck.evidence || "No anomalous variance detected in document substrate."}&rdquo;
                 </div>
               </div>
 

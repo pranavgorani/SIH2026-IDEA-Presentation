@@ -661,6 +661,21 @@ export default function ScreeningPage() {
   // Refresh State (Requirements 27-30)
   const [refreshState, setRefreshState] = useState<"idle" | "refreshing" | "refreshed">("idle");
 
+  // Section 27: Raw OCR text expansion toggle
+  const [showRawOcr, setShowRawOcr] = useState(false);
+
+  // Section 29: Field extraction evidence modal state
+  const [selectedFieldEvidence, setSelectedFieldEvidence] = useState<{
+    field: string;
+    label: string;
+    value: string;
+    source: string;
+    confidence: number;
+    validation: string;
+    mrz_val?: string | null;
+    ocr_val?: string | null;
+  } | null>(null);
+
   const handleRefresh = () => {
     if (refreshState !== "idle") return;
     setRefreshState("refreshing");
@@ -691,21 +706,6 @@ export default function ScreeningPage() {
     window.addEventListener("trustid:refresh", onGlobalRefresh);
     return () => window.removeEventListener("trustid:refresh", onGlobalRefresh);
   }, []);
-
-  // Section 27: Raw OCR text expansion toggle
-  const [showRawOcr, setShowRawOcr] = useState(false);
-
-  // Section 29: Field extraction evidence modal state
-  const [selectedFieldEvidence, setSelectedFieldEvidence] = useState<{
-    field: string;
-    label: string;
-    value: string;
-    source: string;
-    confidence: number;
-    validation: string;
-    mrz_val?: string | null;
-    ocr_val?: string | null;
-  } | null>(null);
 
   // Helper to format field extraction metadata, source, and confidence badge
   const getFieldMeta = (fieldKey: string, val: string | undefined, defaultConf: number = 0.88) => {
@@ -944,7 +944,7 @@ export default function ScreeningPage() {
       const fieldsDetail = apiData?.fields_detail || apiData?.basic_fields || {};
       const additionalFields: Record<string, string> = apiData?.additional_fields || {};
 
-      let extractedDocNo =
+      const extractedDocNo =
         docData.number ||
         apiData?.fields?.document_number?.value ||
         apiData?.fields?.document_number ||

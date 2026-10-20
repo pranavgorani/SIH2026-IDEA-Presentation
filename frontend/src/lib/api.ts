@@ -221,7 +221,7 @@ export const api = {
         const recoverable = errPayload?.recoverable ?? (!isClientError || res.status === 429);
 
         // Map status codes according to Section 8 of Gateway specification
-        let stage = errPayload?.stage || errPayload?.error?.stage || (res.status >= 500 ? "GATEWAY" : "INPUT_VALIDATION");
+        const stage = errPayload?.stage || errPayload?.error?.stage || (res.status >= 500 ? "GATEWAY" : "INPUT_VALIDATION");
         let code = errPayload?.code || errPayload?.error?.code || `HTTP_${res.status}`;
         let message = errPayload?.message || errPayload?.error?.message;
 
