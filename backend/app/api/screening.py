@@ -48,6 +48,7 @@ router = APIRouter(prefix="/screen", tags=["Document Screening Pipeline"])
 verify_router = APIRouter(tags=["Document Verification"])
 
 @router.post("", summary="Upload document and execute full AI screening pipeline")
+@router.post("/", summary="Upload document and execute full AI screening pipeline")
 @router.post("/verify", summary="Upload document and execute verification")
 @verify_router.post("/verify", summary="Primary Verification Submission endpoint")
 async def run_screening_pipeline(

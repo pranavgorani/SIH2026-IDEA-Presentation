@@ -116,6 +116,8 @@ export interface ScenarioItem {
   aiProviderDisplay?: string;
   additionalFields?: Record<string, string>;
   overallConfidence?: number;
+  ocrEngineUsed?: string;
+  errorCode?: string | null;
 }
 
 /**
@@ -1041,13 +1043,20 @@ export default function ScreeningPage() {
         apiData?.validation_status === "NOT_APPLICABLE"
       );
 
-      const unsupportedReason = apiData?.unsupported_reason || (
-        isProcessingFailed
-          ? (apiData?.error || "Processing failed during ingestion pipeline. Please retry.")
+      const rawApiError =
+        (typeof apiData?.error === "string" ? apiData.error : null) ||
+        apiData?.error?.message ||
+        apiData?.message ||
+        apiData?.detail ||
+        apiData?.unsupported_reason;
+
+      const unsupportedReason =
+        rawApiError ||
+        (isProcessingFailed
+          ? "Processing failed to reach backend service. Please ensure the backend is running and retry."
           : isNeedsRescan
           ? "Scan resolution or contrast is insufficient for confident character extraction. Please rescan."
-          : "Document type could not be confidently recognized as a supported credential format."
-      );
+          : "Document type could not be confidently recognized as a supported credential format.");
 
       const analysisStatus = isProcessingFailed
         ? "PROCESSING_FAILED"
@@ -1415,7 +1424,9 @@ export default function ScreeningPage() {
         externalVerificationStatus: externalVerificationStatus,
         aiProviderDisplay: aiProviderDisplay,
         additionalFields: isUnsupported ? {} : additionalFields,
-        overallConfidence: overallConfidence
+        overallConfidence: overallConfidence,
+        ocrEngineUsed: apiData?.ocr?.engine_used || apiData?.processing_metadata?.ocr_engine || "RapidOCR (PaddleOCR ONNX Engine)",
+        errorCode: apiData?.error_code || null
       };
 
       setCustomScenario(newScenario);
@@ -2216,9 +2227,15 @@ export default function ScreeningPage() {
 
                 <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[10px] font-mono text-slate-700">
                   <Cpu className="w-3 h-3 text-blue-600" />
-                  <span>RapidOCR ONNX + ICAO Parser</span>
+                  <span>{currentScenario.ocrEngineUsed || "RapidOCR (PaddleOCR ONNX Engine)"}</span>
                   <span className="text-slate-600">•</span>
-                  <span className="text-emerald-700 font-bold">{currentScenario.analysisStatus || "VERIFIED"}</span>
+                  <span className={`font-bold ${
+                    currentScenario.analysisStatus === "PROCESSING_FAILED"
+                      ? "text-rose-700"
+                      : currentScenario.analysisStatus === "NEEDS_RESCAN"
+                      ? "text-amber-700"
+                      : "text-emerald-700"
+                  }`}>{currentScenario.analysisStatus || "VERIFIED"}</span>
                 </div>
               </div>
             </div>

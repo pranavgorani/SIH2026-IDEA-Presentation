@@ -375,6 +375,27 @@ class ModularOCREngine(BaseOCREngine):
         """
         boxes: List[BoundingBox] = []
 
+        if img is None or not isinstance(img, np.ndarray) or img.size == 0:
+            return "", "Local OCR Engine", []
+
+        # Ensure image is in 3-channel BGR format expected by RapidOCR & ONNX Runtime
+        try:
+            if img.ndim == 2:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            elif img.ndim == 3 and img.shape[2] == 4:
+                img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+            elif img.ndim == 3 and img.shape[2] == 1:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+            # Cap oversized mobile captures to max 2400px to ensure fast CPU inference
+            h_cur, w_cur = img.shape[:2]
+            max_dim = max(h_cur, w_cur)
+            if max_dim > 2400:
+                scale = 2400.0 / max_dim
+                img = cv2.resize(img, (int(w_cur * scale), int(h_cur * scale)), interpolation=cv2.INTER_AREA)
+        except Exception as norm_err:
+            logger.debug(f"Image array normalization warning: {norm_err}")
+
         # 1. RapidOCR (PaddleOCR models over ONNX Runtime)
         if self._rapid_ocr is not None:
             try:

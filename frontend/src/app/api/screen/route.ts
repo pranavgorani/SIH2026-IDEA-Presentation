@@ -46,42 +46,63 @@ export async function POST(req: NextRequest) {
     const mimeType = file.type || "image/png";
 
     // 1. Forward directly to the Python FastAPI backend as the primary authoritative engine
-    const backendUrl =
-      process.env.BACKEND_API_URL ||
-      process.env.NEXT_PUBLIC_API_URL ||
-      "http://127.0.0.1:8000";
+    const explicitBackendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL;
+    const candidateUrls = [
+      explicitBackendUrl,
+      "http://127.0.0.1:8000",
+      "http://localhost:8000",
+      "http://backend:8000"
+    ].filter(Boolean) as string[];
+    const uniqueCandidateUrls = Array.from(new Set(candidateUrls.map(u => u.replace(/\/$/, ""))));
 
     let backendError: any = null;
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s for CPU OCR on high-res images
+    let successfulBackendData: any = null;
 
-      const blob = new Blob([buffer], { type: mimeType });
-      const fwdFormData = new FormData();
-      fwdFormData.append("file", blob, file.name);
-      fwdFormData.append("front_image", blob, file.name);
-      fwdFormData.append("primary_document", blob, file.name);
-      fwdFormData.append("document_type_hint", "AUTO_DETECT");
+    for (const baseUrl of uniqueCandidateUrls) {
+      const endpoints = [`${baseUrl}/api/screen`, `${baseUrl}/screen`, `${baseUrl}/api/v1/verify`];
+      let hostFailed = false;
 
-      const backendResp = await fetch(`${backendUrl.replace(/\/$/, "")}/api/screen`, {
-        method: "POST",
-        body: fwdFormData,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+      for (const endpoint of endpoints) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s for CPU OCR on high-res images
 
-      if (backendResp.ok) {
-        const backendData = await backendResp.json();
-        return NextResponse.json(backendData);
-      } else {
-        const errJson = await backendResp.json().catch(() => null);
-        if (errJson) {
-          return NextResponse.json(errJson, { status: backendResp.status });
+          const blob = new Blob([buffer], { type: mimeType });
+          const fwdFormData = new FormData();
+          fwdFormData.append("file", blob, file.name);
+          fwdFormData.append("front_image", blob, file.name);
+          fwdFormData.append("primary_document", blob, file.name);
+          fwdFormData.append("document_type_hint", "AUTO_DETECT");
+
+          const backendResp = await fetch(endpoint, {
+            method: "POST",
+            body: fwdFormData,
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (backendResp.ok) {
+            successfulBackendData = await backendResp.json();
+            return NextResponse.json(successfulBackendData);
+          } else if (backendResp.status === 404) {
+            // Try next route endpoint on this host
+            continue;
+          } else {
+            // Backend returned structured error (e.g. 400 for corrupted image, 422, etc.)
+            const errJson = await backendResp.json().catch(() => null);
+            if (errJson) {
+              return NextResponse.json(errJson, { status: backendResp.status });
+            }
+          }
+        } catch (err: any) {
+          backendError = err?.message || "Connection refused or timed out";
+          hostFailed = true;
+          break; // host unreachable, try next candidate host
         }
       }
-    } catch (err: any) {
-      backendError = err?.message || "Connection refused or timed out";
-      console.warn(`[TRUST-ID Gateway] Primary Python backend unreachable (${backendUrl}): ${backendError}. Attempting multimodal fallback...`);
+      if (!hostFailed && successfulBackendData) {
+        break;
+      }
     }
 
     // 2. Direct Gemini Multimodal Vision Integration (if GEMINI_API_KEY is available)
@@ -183,6 +204,8 @@ Return ONLY a JSON object with this exact structure:
 
     // 3. If backend is offline AND Gemini could not be run, return transparent technical failure (never fake 35.0 score!)
     if (!geminiUsed && !geminiFields) {
+      const targetUrls = uniqueCandidateUrls.length > 0 ? uniqueCandidateUrls.join(", ") : "http://127.0.0.1:8000";
+      const diagnosticMsg = `Screening backend is unreachable at ${targetUrls} (${backendError || "Connection refused"}). Please ensure the FastAPI backend is running ('python -m uvicorn backend.app.main:app --port 8000').`;
       return NextResponse.json(
         {
           success: false,
@@ -197,9 +220,14 @@ Return ONLY a JSON object with this exact structure:
           risk_score: null,
           final_decision: "PROCESSING_FAILED",
           error_code: "BACKEND_SERVICE_UNAVAILABLE",
-          message: `Screening backend is unreachable at ${backendUrl}. Please ensure the FastAPI backend is running (uvicorn backend.app.main:app --port 8000).`,
+          message: diagnosticMsg,
+          error: {
+            code: "BACKEND_SERVICE_UNAVAILABLE",
+            message: diagnosticMsg,
+            stage: "BACKEND_CONNECTION"
+          },
           recoverable: true,
-          user_action: "Ensure the backend service is started and retry.",
+          user_action: "Start the Python FastAPI backend server (python -m uvicorn backend.app.main:app --port 8000) and retry.",
         },
         { status: 503 }
       );
@@ -391,15 +419,15 @@ Return ONLY a JSON object with this exact structure:
       fields: basicFields,
       validation_status: isUnclassified ? "NOT_APPLICABLE" : "COMPLETED",
       external_verification_status: "NOT_VERIFIED",
-      risk_score: isUnclassified ? null : 12.0,
+      risk_score: null,
       risk_factors: isUnclassified ? ["Document format is unclassified. Document-specific mathematical check digits could not be computed."] : [],
-      final_decision: isUnclassified ? "SECONDARY_SCRUTINY" : "LOW_RISK",
+      final_decision: isUnclassified ? "SECONDARY_SCRUTINY" : "NEEDS_REVIEW",
       warnings: isUnclassified ? ["Unclassified document layout. All visible text and fields preserved without assumption of fraud."] : [],
       error_code: null,
 
       status: "COMPLETED",
       screening_status: "completed",
-      analysis_status: isUnclassified ? "PARTIALLY_ANALYZED" : "VERIFIED",
+      analysis_status: "PARTIALLY_ANALYZED",
       external_verification_provider: "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
       unsupported: false,
       verification_mode: "GEMINI_VISION_MULTIMODAL",
@@ -445,11 +473,11 @@ Return ONLY a JSON object with this exact structure:
       raw_ocr_text: fullRawText,
       all_extracted_text: extractedTextLines,
       risk: {
-        risk_score: isUnclassified ? null : 12.0,
-        risk_level: isUnclassified ? "NOT_APPLICABLE" : "LOW",
+        risk_score: null,
+        risk_level: "NOT_APPLICABLE",
         confidence: baseConf,
-        verdict: isUnclassified ? "SECONDARY SCRUTINY" : "CLEAR TO ENTER",
-        recommended_action: isUnclassified ? "MANUAL_VERIFICATION" : "GRANT_CLEARANCE",
+        verdict: isUnclassified ? "SECONDARY SCRUTINY" : "MANUAL REVIEW REQUIRED",
+        recommended_action: isUnclassified ? "MANUAL_VERIFICATION" : "PHYSICAL_CREDENTIAL_INSPECTION",
         risk_factors: isUnclassified ? ["Document format is unclassified; mathematical check digit validation could not be executed."] : [],
         positive_signals: isUnclassified
           ? ["Visible text successfully extracted and indexed", "No digital tampering or splicing identified"]
