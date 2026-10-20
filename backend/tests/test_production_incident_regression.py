@@ -148,6 +148,51 @@ def test_missing_file_returns_400():
     data = res.json()
     assert data["code"] == "MISSING_FILE"
 
+def test_pdf_upload_flow():
+    """Ensures a supported multi-page or single-page PDF is converted and OCR-processed."""
+    from PIL import Image
+    img = np.full((350, 600, 3), 255, dtype=np.uint8)
+    cv2.putText(img, "INCOME TAX DEPARTMENT GOVT OF INDIA", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 2)
+    cv2.putText(img, "ABCDE1234F", (30, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+    pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    pdf_buf = io.BytesIO()
+    pil_img.save(pdf_buf, format="PDF")
+
+    res = client.post(
+        "/api/screen",
+        files={"file": ("document.pdf", pdf_buf.getvalue(), "application/pdf")},
+        data={"document_type_hint": "AUTO_DETECT"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["document_type"] in ("PAN", "PAN_CARD")
+    assert data["document"]["number"] == "ABCDE1234F"
+
+def test_consecutive_uploads_do_not_bleed_state():
+    """Verifies that an error upload followed by a valid upload executes cleanly without stale error bleeding."""
+    # 1. Trigger controlled 400 failure
+    res_bad = client.post(
+        "/api/screen",
+        files={"file": ("corrupt.png", b"invalid data", "image/png")}
+    )
+    assert res_bad.status_code == 400
+
+    # 2. Trigger fresh valid upload immediately
+    img = np.full((350, 600, 3), 255, dtype=np.uint8)
+    cv2.putText(img, "INCOME TAX DEPARTMENT", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 2)
+    cv2.putText(img, "ABCDE1234F", (30, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+    _, buf = cv2.imencode(".png", img)
+
+    res_good = client.post(
+        "/api/screen",
+        files={"file": ("pan_retry.png", buf.tobytes(), "image/png")}
+    )
+    assert res_good.status_code == 200
+    data = res_good.json()
+    assert data["success"] is True
+    assert data["document_type"] in ("PAN", "PAN_CARD")
+    assert data["document"]["number"] == "ABCDE1234F"
+
 def test_api_response_schema_matches_frontend_contract():
     """Ensures response keys match frontend expectations."""
     img = np.full((350, 600, 3), 255, dtype=np.uint8)
