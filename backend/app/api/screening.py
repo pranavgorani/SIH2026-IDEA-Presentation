@@ -1054,7 +1054,7 @@ async def run_screening_pipeline(
             final_doc_type = "UNKNOWN"
             doc_confidence = max(doc_confidence, 0.50)
 
-    is_unsupported = False
+    is_unsupported = (detected_doc_type == "UNSUPPORTED" or final_doc_type == "UNSUPPORTED")
     is_needs_rescan = (not ocr_raw_res.get("raw_text") or len(ocr_raw_res.get("raw_text", "").strip()) < 10)
 
     scan_id = f"SCAN-{utc_now().strftime('%Y%m%d')}-{case_id[:6].upper()}-01"

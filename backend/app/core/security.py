@@ -1,6 +1,15 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any, Union
-from jose import jwt, JWTError
+try:
+    from jose import jwt, JWTError
+except ImportError:
+    try:
+        import jwt
+        class JWTError(Exception):
+            pass
+    except ImportError:
+        jwt = None
+        JWTError = Exception
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer

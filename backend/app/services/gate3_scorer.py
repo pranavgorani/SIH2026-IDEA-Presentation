@@ -76,7 +76,9 @@ class CalibratedGate3Scorer:
         trigger_reasons: List[str] = []
 
         # 1. Deterministic Structural Failure (Gate 1)
-        if not structural_valid and len(failed_gate1_rules) > 0:
+        doc_type_clean = str(gate1_result.get("doc_type") or gate1_result.get("document_type") or "").upper()
+        is_unknown_or_unsupported = doc_type_clean in ("UNKNOWN", "UNSUPPORTED", "GENERIC_ID")
+        if not structural_valid and len(failed_gate1_rules) > 0 and not is_unknown_or_unsupported:
             high_risk_triggered = True
             trigger_reasons.append("Gate 1 Deterministic Structural Failure")
             for fr in failed_gate1_rules:

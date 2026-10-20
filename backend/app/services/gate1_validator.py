@@ -730,7 +730,10 @@ class Gate1DeterministicValidator:
             if structural_valid:
                 passed_rules.append("General credential document number detected")
             else:
-                failed_rules.append("Document number unreadable or not extracted")
+                if doc_type_clean in ("UNKNOWN", "UNSUPPORTED", "GENERIC_ID"):
+                    warnings.append("Document classification unstandardized; credential number check omitted")
+                else:
+                    failed_rules.append("Document number unreadable or not extracted")
             field_results.append({
                 "field": "document_number",
                 "raw_value": raw_doc_num,

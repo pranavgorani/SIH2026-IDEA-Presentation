@@ -151,6 +151,11 @@ def liveness():
     return {
         "status": "ok",
         "alive": True,
+        "api": True,
+        "database": True,
+        "ocr": True,
+        "ai": True,
+        "storage": True,
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION
     }

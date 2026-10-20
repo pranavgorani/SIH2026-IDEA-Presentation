@@ -6,9 +6,17 @@ If labeled dataset files are not present in benchmarks/data/, outputs baseline s
 """
 
 import os
+import sys
 import json
 import time
+from pathlib import Path
 from typing import Dict, List, Tuple
+
+# Ensure repository root is on sys.path
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from backend.app.services.document_classifier import document_classifier
 
 BENCHMARK_SAMPLES: List[Dict[str, str]] = [
