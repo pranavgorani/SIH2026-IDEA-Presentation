@@ -45,15 +45,23 @@ from backend.app.providers import get_ai_provider
 logger = logging.getLogger("trustid.screening")
 
 router = APIRouter(prefix="/screen", tags=["Document Screening Pipeline"])
+verify_router = APIRouter(tags=["Document Verification"])
 
 @router.post("", summary="Upload document and execute full AI screening pipeline")
+@router.post("/verify", summary="Upload document and execute verification")
+@verify_router.post("/verify", summary="Primary Verification Submission endpoint")
 async def run_screening_pipeline(
     file: Optional[UploadFile] = File(None, description="Front image of identity credential"),
     primary_document: Optional[UploadFile] = File(None, description="Alternative key for front image of identity credential"),
     front_image: Optional[UploadFile] = File(None, description="Frontend upload key for front image of identity credential"),
+    document: Optional[UploadFile] = File(None, description="Frontend upload key 'document' from TRUST-ID UI"),
     back_file: Optional[UploadFile] = File(None, description="Optional back side image"),
     live_person_file: Optional[UploadFile] = File(None, description="Optional live portrait of individual"),
+    face: Optional[UploadFile] = File(None, description="Alternative face selfie key"),
+    selfie: Optional[UploadFile] = File(None, description="Alternative selfie key"),
     document_type_hint: Optional[str] = Form("AUTO_DETECT"),
+    document_type: Optional[str] = Form(None),
+    scenario: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
     force_local_fallback: Optional[bool] = Form(False),
     force_fresh: Optional[bool] = Form(False),
@@ -126,7 +134,10 @@ async def run_screening_pipeline(
         )
 
     user_id = (current_user or {}).get("username", "anonymous")
-    primary_file = file or primary_document or front_image
+    primary_file = file or primary_document or front_image or document
+    live_person_file = live_person_file or face or selfie
+    if document_type and (not document_type_hint or document_type_hint == "AUTO_DETECT"):
+        document_type_hint = document_type
     file_name = primary_file.filename if primary_file else "unknown"
     content_type = primary_file.content_type if primary_file else "unknown"
 
@@ -1039,10 +1050,11 @@ async def run_screening_pipeline(
             final_doc_type = "GENERIC_ID"
             doc_confidence = max(doc_confidence, 0.65)
         else:
-            final_doc_type = "UNSUPPORTED"
+            final_doc_type = "UNKNOWN"
+            doc_confidence = max(doc_confidence, 0.50)
 
-    is_unsupported = (final_doc_type == "UNSUPPORTED" or detected_doc_type == "UNSUPPORTED")
-    is_needs_rescan = (final_doc_type in ("UNKNOWN", None, "") and (not ocr_raw_res.get("raw_text") or len(ocr_raw_res.get("raw_text", "").strip()) < 15))
+    is_unsupported = False
+    is_needs_rescan = (not ocr_raw_res.get("raw_text") or len(ocr_raw_res.get("raw_text", "").strip()) < 10)
 
     scan_id = f"SCAN-{utc_now().strftime('%Y%m%d')}-{case_id[:6].upper()}-01"
     raw_ai_prov = tamper_res.signals.get("ai_provider", "LOCAL_CV_FALLBACK")
@@ -1088,7 +1100,7 @@ async def run_screening_pipeline(
         processing_status = "NEEDS_RESCAN"
         analysis_status = "NEEDS_RESCAN"
         doc_payload = {
-            "type": "UNKNOWN",
+            "type": final_doc_type if (final_doc_type and final_doc_type != "AUTO_DETECT") else "UNKNOWN",
             "number": "",
             "holder_name": "",
             "nationality": "",
@@ -1226,11 +1238,11 @@ async def run_screening_pipeline(
     }
 
     # Determine unified contract values per Section 3
-    if is_unsupported or is_needs_rescan:
+    if is_unsupported:
         contract_risk_score = None
         contract_risk_level = "NOT_APPLICABLE"
-        contract_decision = "UNSUPPORTED" if is_unsupported else "NEEDS_RESCAN"
-        contract_ocr_status = "UNSUPPORTED" if is_unsupported else "NEEDS_RESCAN"
+        contract_decision = "UNSUPPORTED"
+        contract_ocr_status = "UNSUPPORTED"
         contract_val_status = "NOT_APPLICABLE"
         contract_risk_factors = [unsupported_reason]
     else:
@@ -1240,12 +1252,16 @@ async def run_screening_pipeline(
             "LOW_RISK" if risk_assessment.risk_level == "LOW" else ("NEEDS_REVIEW" if risk_assessment.risk_level == "MEDIUM" else "HIGH_RISK")
         )
         conf_val = float(ocr_raw_res.get("confidence", 0))
-        contract_ocr_status = "COMPLETED" if conf_val >= 0.80 else ("PARTIAL" if conf_val >= 0.50 else "LOW_CONFIDENCE")
-        contract_val_status = "COMPLETED" if validation_res.valid else ("PARTIAL" if validation_res.failed_count == 0 else "FAILED")
+        contract_ocr_status = "NEEDS_RESCAN" if is_needs_rescan else (
+            "COMPLETED" if conf_val >= 0.80 else ("PARTIAL" if conf_val >= 0.50 else "LOW_CONFIDENCE")
+        )
+        contract_val_status = "NOT_APPLICABLE" if is_needs_rescan else (
+            "COMPLETED" if validation_res.valid else ("PARTIAL" if validation_res.failed_count == 0 else "FAILED")
+        )
         contract_risk_factors = risk_assessment.risk_factors
 
     serialized_risk = serialize_model(risk_assessment) or {}
-    if is_unsupported or is_needs_rescan:
+    if is_unsupported:
         serialized_risk["risk_score"] = None
         serialized_risk["risk_level"] = "NOT_APPLICABLE"
         serialized_risk["recommended_action"] = unsupported_reason
@@ -1258,20 +1274,29 @@ async def run_screening_pipeline(
         "case_number": case_number,
         "scan_id": scan_id,
 
-        # Standard Unified API Response Contract (Section 3 & Phase 1)
+        # Standard Unified API Response Contract (Section 4 Standard Fields)
+        "case_id": case_id,
         "processing_status": processing_status,
-        "document_type": final_doc_type if not (is_unsupported or is_needs_rescan) else ("UNSUPPORTED" if is_unsupported else "UNKNOWN"),
+        "document_type": final_doc_type if (final_doc_type and final_doc_type != "AUTO_DETECT") else ("UNSUPPORTED" if is_unsupported else "UNKNOWN"),
         "document_type_confidence": doc_confidence if not (is_unsupported or is_needs_rescan) else 0.0,
         "ocr_status": contract_ocr_status,
+        "all_extracted_text": ocr_raw_res.get("all_extracted_text") or [line.strip() for line in ocr_raw_res.get("raw_text", "").split("\n") if line.strip()],
         "fields": structured_fields,
+        "field_confidence": field_conf_payload,
+        "text_regions": ocr_raw_res.get("bounding_boxes", []),
+        "image_quality": getattr(quality_res, "quality_score", 95.0),
+        "validation_results": checks_data.get("checks", []),
+        "gemini_status": ocr_raw_res.get("gemini_status") or ai_status_val,
+        "warnings": [c["message"] for c in checks_data.get("checks", []) if c.get("status") in ("WARNING", "FAIL")],
+        "error_code": None,
+
+        # Additional Contract and Assessment Fields
         "validation_status": contract_val_status,
         "external_verification_status": "NOT_VERIFIED",
         "external_verification_provider": "TRUST_ID_GATEWAY (NOT_CONFIGURED)",
         "risk_score": contract_risk_score,
         "risk_factors": contract_risk_factors,
         "final_decision": contract_decision,
-        "warnings": [c["message"] for c in checks_data.get("checks", []) if c.get("status") in ("WARNING", "FAIL")],
-        "error_code": None,
 
         # Detailed pipeline telemetry and stage data
         "status": final_status,

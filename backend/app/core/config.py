@@ -70,6 +70,8 @@ def get_default_cors() -> List[str]:
     return [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
         "http://localhost:8000",
         "http://127.0.0.1:8000"
     ]
@@ -135,12 +137,13 @@ class Settings(BaseSettings):
     # OCR & Pipeline Configuration
     OCR_ENGINE_PRIMARY: str = os.getenv("OCR_ENGINE_PRIMARY", "auto")
     OCR_MAX_PAGES: int = int(os.getenv("OCR_MAX_PAGES", "10"))
-    ENABLE_PDF_PROCESSING: bool = os.getenv("ENABLE_PDF_PROCESSING", "false").lower() in ("true", "1")
+    ENABLE_PDF_PROCESSING: bool = os.getenv("ENABLE_PDF_PROCESSING", "true").lower() in ("true", "1")
     ENABLE_LOCAL_FALLBACK: bool = os.getenv("ENABLE_LOCAL_FALLBACK", "true").lower() in ("true", "1")
 
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 settings = Settings()
 

@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: #f8fafd;
+    color: #202124;
+    font-family: 'Google Sans', 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Modern Google-style card utility */
+.google-card {
+  background-color: #ffffff;
+  border: 1px solid #e0e2e6;
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px 0 rgba(60,64,67,.08), 0 1px 3px 1px rgba(60,64,67,.04);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.google-card:hover {
+  box-shadow: 0 1px 3px 0 rgba(60,64,67,.15), 0 4px 8px 3px rgba(60,64,67,.08);
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #dadce0;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #bdc1c6;
+}
+
+/* Accessibility & High Contrast Enhancements (Preserving Background Theme) */
+::placeholder {
+  color: #4b5563 !important;
+  opacity: 1 !important;
+}
+
+/* Ensure secondary labels on white/light surfaces meet WCAG AA/AAA contrast */
+.text-secondary-contrast {
+  color: #374151;
+}
+
+label, .field-label {
+  color: #1f2937;
+  font-weight: 600;
+}

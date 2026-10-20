@@ -20,7 +20,7 @@ from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from backend.app.core.config import settings
 from backend.app.models.database import init_db, SessionLocal
 from backend.app.api.auth import router as auth_router, seed_demo_users_if_needed
-from backend.app.api.screening import router as screening_router
+from backend.app.api.screening import router as screening_router, verify_router
 from backend.app.api.cases import router as cases_router
 from backend.app.api.documents import router as documents_router
 from backend.app.api.audit import router as audit_router
@@ -84,12 +84,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Routers under root, /api, and /api/backend for Vercel and direct proxy compatibility
+# Mount Routers under root, /api, /api/backend, and /api/v1 for Vite, Next.js, Vercel, and proxy compatibility
 app.include_router(screening_router)
+app.include_router(verify_router)
 app.include_router(idfse_router)
-for route_prefix in ["/api", "/api/backend"]:
+for route_prefix in ["/api", "/api/backend", "/api/v1"]:
     app.include_router(auth_router, prefix=route_prefix)
     app.include_router(screening_router, prefix=route_prefix)
+    app.include_router(verify_router, prefix=route_prefix)
     app.include_router(idfse_router, prefix=route_prefix)
     app.include_router(cases_router, prefix=route_prefix)
     app.include_router(documents_router, prefix=route_prefix)

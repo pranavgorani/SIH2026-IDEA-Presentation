@@ -475,22 +475,22 @@ class ModularOCREngine(BaseOCREngine):
                 return None
 
             scan_res = gemini_document_scanner.scan_document(file_path)
-            if scan_res.processing_status not in ("COMPLETED", "PARTIAL") or not scan_res.fields:
+            if scan_res.processing_status in ("FAILED", "UNAVAILABLE") and not scan_res.raw_text and not scan_res.all_extracted_text:
                 return None
 
             fields_dict: Dict[str, Any] = {}
-            for k, fld in scan_res.fields.items():
+            for k, fld in (scan_res.fields or {}).items():
                 fields_dict[k] = {
                     "value": fld.value,
                     "confidence": fld.confidence,
                     "status": fld.status
                 }
 
-            if scan_res.document_type and scan_res.document_type != "UNKNOWN":
+            if scan_res.document_type:
                 fields_dict["document_type"] = {
                     "value": scan_res.document_type,
-                    "confidence": 0.95,
-                    "status": "VALID"
+                    "confidence": getattr(scan_res, "document_type_confidence", 0.90) or 0.90,
+                    "status": "VALID" if scan_res.document_type not in ("UNKNOWN", "UNSUPPORTED") else "UNCLASSIFIED"
                 }
 
             mrz_lines = scan_res.mrz.lines if scan_res.mrz else []
@@ -848,10 +848,10 @@ class ModularOCREngine(BaseOCREngine):
         engine_used: str,
         classification: Optional[Dict[str, Any]] = None,
         gemini_doc_type: Optional[str] = None
-    ) -> Tuple[Dict[str, Any], ExtractedFields, float, Dict[str, Any], str]:
+    ) -> Tuple[Dict[str, Any], ExtractedFields, float]:
         """
         Cross-validates MRZ vs Visible OCR vs Gemini and constructs Master Field Result (Section 23).
-        Returns: (master_fields, extracted_fields_obj, overall_confidence, additional_fields, analysis_status)
+        Returns: (master_fields, extracted_fields_obj, overall_confidence)
         """
         kf = known_data.get("fields", {})
         gemini_fields = gemini_fields or {}
@@ -907,10 +907,10 @@ class ModularOCREngine(BaseOCREngine):
             doc_type_src = "OCR_FALLBACK"
             doc_type_conf = 0.65
         elif len(raw_text.strip()) >= 15:
-            doc_type_val = "UNSUPPORTED"
+            doc_type_val = "UNKNOWN"
             doc_type_src = "OCR_FALLBACK"
-            doc_type_conf = 0.20
-            doc_type_val_status = "NOT_DETECTED"
+            doc_type_conf = 0.50
+            doc_type_val_status = "UNCLASSIFIED"
 
         # Check for truly insufficient content (< 15 characters without MRZ or ground truth)
         is_insufficient = (not mrz_data and len(raw_text.strip()) < 15 and not kf and not effective_gemini_type)

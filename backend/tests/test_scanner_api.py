@@ -75,8 +75,10 @@ def test_scanner_empty_file_error():
     assert data["stage"] == "UPLOAD"
     assert data["code"] in ("EMPTY_FILE", "IMAGE_NORMALIZATION_FAILED")
 
-def test_scanner_pdf_upload_disabled_state():
+def test_scanner_pdf_upload_disabled_state(monkeypatch):
     """Validates that PDF upload returns a clear, non-crashing message."""
+    from backend.app.core.config import settings
+    monkeypatch.setattr(settings, "ENABLE_PDF_PROCESSING", False)
     res = client.post(
         "/api/screen",
         files={"file": ("passport.pdf", b"%PDF-1.7 sample data", "application/pdf")},

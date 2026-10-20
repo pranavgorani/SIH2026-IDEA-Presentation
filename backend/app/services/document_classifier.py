@@ -338,15 +338,28 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
                 "explanation": "Generic or unindexed official credential recognized. Preserving all extracted text and fields for secondary review."
             }
 
-        # Truly unsupported document (receipts, membership cards, photographs, tickets)
+        # Unindexed / Unknown document with readable text: preserve for review, do not fail
+        if len(text_clean) >= 15:
+            return {
+                "document_type": "UNKNOWN",
+                "confidence": 0.50,
+                "status": "COMPLETED",
+                "classifier_status": "COMPLETED",
+                "processing_status": "COMPLETED",
+                "supported": True,
+                "country": "UNKNOWN",
+                "explanation": "Document type unknown or unclassified. All visible text and fields have been extracted."
+            }
+
+        # Truly empty, blurred or unreadable scan
         return {
-            "document_type": "UNSUPPORTED",
-            "confidence": 0.20,
-            "status": "NOT_VERIFIED",
-            "classifier_status": "UNSUPPORTED",
-            "processing_status": "UNSUPPORTED",
+            "document_type": "UNKNOWN",
+            "confidence": 0.10,
+            "status": "UNREADABLE",
+            "classifier_status": "UNREADABLE",
+            "processing_status": "NEEDS_RESCAN",
             "supported": False,
-            "explanation": "Document type could not be confidently recognized as a supported identity credential."
+            "explanation": "Insufficient legible text detected to classify document. Please inspect scan resolution and lighting."
         }
 
 class DocumentClassifier:
