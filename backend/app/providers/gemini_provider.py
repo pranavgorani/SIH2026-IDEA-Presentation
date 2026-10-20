@@ -31,7 +31,7 @@ class GeminiVisionHybridProvider(AIProvider):
 
     @property
     def api_key(self) -> str:
-        key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+        key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
         return str(key).strip()
 
     @property

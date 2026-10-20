@@ -157,6 +157,8 @@ class Settings(BaseSettings):
         extra = "ignore"
 
 settings = Settings()
+if settings.GEMINI_API_KEY and "GEMINI_API_KEY" not in os.environ:
+    os.environ["GEMINI_API_KEY"] = settings.GEMINI_API_KEY
 
 def validate_environment() -> Dict[str, Any]:
     """

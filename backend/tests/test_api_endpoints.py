@@ -78,7 +78,9 @@ def test_human_review_submission():
     assert ok_rev.status_code == 200
     assert ok_rev.json()["decision"] == "ESCALATE"
 
-def test_screen_document_png_upload():
+def test_screen_document_png_upload(monkeypatch):
+    from backend.app.core.config import settings
+    monkeypatch.setattr(settings, "AI_PROVIDER", "LOCAL_CV_FALLBACK")
     # Test uploading credential image with Gemini_Generated_Image filename and no live face
     with open("backend/storage/synthetic/CASE-001_doc.png", "rb") as f:
         res = client.post(
@@ -95,7 +97,9 @@ def test_screen_document_png_upload():
     assert data["identity"]["status"] == "NOT_PROVIDED"
     assert data["risk"]["unavailable_checks"] == ["FACE_VERIFICATION"]
 
-def test_screen_document_pdf_unsupported():
+def test_screen_document_pdf_unsupported(monkeypatch):
+    from backend.app.core.config import settings
+    monkeypatch.setattr(settings, "ENABLE_PDF_PROCESSING", False)
     res = client.post(
         "/api/screen",
         files={"file": ("document.pdf", b"%PDF-1.4 dummy header", "application/pdf")},

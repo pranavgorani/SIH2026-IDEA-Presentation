@@ -338,22 +338,24 @@ class ModularDocumentClassifier(BaseDocumentClassifier):
                 "explanation": "Generic or unindexed official credential recognized. Preserving all extracted text and fields for secondary review."
             }
 
-        # Check for Unsupported Non-Identity Documents (Receipts, Invoices, Restaurant Bills)
+        # Check for Unsupported Non-Identity Documents (Receipts, Invoices, Restaurant Bills, Membership cards, Photos)
         UNSUPPORTED_NON_ID_PATTERNS = [
             r'\bRECEIPT\b', r'\bGROCERY\b', r'\bSUPERMARKET\b', r'\bINVOICE\b',
             r'\bCASH\s+PAID\b', r'\bTOTAL\s*[\$₹€£]', r'\bTABLE\s+[0-9]+\b',
-            r'\bRESTAURANT\b', r'\bMENU\b', r'\bORDER\s*#?[0-9]+\b'
+            r'\bRESTAURANT\b', r'\bMENU\b', r'\bORDER\s*#?[0-9]+\b',
+            r'\bMEMBERSHIP\s+CARD\b', r'\bLIBRARY\b', r'\bCLUB\b', r'\bGYM\b',
+            r'\bPHOTOGRAPH\b', r'\bLANDSCAPE\b', r'\bNATURE\b', r'\bPHOTO\b'
         ]
         if any(re.search(p, text_clean, re.I) for p in UNSUPPORTED_NON_ID_PATTERNS):
             return {
                 "document_type": "UNSUPPORTED",
                 "confidence": 0.15,
-                "status": "UNSUPPORTED",
-                "classifier_status": "UNSUPPORTED",
-                "processing_status": "UNSUPPORTED",
+                "status": "NOT_VERIFIED",
+                "classifier_status": "NOT_VERIFIED",
+                "processing_status": "NOT_VERIFIED",
                 "supported": False,
                 "country": "UNKNOWN",
-                "explanation": "Uploaded document appears to be a receipt, invoice, or non-identity record rather than an official identity credential."
+                "explanation": "Uploaded document appears to be a receipt, invoice, membership card, or non-identity record rather than an official identity credential."
             }
 
         # Unindexed / Unknown document with readable text: preserve for review, do not fail

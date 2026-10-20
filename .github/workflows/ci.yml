@@ -22,8 +22,8 @@ jobs:
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
-          pip install pytest pytest-asyncio httpx pillow opencv-python-headless fastapi pydantic
+          pip install -r backend/requirements.txt
+          python -c "from reportlab.lib.pagesizes import letter; print('ReportLab import OK')"
 
       - name: Run backend regression tests
         run: |
