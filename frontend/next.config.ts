@@ -1,12 +1,19 @@
 import type { NextConfig } from "next";
+import { getResolvedBackendConfig, maskUrlForLogs } from "./src/lib/serverConfig";
 
-const isDev = process.env.NODE_ENV !== "production";
-const rawBackendUrl =
-  process.env.BACKEND_API_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  (isDev ? "http://127.0.0.1:8000" : "");
+const backendConfig = getResolvedBackendConfig();
+const backendUrl = backendConfig.isValid ? backendConfig.normalizedUrl : "";
 
-const backendUrl = rawBackendUrl.replace(/\/$/, "");
+if (!backendConfig.isValid && process.env.NODE_ENV === "production") {
+  console.warn(
+    `[TRUST-ID Gateway Notice] Production backend is not yet connected: ${backendConfig.errorMessage || "BACKEND_API_URL missing"}. ` +
+      `Server-side rewrites will activate once BACKEND_API_URL is set in Vercel.`
+  );
+} else if (backendConfig.isValid) {
+  console.log(
+    `[TRUST-ID Gateway] Active backend target (${backendConfig.variableUsed}): ${maskUrlForLogs(backendUrl)}`
+  );
+}
 
 const nextConfig: NextConfig = {
   async rewrites() {

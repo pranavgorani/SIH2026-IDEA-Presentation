@@ -1,5 +1,24 @@
-// Base URL for API calls. In Vercel Services production, relative /api/backend is used.
-export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+// Client-side API Base URL.
+// In Vercel production, when using Next.js server-side rewrites (recommended), API_BASE is empty (""),
+// so all browser requests route through relative same-origin /api/backend without CORS issues or exposing backend URLs.
+// NEXT_PUBLIC_API_URL is an optional client-side override. If used, it MUST be configured with Plaintext / Config visibility in Vercel.
+function resolveClientApiBase(): string {
+  const raw = (process.env.NEXT_PUBLIC_API_URL || "").trim().replace(/\/$/, "");
+  if (!raw) return "";
+  // Check for common template placeholders
+  if (
+    raw.includes("YOUR_") ||
+    raw.includes("CHANGE_ME") ||
+    raw.includes("PLACEHOLDER") ||
+    raw.includes("<") ||
+    raw.includes("example.com")
+  ) {
+    return "";
+  }
+  return raw;
+}
+
+export const API_BASE = resolveClientApiBase();
 
 function getAuthHeader(): Record<string, string> {
   if (typeof window !== "undefined") {

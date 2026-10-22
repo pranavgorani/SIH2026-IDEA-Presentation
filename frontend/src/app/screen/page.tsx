@@ -1732,7 +1732,7 @@ export default function ScreeningPage() {
                 {currentScenario.verdictDesc || scanError?.message || "FastAPI screening service could not process the document or is temporarily unreachable."}
               </p>
               <p className="text-[11px] text-rose-700/90 font-mono">
-                {scanError?.userAction || "Ensure backend FastAPI service is running, or verify NEXT_PUBLIC_API_URL / BACKEND_API_URL environment configuration."}
+                {scanError?.userAction || "Ensure backend service is running, or verify BACKEND_API_URL in Vercel settings."}
               </p>
             </div>
           </div>

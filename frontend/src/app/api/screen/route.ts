@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getResolvedBackendConfig, getScreeningEndpoints, maskUrlForLogs } from "@/lib/serverConfig";
 
 interface GeminiExtractedDoc {
   document_type?: string | null;
@@ -48,31 +49,12 @@ export async function POST(req: NextRequest) {
     const mimeType = file.type || "image/png";
 
     // 1. Forward directly to the Python FastAPI backend as the primary authoritative engine
-    const explicitBackendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL;
-    const isProduction = process.env.NODE_ENV === "production";
-    
-    // In production, only query explicitly configured backend URLs (never loop through localhost or unreachable docker names)
-    // In local development, check explicit URL first, then 127.0.0.1:8000 and localhost:8000
-    const candidateUrls: string[] = [];
-    if (explicitBackendUrl) {
-      candidateUrls.push(explicitBackendUrl);
-    }
-    if (!isProduction) {
-      candidateUrls.push("http://127.0.0.1:8000", "http://localhost:8000");
-    }
-    // Only attempt internal docker hostname if running inside a containerized compose network
-    if (process.env.DOCKER_ENV === "true" || process.env.IS_DOCKER === "true") {
-      candidateUrls.push("http://backend:8000");
-    }
-
-    const uniqueCandidateUrls = Array.from(new Set(candidateUrls.map(u => u.replace(/\/$/, ""))));
-
+    const backendConfig = getResolvedBackendConfig();
     let backendError: any = null;
     let successfulBackendData: any = null;
 
-    for (const baseUrl of uniqueCandidateUrls) {
-      const endpoints = [`${baseUrl}/api/backend/screen`, `${baseUrl}/api/screen`, `${baseUrl}/screen`, `${baseUrl}/api/v1/verify`];
-      let hostFailed = false;
+    if (backendConfig.isValid) {
+      const endpoints = getScreeningEndpoints(backendConfig.normalizedUrl);
 
       for (const endpoint of endpoints) {
         try {
@@ -90,7 +72,7 @@ export async function POST(req: NextRequest) {
             method: "POST",
             body: fwdFormData,
             headers: {
-              "X-Correlation-ID": correlationId
+              "X-Correlation-ID": correlationId,
             },
             signal: controller.signal,
           });
@@ -99,7 +81,7 @@ export async function POST(req: NextRequest) {
           if (backendResp.ok) {
             successfulBackendData = await backendResp.json();
             return NextResponse.json(successfulBackendData, {
-              headers: { "X-Correlation-ID": correlationId }
+              headers: { "X-Correlation-ID": correlationId },
             });
           } else if (backendResp.status === 404) {
             // Try next route endpoint on this host
@@ -110,19 +92,20 @@ export async function POST(req: NextRequest) {
             if (errJson) {
               return NextResponse.json(errJson, {
                 status: backendResp.status,
-                headers: { "X-Correlation-ID": correlationId }
+                headers: { "X-Correlation-ID": correlationId },
               });
             }
           }
         } catch (err: any) {
-          backendError = err?.name === "AbortError" ? "Connection timed out" : (err?.message || "Connection refused");
-          hostFailed = true;
-          break; // host unreachable, try next candidate host
+          backendError =
+            err?.name === "AbortError"
+              ? "Connection timed out (30s)"
+              : err?.message || "Connection refused";
+          break; // host unreachable, break route trial
         }
       }
-      if (!hostFailed && successfulBackendData) {
-        break;
-      }
+    } else {
+      backendError = backendConfig.errorMessage || "Backend not configured";
     }
 
     // 2. Direct Gemini Multimodal Vision Integration (if GEMINI_API_KEY is available)
@@ -240,12 +223,20 @@ Return ONLY a JSON object with this exact structure:
     // 3. If backend is offline AND Gemini could not be run, return transparent technical failure (never fake a score or pass!)
     if (!geminiUsed && !geminiFields) {
       let diagnosticMsg = "";
-      if (isProduction && !explicitBackendUrl) {
-        diagnosticMsg = "Screening backend URL is not configured. Please set the BACKEND_API_URL environment variable in your Vercel project settings pointing to your deployed backend (e.g., Render / Docker).";
+      if (!backendConfig.isValid) {
+        diagnosticMsg = `${backendConfig.errorMessage || "Backend service is not configured."} ${backendConfig.userAction || ""}`.trim();
       } else {
-        const targetUrls = uniqueCandidateUrls.length > 0 ? uniqueCandidateUrls.join(", ") : "http://127.0.0.1:8000";
-        diagnosticMsg = `Screening backend is unreachable at ${targetUrls} (${backendError || "Connection refused"}). Please verify the backend service is running and accessible.`;
+        diagnosticMsg = `Screening backend is unreachable at ${maskUrlForLogs(backendConfig.normalizedUrl)} (${backendError || "Connection refused"}). Please verify your backend server is running and accessible.`;
       }
+
+      const errorCode =
+        backendConfig.errorType === "PLACEHOLDER"
+          ? "BACKEND_PLACEHOLDER_URL"
+          : backendConfig.errorType === "LOCALHOST_IN_PRODUCTION"
+          ? "BACKEND_LOCALHOST_IN_PRODUCTION"
+          : !backendConfig.isValid
+          ? "BACKEND_NOT_CONFIGURED"
+          : "BACKEND_SERVICE_UNAVAILABLE";
 
       return NextResponse.json(
         {
@@ -261,12 +252,12 @@ Return ONLY a JSON object with this exact structure:
           external_verification_status: "NOT_VERIFIED",
           risk_score: null,
           final_decision: "PROCESSING_FAILED",
-          error_code: "BACKEND_SERVICE_UNAVAILABLE",
+          error_code: errorCode,
           message: diagnosticMsg,
           error: {
-            code: "BACKEND_SERVICE_UNAVAILABLE",
+            code: errorCode,
             message: diagnosticMsg,
-            stage: "BACKEND_CONNECTION"
+            stage: "BACKEND_CONNECTION",
           },
           checks_100: {
             total_checks: 100,
@@ -275,13 +266,13 @@ Return ONLY a JSON object with this exact structure:
             warnings: 0,
             unavailable: 100,
             not_applicable: 0,
-            checks: []
+            checks: [],
           },
           recoverable: true,
-          user_action: isProduction
-            ? "Configure BACKEND_API_URL in Vercel Project Settings → Environment Variables."
-            : "Start the Python FastAPI backend server ('python -m uvicorn backend.app.main:app --port 8000') and retry.",
-          correlation_id: correlationId
+          user_action:
+            backendConfig.userAction ||
+            "Configure BACKEND_API_URL in Vercel Project Settings → Environment Variables.",
+          correlation_id: correlationId,
         },
         { status: 503, headers: { "X-Correlation-ID": correlationId } }
       );

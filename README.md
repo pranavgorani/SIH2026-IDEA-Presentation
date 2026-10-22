@@ -404,8 +404,10 @@ The frontend is built with **Next.js 15 App Router** and is fully optimized for 
 3. In the **Configure Project** screen:
    - Expand **Root Directory**, click **Edit**, and select `frontend`.
    - Vercel automatically detects the **Next.js** framework!
-4. Under **Environment Variables**, add:
-   - `NEXT_PUBLIC_API_URL`: Your deployed FastAPI backend URL (e.g., `https://trustid-backend.onrender.com` or `http://127.0.0.1:8000` for local testing).
+4. Under **Environment Variables**, configure:
+   - `BACKEND_API_URL`: Your deployed FastAPI backend public URL (e.g. `https://<your-service>.onrender.com`). Visibility: **Sensitive / Secret**.
+   - *(Optional)* `GEMINI_API_KEY`: Google Gemini API Key for multimodal fallback. Visibility: **Sensitive / Secret**.
+   - *Note on `NEXT_PUBLIC_API_URL`*: Do **NOT** set `NEXT_PUBLIC_API_URL` unless using a direct client-side custom domain. If set in Vercel, it MUST have **Plaintext / Config** visibility (never select Secret).
 5. Click **Deploy**. Your frontend will be live on a global edge CDN in ~60 seconds!
 
 #### Method B: Via Vercel CLI
@@ -430,7 +432,7 @@ The backend leverages OpenCV and cryptographic libraries. It can be deployed in 
 5. Set environment variables:
    - `JWT_SECRET`: Any random 32-character string.
    - `CORS_ORIGINS`: Your Vercel frontend URL (e.g., `https://sih2026-idea-presentation.vercel.app`).
-6. Copy the resulting backend URL (e.g., `https://trustid-backend.onrender.com`) and paste it as `NEXT_PUBLIC_API_URL` in your Vercel project settings!
+6. Copy your live backend service URL (e.g. `https://your-service-name.onrender.com`) and paste it as **`BACKEND_API_URL`** in your Vercel project settings (`Project Settings → Environment Variables`)!
 
 ---
 

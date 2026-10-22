@@ -53,6 +53,20 @@ RAPIDOCR_MODEL_PATH=""
 docker-compose up --build -d
 ```
 
-### Vercel (Frontend) & Separate Backend (Render/AWS/Cloud Run)
-- Frontend is configured in `frontend/` and builds with zero errors via `npm run build`.
-- For Vercel deployments, set `NEXT_PUBLIC_BACKEND_URL` to point to your deployed FastAPI backend URL.
+### Vercel (Frontend) & Cloud Backend (Render / Docker / Railway)
+- **Frontend Root Directory**: `frontend` (Auto-detected as Next.js framework).
+- **Production Environment Variables** in Vercel (`Project Settings → Environment Variables`):
+
+| Variable Name | Environment | Vercel Visibility | Value | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `BACKEND_API_URL` | Production, Preview | **Sensitive / Secret** | `https://<your-backend-name>.onrender.com` | **Authoritative Server-Side Variable.** Required. Used by Next.js reverse proxy (`/api/backend/*`) and `/api/screen`. |
+| `GEMINI_API_KEY` | Production, Preview | **Sensitive / Secret** | `AIzaSy...` | Optional server-side multimodal vision fallback. Never exposed to browser. |
+| `NEXT_PUBLIC_API_URL` | None / Optional | **Plaintext / Config** | *(Leave empty)* | **DO NOT set to Secret.** If set at all, Vercel requires Config/Plaintext visibility. Not needed because Next.js proxies calls. |
+
+> [!WARNING]
+> **Vercel Visibility Error Prevention**:
+> Never mark any variable starting with `NEXT_PUBLIC_` as "Secret" in Vercel. Vercel rejects Secret visibility on `NEXT_PUBLIC_` because public variables are inlined into client-side JS bundles. Use `BACKEND_API_URL` instead, which is server-side and fully supports Secret visibility.
+>
+> **No Placeholders in Production**:
+> Never use `http://localhost:8000`, `127.0.0.1`, or template placeholders like `<your-render-url>`. Vercel serverless functions run in the cloud and cannot reach your local machine. Deploy your backend to Render/Railway first, then copy the live HTTPS URL.
+
