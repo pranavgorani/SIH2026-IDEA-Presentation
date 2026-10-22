@@ -369,8 +369,8 @@ Return ONLY valid JSON matching this schema:
         contents = [prompt, image_part]
 
         # Execute generation with model fallback
-        candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-        unique_models = list(dict.fromkeys(candidate_models))
+        candidate_models = [self.model_name, "gemini-3.8-flash", "gemini-2.5-flash"]
+        unique_models = list(dict.fromkeys([m for m in candidate_models if m]))
 
         for m in unique_models:
             try:
@@ -383,6 +383,10 @@ Return ONLY valid JSON matching this schema:
                     return response.text.strip()
             except Exception as ge:
                 logger.warning(f"SDK model {m} attempt failed: {ge}")
+                err_text = str(ge)
+                if "429" in err_text or "RESOURCE_EXHAUSTED" in err_text:
+                    logger.info("Gemini quota reached; stopping further attempts to avoid latency.")
+                    break
                 continue
         return None
 
@@ -422,8 +426,8 @@ Return ONLY valid JSON matching this schema:
             "Content-Type": "application/json"
         }
 
-        candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-        unique_models = list(dict.fromkeys(candidate_models))
+        candidate_models = [self.model_name, "gemini-3.8-flash", "gemini-2.5-flash"]
+        unique_models = list(dict.fromkeys([m for m in candidate_models if m]))
 
         for m in unique_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
@@ -437,6 +441,9 @@ Return ONLY valid JSON matching this schema:
                             parts = candidates[0].get("content", {}).get("parts", [])
                             if parts:
                                 return parts[0].get("text", "").strip()
+                    elif resp.status_code == 429:
+                        logger.info(f"Gemini REST quota exhausted (429) for {m}; degrading to local CV fallback.")
+                        break
                     else:
                         logger.warning(f"Gemini REST response status {resp.status_code} for {m}: {resp.text[:150]}")
             except Exception as e:

@@ -55,6 +55,9 @@ class StorageService:
 
         sha256_hash = hashlib.sha256(content).hexdigest()
 
+        # Decompression-bomb protection
+        Image.MAX_IMAGE_PIXELS = 50_000_000
+
         # Sanitize filename safely without evaluating path traversal
         raw_name = Path(filename or "document.png").name
         clean_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', raw_name)
@@ -68,13 +71,40 @@ class StorageService:
                 code="INVALID_DOCUMENT"
             )
 
-        is_pdf = ext == ".pdf" or content.startswith(b"%PDF")
+        # Magic byte file signature validation (Anti-spoofing)
+        sig = "unknown"
+        if content.startswith(b"%PDF"):
+            sig = "application/pdf"
+        elif content.startswith(b"\x89PNG\r\n\x1a\n"):
+            sig = "image/png"
+        elif content.startswith(b"\xff\xd8\xff"):
+            sig = "image/jpeg"
+        elif len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+            sig = "image/webp"
+
+        is_pdf = ext == ".pdf" or sig == "application/pdf"
+
+        # Validate that signature is supported
+        if not is_pdf and sig == "unknown":
+            # Attempt PIL verification for subtle or non-standard JPEG variants
+            try:
+                test_img = Image.open(io.BytesIO(content))
+                test_img.verify()
+                if test_img.format in ("PNG", "JPEG", "WEBP"):
+                    sig = f"image/{test_img.format.lower()}"
+                else:
+                    raise InvalidDocumentException("Unsupported image format.", code="INVALID_DOCUMENT")
+            except Exception:
+                raise InvalidDocumentException(
+                    "Uploaded file content does not match any valid image or PDF signature.",
+                    code="CORRUPTED_DOCUMENT"
+                )
 
         # =====================================================================
         # PDF DOCUMENT PROCESSING (Multi-page extraction and rendering)
         # =====================================================================
         if is_pdf:
-            if not settings.ENABLE_PDF_PROCESSING:
+            if not getattr(settings, "ENABLE_PDF_PROCESSING", True):
                 raise InvalidDocumentException(
                     "PDF processing is not enabled in this deployment.",
                     code="PDF_UNSUPPORTED"
@@ -92,6 +122,14 @@ class StorageService:
             try:
                 import pypdfium2
                 pdf_doc = pypdfium2.PdfDocument(pdf_path)
+                
+                # Check for password/encryption
+                if getattr(pdf_doc, "is_encrypted", False):
+                    raise InvalidDocumentException(
+                        "Encrypted or password-protected PDF files cannot be screened.",
+                        code="PDF_ENCRYPTED"
+                    )
+
                 total_pages = len(pdf_doc)
                 if total_pages == 0:
                     raise InvalidDocumentException("PDF document contains no renderable pages.", code="INVALID_DOCUMENT")

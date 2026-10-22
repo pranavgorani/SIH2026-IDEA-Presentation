@@ -206,13 +206,22 @@ class TamperDetectionService:
             else:
                 diff_resized = diff_np
 
-            norm = cv2.normalize(diff_resized, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-            colored_heat = cv2.applyColorMap(norm, cv2.COLORMAP_JET)
+            if regions:
+                # Real anomalies present: highlight differential ELA intensity with Jet colormap and red ROI boxes
+                norm = cv2.normalize(diff_resized, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                colored_heat = cv2.applyColorMap(norm, cv2.COLORMAP_JET)
 
-            for r in regions:
-                cv2.rectangle(colored_heat, (r.x, r.y), (r.x + r.width, r.y + r.height), (0, 0, 255), 3)
+                for r in regions:
+                    cv2.rectangle(colored_heat, (r.x, r.y), (r.x + r.width, r.y + r.height), (0, 0, 255), 3)
 
-            blended = cv2.addWeighted(base_cv, 0.4, colored_heat, 0.6, 0)
+                blended = cv2.addWeighted(base_cv, 0.45, colored_heat, 0.55, 0)
+            else:
+                # Genuine / clean scan: Use neutral baseline overlay instead of false alarm rainbow
+                # Preserve document legibility with subtle green tint signifying uniform verified substrate
+                overlay = np.zeros_like(base_cv)
+                overlay[:, :] = (30, 90, 30) # Subtle neutral green
+                blended = cv2.addWeighted(base_cv, 0.90, overlay, 0.10, 0)
+
             pil_heat = Image.fromarray(cv2.cvtColor(blended, cv2.COLOR_BGR2RGB))
             return storage_service.save_heatmap(case_id, pil_heat)
         except Exception:

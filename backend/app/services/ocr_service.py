@@ -14,7 +14,7 @@ from datetime import datetime, date
 from typing import Dict, Any, List, Optional, Tuple
 
 from backend.app.core.config import settings
-from backend.app.models.schemas import ExtractedFields, BoundingBox, OCRResultResponse, MRZData
+from backend.app.models.schemas import ExtractedFields, BoundingBox, OCRResultResponse, MRZData, DocumentField
 from backend.app.services.mrz_parser import mrz_parser, resolve_country_name
 from backend.app.services.image_preprocessing import image_preprocessor
 from backend.app.services.document_classifier import document_classifier
@@ -1277,6 +1277,44 @@ class ModularOCREngine(BaseOCREngine):
             analysis_status = "REVIEW_REQUIRED"
             processing_status = "NEEDS_REVIEW"
 
+        # Assemble typed_fields mapping (Phase 6 Schema)
+        typed_dict: Dict[str, DocumentField] = {}
+        for fname, fval, fsrc, fconf in [
+            ("name", name_val, name_src, name_conf),
+            ("document_number", doc_num_val, doc_num_src, doc_num_conf),
+            ("nationality", nat_val, nat_src, nat_conf),
+            ("date_of_birth", dob_val, dob_src, dob_conf),
+            ("date_of_issue", normalize_date_string(visible_fields.get("date_of_issue", "")), "OCR", 0.85),
+            ("date_of_expiry", exp_val, exp_src, exp_conf),
+            ("gender", gender_code, gender_src, gender_conf),
+            ("issuing_country", iss_val, iss_src, iss_conf),
+        ]:
+            if fval:
+                typed_dict[fname] = DocumentField(
+                    field_name=fname,
+                    raw_value=str(fval),
+                    normalized_value=str(fval),
+                    confidence=float(fconf or 0.85),
+                    source=str(fsrc or "OCR"),
+                    page_number=1,
+                    validation_status="VALID" if fconf >= 0.8 else "UNVERIFIED",
+                    warnings=[]
+                )
+
+        for ek, edata in additional_fields.items():
+            ev = edata.get("value") if isinstance(edata, dict) else str(edata)
+            if ev:
+                typed_dict[ek] = DocumentField(
+                    field_name=ek,
+                    raw_value=str(ev),
+                    normalized_value=str(ev),
+                    confidence=float(edata.get("confidence", 0.85)) if isinstance(edata, dict) else 0.85,
+                    source=str(edata.get("source", "OCR")) if isinstance(edata, dict) else "OCR",
+                    page_number=1,
+                    validation_status="VALID",
+                    warnings=[]
+                )
+
         extracted_fields_obj = ExtractedFields(
             name=name_val,
             document_number=doc_num_val,
@@ -1285,7 +1323,20 @@ class ModularOCREngine(BaseOCREngine):
             date_of_issue=normalize_date_string(visible_fields.get("date_of_issue", "")),
             date_of_expiry=exp_val,
             gender=gender_code,
-            issuing_country=iss_val
+            issuing_country=iss_val,
+            father_name=str(visible_fields.get("father_name") or ""),
+            address=str(visible_fields.get("address") or ""),
+            vehicle_class=str(visible_fields.get("vehicle_class") or ""),
+            registration_date=str(visible_fields.get("registration_date") or ""),
+            fuel_type=str(visible_fields.get("fuel_type") or ""),
+            chassis_number=str(visible_fields.get("chassis_number") or ""),
+            engine_number=str(visible_fields.get("engine_number") or ""),
+            epic_number=str(visible_fields.get("epic_number") or ""),
+            masked_aadhaar=str(visible_fields.get("masked_aadhaar") or ""),
+            visa_type=str(visible_fields.get("visa_type") or ""),
+            valid_from=str(visible_fields.get("valid_from") or ""),
+            entry_conditions=str(visible_fields.get("entries") or ""),
+            typed_fields=typed_dict
         )
 
         master_fields["additional_fields"] = additional_fields

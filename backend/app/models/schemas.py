@@ -26,6 +26,30 @@ class ImageQualityResult(BaseModel):
     issues: List[str]
     is_acceptable: bool
     recommendation: Optional[str] = None
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
+    sharpness_score: Optional[float] = None
+    blur_detected: bool = False
+    glare_detected: bool = False
+    brightness_status: str = "OPTIMAL" # OPTIMAL, UNDEREXPOSED, OVEREXPOSED
+    perspective_status: str = "OPTIMAL" # OPTIMAL, SLIGHT_SKEW, ACCEPTABLE, SEVERE_DISTORTION
+    orientation_status: str = "NORMAL" # NORMAL, ROTATED_90, ROTATED_180, ROTATED_270, EXIF_ORIENTED
+    readable_status: str = "READABLE" # READABLE, PARTIALLY_READABLE, UNREADABLE
+    quality_warnings: List[str] = []
+    rescan_recommendation: Optional[str] = None
+    rescan_checklist: List[str] = []
+
+# Typed Field Specification (Phase 6)
+class DocumentField(BaseModel):
+    field_name: str
+    raw_value: Optional[str] = None
+    normalized_value: Optional[str] = None
+    confidence: Optional[float] = None
+    source: str = "OCR" # OCR, MRZ, GEMINI_VISION, LOCAL_CV, HUMAN_CORRECTED
+    page_number: int = 1
+    bounding_box: Optional[Dict[str, Any]] = None
+    validation_status: str = "UNVERIFIED" # VALID, INVALID, UNVERIFIED, NOT_APPLICABLE
+    warnings: List[str] = []
 
 # Document Schemas
 class DocumentResponse(BaseModel):
@@ -53,6 +77,19 @@ class ExtractedFields(BaseModel):
     date_of_expiry: Optional[str] = ""
     gender: Optional[str] = ""
     issuing_country: Optional[str] = ""
+    father_name: Optional[str] = ""
+    address: Optional[str] = ""
+    vehicle_class: Optional[str] = ""
+    registration_date: Optional[str] = ""
+    fuel_type: Optional[str] = ""
+    chassis_number: Optional[str] = ""
+    engine_number: Optional[str] = ""
+    epic_number: Optional[str] = ""
+    masked_aadhaar: Optional[str] = ""
+    visa_type: Optional[str] = ""
+    valid_from: Optional[str] = ""
+    entry_conditions: Optional[str] = ""
+    typed_fields: Optional[Dict[str, DocumentField]] = None
 
 class MRZData(BaseModel):
     valid: bool
@@ -139,6 +176,7 @@ class FaceVerificationResponse(BaseModel):
 class RecordVerificationResponse(BaseModel):
     record_found: bool
     status: str # VALID, SUSPENDED, REVOKED, NOT_FOUND, UNAVAILABLE
+    verification_status: Optional[str] = "SANDBOX_RESULT" # VERIFIED_BY_AUTHORIZED_PROVIDER, NOT_FOUND_BY_PROVIDER, VERIFICATION_UNAVAILABLE, NOT_CONFIGURED, SANDBOX_RESULT
     document_number: Optional[str] = None
     source: str = "DEMO_VERIFICATION_DATABASE (SIMULATED)"
     match_details: Optional[Dict[str, Any]] = None
@@ -304,3 +342,28 @@ class InvestigationNoteResponse(BaseModel):
     author_role: str
     note: str
     created_at: datetime
+
+# Field Correction Schemas (Phase 6 Reviewer Workflow)
+class FieldCorrectionItem(BaseModel):
+    field_name: str
+    corrected_value: str
+    reason: Optional[str] = "Manual inspector correction"
+
+class FieldCorrectionRequest(BaseModel):
+    corrections: Optional[List[FieldCorrectionItem]] = None
+    field_name: Optional[str] = None
+    corrected_value: Optional[str] = None
+    rationale: Optional[str] = None
+    reviewer_id: Optional[str] = None
+    reviewer_name: Optional[str] = None
+
+class FieldCorrectionResponse(BaseModel):
+    success: bool
+    case_id: str
+    field_name: Optional[str] = None
+    original_value: Optional[str] = None
+    corrected_value: Optional[str] = None
+    rationale: Optional[str] = None
+    reviewer_id: Optional[str] = None
+    corrected_fields: Dict[str, Any] = {}
+    message: str

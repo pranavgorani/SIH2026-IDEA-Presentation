@@ -153,9 +153,9 @@ class GeminiVisionHybridProvider(AIProvider):
             '{"anomalies_detected": boolean, "confidence": float, "summary": string}'
         )
 
-        candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        candidate_models = [self.model_name, "gemini-3.8-flash", "gemini-2.5-flash"]
         # Deduplicate while preserving order
-        unique_models = list(dict.fromkeys(candidate_models))
+        unique_models = list(dict.fromkeys([m for m in candidate_models if m]))
 
         payload = {
             "contents": [

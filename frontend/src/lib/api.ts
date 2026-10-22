@@ -148,6 +148,21 @@ export const api = {
     });
   },
 
+  correctCaseField: async (
+    caseId: string,
+    payload: {
+      field_name?: string;
+      corrected_value?: string;
+      rationale?: string;
+      corrections?: Array<{ field_name: string; corrected_value: string; reason?: string }>;
+    }
+  ) => {
+    return apiFetch<any>(`/api/backend/cases/${caseId}/fields/correct`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
   runDemoPreset: async (presetId: string) => {
     return apiFetch<any>(`/api/backend/cases/demo/${presetId}`, {
       method: "POST",

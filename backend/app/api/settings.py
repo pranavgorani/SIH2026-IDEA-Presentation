@@ -39,7 +39,26 @@ def update_system_settings(
             detail=f"Signal weights must normalize to 1.0 (Current sum: {total_w:.2f})"
         )
 
-    settings.DEFAULT_WEIGHTS = payload.weights
+    # Normalize weights keys to canonical risk engine keys
+    alias_map = {
+        "OCR_DATA": "ocr_consistency",
+        "VISUAL_FORENSICS": "visual_forensics",
+        "IDENTITY_VERIFICATION": "identity_verification",
+        "RECORD_VERIFICATION": "record_verification",
+        "DOCUMENT_VALIDATION": "document_validation",
+        "MRZ_VALIDATION": "mrz_validation",
+        "IMAGE_QUALITY": "image_quality"
+    }
+    canonical_weights = {}
+    for k, v in payload.weights.items():
+        ck = alias_map.get(k.upper(), k.lower())
+        canonical_weights[ck] = v
+
+    # Fill in any missing default weights with 0.0 or default
+    merged_weights = settings.DEFAULT_WEIGHTS.copy()
+    merged_weights.update(canonical_weights)
+
+    settings.DEFAULT_WEIGHTS = merged_weights
     settings.RISK_THRESHOLD_LOW = payload.threshold_low
     settings.RISK_THRESHOLD_MEDIUM = payload.threshold_medium
     if payload.ai_provider:

@@ -144,9 +144,47 @@ class ImageQualityAnalyzer:
         score = max(5.0, min(100.0, round(score, 1)))
         is_acceptable = score >= 45.0
 
+        # Detailed status attributes
+        blur_detected = "severe_blur" in issues or "moderate_blur" in issues
+        glare_detected = "severe_glare" in issues or "minor_glare" in issues
+        
+        brightness_status = "OPTIMAL"
+        if "underexposed_dark" in issues:
+            brightness_status = "UNDEREXPOSED"
+        elif "overexposed_washed_out" in issues:
+            brightness_status = "OVEREXPOSED"
+
+        perspective_status = "OPTIMAL"
+        if "crop_problems" in issues:
+            perspective_status = "SEVERE_DISTORTION"
+        elif "rotation_detected" in issues:
+            perspective_status = "SLIGHT_SKEW"
+
+        readable_status = "READABLE"
+        if score < 40.0 or "unreadable_regions" in issues or "severe_blur" in issues:
+            readable_status = "UNREADABLE" if score < 30.0 else "PARTIALLY_READABLE"
+
+        # Actionable Rescan Checklist (Phase 3 Quality Gate)
+        rescan_checklist = []
+        if w < 600 or h < 400 or "low_resolution" in issues:
+            rescan_checklist.append("Move closer to the document to fill the entire camera frame.")
+        if blur_detected:
+            rescan_checklist.append("Avoid camera shake; place the credential on a stable flat surface and tap to focus.")
+        if glare_detected:
+            rescan_checklist.append("Avoid direct flash reflection and intense overhead laminate glare; tilt slightly away from direct light.")
+        if "underexposed_dark" in issues:
+            rescan_checklist.append("Improve ambient lighting in your screening environment.")
+        if "crop_problems" in issues:
+            rescan_checklist.append("Capture all four document corners completely without cropping edges or borders.")
+        if "rotation_detected" in issues:
+            rescan_checklist.append("Keep the document flat, straight, and properly aligned horizontally.")
+
+        if not rescan_checklist and not is_acceptable:
+            rescan_checklist.append("Please provide a clearer, higher-resolution scan of the credential.")
+
         recommendation = None
         if not is_acceptable:
-            recommendation = "Insufficient Image Quality — Re-upload Recommended"
+            recommendation = "NEEDS_RESCAN: Image quality is insufficient for forensic screening. Please follow the rescan checklist."
         elif len(issues) > 0:
             recommendation = f"Acceptable quality ({score}%). Detected minor factors: {', '.join(issues)}."
         else:
@@ -156,7 +194,19 @@ class ImageQualityAnalyzer:
             quality_score=score,
             issues=issues,
             is_acceptable=is_acceptable,
-            recommendation=recommendation
+            recommendation=recommendation,
+            image_width=w,
+            image_height=h,
+            sharpness_score=round(laplacian_var, 1),
+            blur_detected=blur_detected,
+            glare_detected=glare_detected,
+            brightness_status=brightness_status,
+            perspective_status=perspective_status,
+            orientation_status="ROTATED_90" if "rotation_detected" in issues else "NORMAL",
+            readable_status=readable_status,
+            quality_warnings=issues,
+            rescan_recommendation=recommendation if not is_acceptable else None,
+            rescan_checklist=rescan_checklist
         )
 
 image_quality_service = ImageQualityAnalyzer()

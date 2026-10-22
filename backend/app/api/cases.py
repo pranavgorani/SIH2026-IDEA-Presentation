@@ -14,7 +14,8 @@ from backend.app.models.schemas import (
     ValidationSummary, ValidationCheck, TamperResultResponse, TamperRegion,
     FaceVerificationResponse, RecordVerificationResponse, RiskAssessmentResponse,
     ReviewDecisionRequest, ReviewDecisionResponse, AuditEventResponse,
-    ExtractedFields, MRZData, BoundingBox
+    ExtractedFields, MRZData, BoundingBox,
+    FieldCorrectionRequest, FieldCorrectionResponse
 )
 from backend.app.services.audit_service import audit_service
 from backend.app.services.explainability import explainability_service
@@ -269,6 +270,80 @@ def submit_human_review(
         timestamp=decision_record.timestamp
     )
 
+@router.post("/{case_id}/fields/correct", response_model=FieldCorrectionResponse, summary="Authorized reviewer field correction workflow")
+def correct_case_field(
+    case_id: str,
+    req: FieldCorrectionRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    case = db.query(Case).filter(Case.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Screening case not found.")
+
+    if not case.ocr_result:
+        raise HTTPException(status_code=400, detail="Case does not have OCR extraction results to correct.")
+
+    reviewer_id = req.reviewer_id or (current_user or {}).get("id") or (current_user or {}).get("sub", "usr-reviewer")
+    reviewer_name = req.reviewer_name or (current_user or {}).get("full_name") or (current_user or {}).get("username", "Authorized Reviewer")
+
+    extracted = dict(case.ocr_result.extracted_fields or {})
+
+    items_to_apply = []
+    if req.corrections:
+        items_to_apply.extend(req.corrections)
+    elif req.field_name and req.corrected_value is not None:
+        from backend.app.models.schemas import FieldCorrectionItem
+        items_to_apply.append(FieldCorrectionItem(
+            field_name=req.field_name,
+            corrected_value=req.corrected_value,
+            reason=req.rationale or "Manual inspector correction"
+        ))
+
+    if not items_to_apply:
+        raise HTTPException(status_code=400, detail="No field corrections provided.")
+
+    last_orig = None
+    last_name = None
+    last_corrected = None
+    last_rationale = None
+
+    for item in items_to_apply:
+        f_name = item.field_name
+        last_orig = str(extracted.get(f_name) or "")
+        extracted[f_name] = item.corrected_value
+        last_name = f_name
+        last_corrected = item.corrected_value
+        last_rationale = item.reason
+
+    case.ocr_result.extracted_fields = extracted
+
+    now_dt = utc_now()
+    audit_service.record_event(
+        db, case_id=case_id,
+        actor_id=reviewer_id,
+        action="FIELD_CORRECTION",
+        details={
+            "corrections_count": len(items_to_apply),
+            "reviewer": reviewer_name,
+            "timestamp": now_dt.isoformat(),
+            "applied": [{"field": it.field_name, "value": it.corrected_value, "reason": it.reason} for it in items_to_apply]
+        }
+    )
+    db.commit()
+
+    return FieldCorrectionResponse(
+        success=True,
+        case_id=case_id,
+        field_name=last_name,
+        original_value=last_orig,
+        corrected_value=last_corrected,
+        rationale=last_rationale,
+        reviewer_id=reviewer_id,
+        corrected_fields=extracted,
+        message=f"{len(items_to_apply)} field(s) successfully updated."
+    )
+
 @router.post("/demo/{preset_id}", summary="Instantiate and screen a synthetic demonstration scenario")
 def run_demo_scenario(preset_id: str, db: Session = Depends(get_db)):
     """
@@ -369,10 +444,10 @@ def run_demo_scenario(preset_id: str, db: Session = Depends(get_db)):
         id=generate_uuid(),
         case_id=case_id,
         raw_text=ocr_raw["raw_text"],
-        extracted_fields=ocr_raw["fields"].dict(),
-        mrz_data=ocr_raw["mrz"].dict() if ocr_raw.get("mrz") else None,
+        extracted_fields=ocr_raw["fields"].model_dump() if hasattr(ocr_raw["fields"], "model_dump") else ocr_raw["fields"].dict(),
+        mrz_data=(ocr_raw["mrz"].model_dump() if hasattr(ocr_raw["mrz"], "model_dump") else ocr_raw["mrz"].dict()) if ocr_raw.get("mrz") else None,
         confidence=ocr_raw["confidence"],
-        bounding_boxes=[b.dict() for b in ocr_raw.get("bounding_boxes", [])],
+        bounding_boxes=[b.model_dump() if hasattr(b, "model_dump") else b.dict() for b in ocr_raw.get("bounding_boxes", [])],
         engine_used=ocr_raw.get("engine_used", "TRUST-ID Modular OCR")
     )
     db.add(ocr_record)
@@ -395,7 +470,7 @@ def run_demo_scenario(preset_id: str, db: Session = Depends(get_db)):
         id=generate_uuid(), case_id=case_id,
         tampering_detected=tamper_res.tampering_detected,
         confidence=tamper_res.confidence,
-        regions=[r.dict() for r in tamper_res.regions],
+        regions=[r.model_dump() if hasattr(r, "model_dump") else r.dict() for r in tamper_res.regions],
         signals=tamper_res.signals,
         heatmap_path=tamper_res.heatmap_url
     ))

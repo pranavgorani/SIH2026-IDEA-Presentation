@@ -266,22 +266,33 @@ def test_inspector_cannot_modify_admin_settings():
 
 def test_admin_can_modify_settings():
     """Verify that ADMIN role can successfully update system settings."""
-    login_res = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
-    token = login_res.json()["access_token"]
-    
-    res = client.put(
-        "/api/settings",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "weights": {"OCR_DATA": 0.25, "VISUAL_FORENSICS": 0.25, "IDENTITY_VERIFICATION": 0.25, "RECORD_VERIFICATION": 0.25},
-            "threshold_low": 25.0,
-            "threshold_medium": 55.0,
-            "ai_provider": "LOCAL_FALLBACK",
-            "verification_mode": "MOCK_SIMULATED"
-        }
-    )
-    assert res.status_code == 200
-    assert "updated successfully" in res.json()["message"]
+    from backend.app.core.config import settings
+    orig_weights = settings.DEFAULT_WEIGHTS.copy()
+    orig_low = settings.RISK_THRESHOLD_LOW
+    orig_med = settings.RISK_THRESHOLD_MEDIUM
+    orig_prov = settings.AI_PROVIDER
+    try:
+        login_res = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        token = login_res.json()["access_token"]
+        
+        res = client.put(
+            "/api/settings",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "weights": {"OCR_DATA": 0.25, "VISUAL_FORENSICS": 0.25, "IDENTITY_VERIFICATION": 0.25, "RECORD_VERIFICATION": 0.25},
+                "threshold_low": 25.0,
+                "threshold_medium": 55.0,
+                "ai_provider": "LOCAL_FALLBACK",
+                "verification_mode": "MOCK_SIMULATED"
+            }
+        )
+        assert res.status_code == 200
+        assert "updated successfully" in res.json()["message"]
+    finally:
+        settings.DEFAULT_WEIGHTS = orig_weights
+        settings.RISK_THRESHOLD_LOW = orig_low
+        settings.RISK_THRESHOLD_MEDIUM = orig_med
+        settings.AI_PROVIDER = orig_prov
 
 
 def test_report_hash_and_audit_integrity():

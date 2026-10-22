@@ -160,10 +160,18 @@ async def run_screening_pipeline(
         if not front_bytes:
             return make_error_response("UPLOAD", "EMPTY_FILE", "Uploaded document file is empty.", False, 400)
 
-        front_path, f_hash, f_size, f_w, f_h = storage_service.save_upload(
-            case_id, primary_file.filename or "front.png", front_bytes
+        front_path, f_hash, f_size, f_w, f_h, front_meta = storage_service.save_upload(
+            case_id, primary_file.filename or "front.png", front_bytes, return_meta=True
         )
         upload_ms = round((time.perf_counter() - t_start) * 1000, 1)
+
+        back_path, b_hash, b_size, b_w, b_h, back_meta = None, None, 0, 0, 0, None
+        if back_file:
+            back_bytes = await back_file.read()
+            if back_bytes:
+                back_path, b_hash, b_size, b_w, b_h, back_meta = storage_service.save_upload(
+                    case_id, back_file.filename or "back.png", back_bytes, return_meta=True
+                )
 
         live_path = None
         if live_person_file:
@@ -173,7 +181,13 @@ async def run_screening_pipeline(
                     case_id, "live_selfie.png", live_bytes
                 )
 
-        log_stage_completion("UPLOAD", {"filename": primary_file.filename, "size_bytes": f_size, "dimensions": f"{f_w}x{f_h}"})
+        log_stage_completion("UPLOAD", {
+            "filename": primary_file.filename,
+            "size_bytes": f_size,
+            "dimensions": f"{f_w}x{f_h}",
+            "has_back": bool(back_path),
+            "total_pages": front_meta.get("total_pages", 1) if front_meta else 1
+        })
     except InvalidDocumentException as ide:
         return make_error_response("UPLOAD", ide.code or "INVALID_DOCUMENT", ide.message, recoverable=False, http_status=400)
     except FileTooLargeException as fle:
@@ -235,12 +249,50 @@ async def run_screening_pipeline(
     logger.info("OCR_START")
     try:
         ocr_raw_res = ocr_service.process_document(front_path, file_hash=f_hash, force_fresh=bool(force_fresh))
+
+        # Multi-page PDF extraction: process subsequent pages and merge text/fields
+        pdf_pages = front_meta.get("pages", []) if front_meta else []
+        if len(pdf_pages) > 1:
+            for p_info in pdf_pages[1:]:
+                page_img = p_info.get("file_path")
+                if page_img and Path(page_img).exists():
+                    try:
+                        p_ocr = ocr_service.process_document(page_img, force_fresh=bool(force_fresh))
+                        p_raw = p_ocr.get("raw_text", "")
+                        if p_raw:
+                            ocr_raw_res["raw_text"] = ocr_raw_res.get("raw_text", "") + f"\n\n--- PAGE {p_info['page_number']} ---\n" + p_raw
+                        # Merge any missing fields found on page 2+
+                        p_fields = p_ocr.get("fields")
+                        p_dict = p_fields.model_dump() if hasattr(p_fields, "model_dump") else (p_fields if isinstance(p_fields, dict) else {})
+                        for k, v in p_dict.items():
+                            if v and not getattr(ocr_raw_res.get("fields"), k, None):
+                                setattr(ocr_raw_res["fields"], k, v)
+                    except Exception as p_err:
+                        logger.warning(f"Error extracting PDF page {p_info.get('page_number')}: {p_err}")
+
+        # Back-side credential extraction: process back image and merge text/fields
+        if back_path and Path(back_path).exists():
+            try:
+                b_ocr = ocr_service.process_document(back_path, file_hash=b_hash, force_fresh=bool(force_fresh))
+                b_raw = b_ocr.get("raw_text", "")
+                if b_raw:
+                    ocr_raw_res["raw_text"] = ocr_raw_res.get("raw_text", "") + "\n\n--- BACK SIDE ---\n" + b_raw
+                b_fields = b_ocr.get("fields")
+                b_dict = b_fields.model_dump() if hasattr(b_fields, "model_dump") else (b_fields if isinstance(b_fields, dict) else {})
+                for k, v in b_dict.items():
+                    if v and not getattr(ocr_raw_res.get("fields"), k, None):
+                        setattr(ocr_raw_res["fields"], k, v)
+            except Exception as b_err:
+                logger.warning(f"Error extracting back-side credential: {b_err}")
+
         logger.info(f"OCR_COMPLETE: confidence={ocr_raw_res.get('confidence', 0)} engine={ocr_raw_res.get('engine_used')} cached={ocr_raw_res.get('cached')}")
         log_stage_completion("OCR", {
             "confidence": ocr_raw_res.get("confidence", 0.0),
             "status": ocr_raw_res.get("status", "OK"),
             "engine": ocr_raw_res.get("engine_used", "Local OCR"),
-            "cached": ocr_raw_res.get("cached", False)
+            "cached": ocr_raw_res.get("cached", False),
+            "pages_extracted": len(pdf_pages) if pdf_pages else 1,
+            "has_back_side": bool(back_path)
         })
     except Exception as e:
         logger.error(f"OCR failure: {e}")
@@ -786,6 +838,43 @@ async def run_screening_pipeline(
         )
         db.add(doc_front)
 
+        # Save Back Document if provided
+        if back_path:
+            doc_back = Document(
+                id=generate_uuid(),
+                case_id=case_id,
+                side="BACK",
+                filename=back_file.filename if back_file else "back.png",
+                file_path=back_path,
+                file_size_bytes=b_size,
+                mime_type=(back_file.content_type if back_file else "image/png") or "image/png",
+                sha256_hash=b_hash or "",
+                width=b_w,
+                height=b_h,
+                quality_score=95.0,
+                quality_issues=[]
+            )
+            db.add(doc_back)
+
+        # Save extra PDF pages if multi-page document
+        if front_meta and len(front_meta.get("pages", [])) > 1:
+            for p_rec in front_meta["pages"][1:]:
+                doc_page = Document(
+                    id=generate_uuid(),
+                    case_id=case_id,
+                    side=f"PAGE_{p_rec['page_number']}",
+                    filename=f"page_{p_rec['page_number']}.png",
+                    file_path=p_rec["file_path"],
+                    file_size_bytes=f_size,
+                    mime_type="image/png",
+                    sha256_hash=f_hash,
+                    width=p_rec.get("width", 800),
+                    height=p_rec.get("height", 1100),
+                    quality_score=95.0,
+                    quality_issues=[]
+                )
+                db.add(doc_page)
+
         # Save Live Document if present
         if live_path:
             doc_live = Document(
@@ -1310,6 +1399,14 @@ async def run_screening_pipeline(
         "ai_provider": raw_ai_prov,
         "ai_provider_display": ai_provider_display,
         "cached": bool(ocr_raw_res.get("cached", False)),
+        "document_ingestion": {
+            "is_pdf": bool(front_meta.get("is_pdf")) if front_meta else False,
+            "total_pages": front_meta.get("total_pages", 1) if front_meta else 1,
+            "processed_pages": front_meta.get("processed_pages", 1) if front_meta else 1,
+            "pages_analyzed": [p.get("page_number", 1) for p in (front_meta.get("pages", []) if front_meta else [])] or [1],
+            "has_back_side": bool(back_path),
+            "back_side_filename": back_file.filename if back_file else None
+        },
         "timing": {
             "upload_ms": upload_ms,
             "preprocessing_ms": preprocessing_ms,

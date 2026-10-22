@@ -34,11 +34,26 @@ class RecordVerificationService:
         try:
             active_provider = self.providers_by_type.get(document_type.upper(), self.provider)
             res = active_provider.verify(document_number, document_type, candidate_name)
+            raw_status = res.get("status", "NOT_FOUND")
+            found = res.get("record_found", False)
+            source_str = res.get("source", "DEMO_VERIFICATION_DATABASE (SIMULATED)")
+
+            # Standardized Phase 10 verification status determination
+            if raw_status == "UNAVAILABLE":
+                verif_status = "VERIFICATION_UNAVAILABLE"
+            elif not found or raw_status == "NOT_FOUND":
+                verif_status = "NOT_FOUND_BY_PROVIDER"
+            elif "AUTHORIZED" in source_str.upper() and not any(k in source_str.upper() for k in ["SIMULATED", "MOCK", "DEMO"]):
+                verif_status = "VERIFIED_BY_AUTHORIZED_PROVIDER"
+            else:
+                verif_status = "SANDBOX_RESULT"
+
             return RecordVerificationResponse(
-                record_found=res.get("record_found", False),
-                status=res.get("status", "NOT_FOUND"),
+                record_found=found,
+                status=raw_status,
+                verification_status=verif_status,
                 document_number=res.get("document_number", document_number),
-                source=res.get("source", "DEMO_VERIFICATION_DATABASE (SIMULATED)"),
+                source=source_str,
                 match_details=res.get("match_details"),
                 checked_at=datetime.now(timezone.utc),
                 disclaimer=res.get("disclaimer", "SIMULATED / DEMONSTRATION DATA")
@@ -47,6 +62,7 @@ class RecordVerificationService:
             return RecordVerificationResponse(
                 record_found=False,
                 status="UNAVAILABLE",
+                verification_status="VERIFICATION_UNAVAILABLE",
                 document_number=document_number,
                 source="MOCK_REGISTRY_FALLBACK",
                 match_details={"status": "UNAVAILABLE", "reason": "External verification unavailable"},
