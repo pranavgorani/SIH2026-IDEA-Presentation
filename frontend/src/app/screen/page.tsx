@@ -33,7 +33,8 @@ import {
   ChevronDown,
   ChevronUp,
   Filter,
-  RefreshCw
+  RefreshCw,
+  Upload
 } from "lucide-react";
 import OfficialDossierReport, {
   DossierReportData,
@@ -220,8 +221,15 @@ export function getScenario100Checks(scenario: ScenarioItem): CheckItem[] {
     ]}
   ];
 
+  const isFailed = scenario.analysisStatus === "PROCESSING_FAILED" ||
+                   scenario.verdict === "PROCESSING ERROR" ||
+                   scenario.verdict.startsWith("SCAN FAILED") ||
+                   Boolean(scenario.errorCode);
+  const isUnsupported = scenario.isUnsupported || scenario.analysisStatus === "UNSUPPORTED" || scenario.analysisStatus === "NOT_VERIFIED";
+  const isNeedsRescan = scenario.analysisStatus === "NEEDS_RESCAN" || scenario.verdict === "RESCAN REQUIRED";
   const isDetain = scenario.verdict === "DETAIN / FRAUD ALERT" || (scenario.riskScore !== null && scenario.riskScore >= 70);
-  const isSecondary = scenario.verdict === "SECONDARY SCRUTINY";
+  const isSecondary = scenario.verdict === "SECONDARY SCRUTINY" || scenario.analysisStatus === "PARTIALLY_ANALYZED" || scenario.analysisStatus === "REVIEW_REQUIRED";
+
   const allChecks: CheckItem[] = [];
 
   categories.forEach((catObj) => {
@@ -231,7 +239,29 @@ export function getScenario100Checks(scenario: ScenarioItem): CheckItem[] {
       let status: "PASS" | "FAIL" | "WARNING" | "UNAVAILABLE" = "PASS";
       let msg = `${name} verified successfully against official security parameters.`;
 
-      if (isDetain) {
+      if (isFailed) {
+        // When screening service failed or backend is offline, NO CHECKS PASSED. All are UNAVAILABLE.
+        status = "UNAVAILABLE";
+        msg = `Check execution halted: screening service unavailable or encountered processing failure (${scenario.errorCode || "PROCESSING_FAILED"}).`;
+      } else if (isUnsupported) {
+        // Document unrecognized or no readable text: cannot validate credentials
+        if (num <= 3) {
+          status = "WARNING";
+          msg = "Image received but no recognized document substrate or readable identity credential detected.";
+        } else {
+          status = "UNAVAILABLE";
+          msg = "Check unavailable: document type could not be validated.";
+        }
+      } else if (isNeedsRescan) {
+        // Image resolution or lighting insufficient
+        if (num <= 15) {
+          status = "WARNING";
+          msg = "Image resolution, illumination, or alignment is insufficient for confident validation.";
+        } else {
+          status = "UNAVAILABLE";
+          msg = "Check skipped pending high-resolution rescan.";
+        }
+      } else if (isDetain) {
         // Specific failures depending on tampering vectors
         if (num === 48 || num === 49 || num === 50 || num === 52) {
           // Check digit checks
@@ -636,10 +666,23 @@ const PRESET_SCENARIOS: ScenarioItem[] = [
   }
 ];
 
+export type ScanState = "IDLE" | "UPLOADING" | "PROCESSING" | "COMPLETED" | "FAILED" | "NEEDS_REVIEW";
+
 export default function ScreeningPage() {
   const [selectedScenarioIndex, setSelectedScenarioIndex] = useState(0);
   const [customScenario, setCustomScenario] = useState<ScenarioItem | null>(null);
   const currentScenario = customScenario || PRESET_SCENARIOS[selectedScenarioIndex];
+
+  // Authoritative Scan State Machine (Phase 3)
+  const [scanState, setScanState] = useState<ScanState>("IDLE");
+  const [scanError, setScanError] = useState<{
+    code: string;
+    message: string;
+    stage: string;
+    requestId?: string;
+    userAction?: string;
+  } | null>(null);
+  const activeScanIdRef = useRef<string | null>(null);
 
   // Tool Tabs
   const [docToolTab, setDocToolTab] = useState<"scan" | "ela" | "zones" | "loupe">("scan");
@@ -680,8 +723,7 @@ export default function ScreeningPage() {
     if (refreshState !== "idle") return;
     setRefreshState("refreshing");
 
-    // Clear transient scanner state:
-    // currentDocument, currentScan, ocrResult, mrzResult, extractedFields, confidence, risk, 100Checks, report, error, pipelineProgress
+    // Clear transient scanner state and reset state machine to IDLE
     setCustomScenario(null);
     setCustomFile(null);
     setCustomPreview(null);
@@ -689,6 +731,9 @@ export default function ScreeningPage() {
     setSelectedFieldEvidence(null);
     setIsProcessingUpload(false);
     setSelectedScenarioIndex(0);
+    setScanState("IDLE");
+    setScanError(null);
+    activeScanIdRef.current = null;
 
     setTimeout(() => {
       setRefreshState("refreshed");
@@ -782,6 +827,18 @@ export default function ScreeningPage() {
   const passedChecksCount = scenarioChecks.filter(c => c.status === "PASS").length;
   const failedChecksCount = scenarioChecks.filter(c => c.status === "FAIL").length;
   const warningChecksCount = scenarioChecks.filter(c => c.status === "WARNING").length;
+  const unavailableChecksCount = scenarioChecks.filter(c => c.status === "UNAVAILABLE").length;
+
+  // Authoritative status evaluation (Phases 3, 4, 5)
+  const isProcessingError =
+    currentScenario.verdict === "PROCESSING ERROR" ||
+    currentScenario.verdict.startsWith("SCAN FAILED") ||
+    currentScenario.analysisStatus === "PROCESSING_FAILED" ||
+    scanState === "FAILED" ||
+    Boolean(currentScenario.errorCode);
+  const isDetain = !isProcessingError && (currentScenario.verdict === "DETAIN / FRAUD ALERT" || (currentScenario.riskScore !== null && currentScenario.riskScore >= 70));
+  const isNeedsReview = !isProcessingError && (currentScenario.verdict === "SECONDARY SCRUTINY" || currentScenario.analysisStatus === "REVIEW_REQUIRED" || currentScenario.analysisStatus === "NEEDS_RESCAN");
+  const isPassed = !isProcessingError && !isDetain && !isNeedsReview && !currentScenario.isUnsupported && (currentScenario.verdict === "CLEAR TO ENTER" || currentScenario.analysisStatus === "VERIFIED");
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (docToolTab !== "loupe" || !docContainerRef.current) return;
@@ -802,8 +859,8 @@ export default function ScreeningPage() {
       checkpoint: "Indira Gandhi International Airport - Terminal 3 (E-Gate 04)",
       screeningTime: new Date().toISOString(),
       officerId: "Officer Sarim Moin (MHA-BOC-409)",
-      decision: scenario.verdict,
-      riskScore: scenario.riskScore,
+      decision: isProcessingError ? "PROCESSING ERROR / FAILED" : scenario.verdict,
+      riskScore: isProcessingError ? null : scenario.riskScore,
       totalScreened: 164,
       clearanceRate: 75.6,
       tamperingIntercepted: 32,
@@ -821,7 +878,11 @@ export default function ScreeningPage() {
         expiryDate: scenario.expiryDate
       },
       forensics: {
-        mrzStatus: scenario.checkDigits.every(c => c.valid) ? "VALID / ICAO 9303 COMPLIANT" : "TAMPERED / CHECKSUM MISMATCH",
+        mrzStatus: isProcessingError
+          ? "NOT_APPLICABLE (SCAN FAILED)"
+          : scenario.checkDigits.length > 0 && scenario.checkDigits.every(c => c.valid)
+          ? "VALID / ICAO 9303 COMPLIANT"
+          : "TAMPERED / CHECKSUM MISMATCH",
         tamperingAssessment: scenario.tamperingAssessment,
         biometricMatch: scenario.biometricMatch,
         watchlistStatus: scenario.watchlistStatus
@@ -838,8 +899,8 @@ export default function ScreeningPage() {
       screeningTime: new Date().toISOString(),
       checkpoint: "Indira Gandhi International Airport - Terminal 3 (E-Gate 04)",
       officerId: "Officer Sarim Moin (MHA-BOC-409)",
-      decision: scenario.verdict,
-      riskScore: scenario.riskScore,
+      decision: isProcessingError ? "PROCESSING ERROR" : scenario.verdict,
+      riskScore: isProcessingError ? null : scenario.riskScore,
       documentType: scenario.documentType,
       documentNumber: scenario.docNumber,
       fullName: scenario.fullName,
@@ -858,6 +919,7 @@ export default function ScreeningPage() {
   };
 
   const handlePrintDossier = () => {
+    if (isProcessingError) return;
     const originalTitle = document.title;
     document.title = "AI-Based Fake Identity & Document Screening System | Ministry of Home Affairs";
     window.print();
@@ -865,19 +927,27 @@ export default function ScreeningPage() {
   };
 
   const handleExportExcel = () => {
+    if (isProcessingError) return;
     exportAnalysisToExcel(getExportData(currentScenario));
   };
 
   const handleExportCsv = () => {
+    if (isProcessingError) return;
     exportAnalysisToCsv(getExportData(currentScenario));
   };
 
   // Handle custom upload & real OCR processing (Cache Safe & Purely Dynamic)
   const handleExecuteCustomScreening = async () => {
     if (!customFile) return;
+
+    // Phase 3: Single authoritative scan state machine & unique scan identifier
+    const scanId = `SCAN-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    activeScanIdRef.current = scanId;
+
     setIsProcessingUpload(true);
-    // Cache safety: clear any previous custom scan immediately
-    setCustomScenario(null);
+    setScanState("UPLOADING");
+    setScanError(null);
+    setCustomScenario(null); // Clear previous scan result immediately
 
     try {
       // 1. Calculate real SHA-256 and dimensions from the uploaded file
@@ -907,6 +977,7 @@ export default function ScreeningPage() {
       abortControllerRef.current = controller;
 
       setUploadScanStage("Uploading and validating file...");
+      setScanState("PROCESSING");
 
       const formData = new FormData();
       formData.append("front_image", customFile);
@@ -915,6 +986,9 @@ export default function ScreeningPage() {
       formData.append("document_type_hint", "AUTO_DETECT");
 
       let apiData: any = null;
+      let httpStatus = 200;
+      let networkErr: any = null;
+
       try {
         setUploadScanStage("Executing Document Forensics and AI Multimodal Analysis...");
         const response = await fetch("/api/screen", {
@@ -922,6 +996,7 @@ export default function ScreeningPage() {
           body: formData,
           signal: controller.signal
         });
+        httpStatus = response.status;
         if (response.ok) {
           apiData = await response.json();
           setUploadScanStage("Finalizing forensic extraction...");
@@ -934,7 +1009,96 @@ export default function ScreeningPage() {
           console.log("Previous screening request aborted for new upload.");
           return;
         }
+        networkErr = err;
         console.warn("Screening API network error:", err);
+      }
+
+      // Check for processing failure (HTTP error, connection failure, backend unavailable)
+      const isProcessingFailed = Boolean(
+        networkErr ||
+        httpStatus >= 400 ||
+        !apiData ||
+        apiData?.success === false ||
+        apiData?.processing_status === "PROCESSING_FAILED" ||
+        apiData?.status === "PROCESSING_FAILED" ||
+        Boolean(apiData?.error_code)
+      );
+
+      if (isProcessingFailed) {
+        if (activeScanIdRef.current !== scanId) return; // Discard stale response
+
+        const errCode = apiData?.error_code || (httpStatus === 503 ? "BACKEND_SERVICE_UNAVAILABLE" : "PROCESSING_FAILED");
+        const errMsg = apiData?.message || apiData?.error?.message || (networkErr ? `Network request failed: ${networkErr.message}` : "Screening service is unavailable. Please verify the backend connection.");
+        const userAct = apiData?.user_action || "Start the Python FastAPI backend server or check network connection.";
+
+        setScanState("FAILED");
+        setScanError({
+          code: errCode,
+          message: errMsg,
+          stage: apiData?.error?.stage || "BACKEND_SCREENING",
+          requestId: scanId,
+          userAction: userAct
+        });
+
+        const failedScenario: ScenarioItem = {
+          id: scanId,
+          name: `Scanned: ${customFile.name}`,
+          badge: "PROCESSING ERROR",
+          badgeColor: "bg-rose-500/20 text-rose-700 border-rose-500/40 font-bold",
+          description: `Screening halted: ${errMsg}`,
+          verdict: "PROCESSING ERROR",
+          verdictDesc: `Technical error (${errCode}): ${errMsg}`,
+          riskScore: null,
+          documentType: "PROCESSING ERROR",
+          docNumber: "NOT_EXTRACTED",
+          fullName: "NOT_EXTRACTED",
+          nationality: "—",
+          dob: "—",
+          gender: "—",
+          expiryDate: "—",
+          issuingCountry: "—",
+          visionAccelerator: "SERVICE OFFLINE",
+          imageUrl: previewUrl,
+          rawMrz: [],
+          checkDigits: [],
+          documentSha256: sha256,
+          resolution: `${realWidth} x ${realHeight} px`,
+          tamperingAssessment: "NOT_EVALUATED (SERVICE UNAVAILABLE)",
+          elaScore: "N/A (Scan Failed)",
+          biometricMatch: "NOT_EVALUATED",
+          watchlistStatus: "NOT_EVALUATED",
+          blockchain: {
+            blockIndex: 0,
+            blockHash: "0000000000000000000000000000000000000000000000000000000000000000",
+            previousHash: "0000000000000000000000000000000000000000000000000000000000000000",
+            digitalSignature: "UNVERIFIED_TRANSACTION_FAILED"
+          },
+          boundingBoxes: [],
+          rawOcrText: "",
+          allExtractedText: [],
+          ocrStatus: "UNAVAILABLE",
+          geminiStatus: "SKIPPED",
+          imageQualityWarnings: [],
+          validationStatus: "FAILED",
+          fieldConfidence: {},
+          sources: {},
+          fieldsDetail: {},
+          mrzValidation: { detected: false, valid: false, consistency: "NOT_APPLICABLE" },
+          isUnsupported: false,
+          unsupportedReason: errMsg,
+          analysisStatus: "PROCESSING_FAILED",
+          externalVerificationStatus: "NOT_CONFIGURED",
+          aiProviderDisplay: "OFFLINE",
+          additionalFields: {},
+          overallConfidence: 0,
+          ocrEngineUsed: "NONE",
+          errorCode: errCode
+        };
+
+        setCustomScenario(failedScenario);
+        setShowUploadModal(false);
+        setIsProcessingUpload(false);
+        return;
       }
 
       // 3. Extract real fields directly from backend response - ZERO hardcoded mock/demo fallbacks!
@@ -997,8 +1161,8 @@ export default function ScreeningPage() {
 
       // Distinct pipeline states: Case A, Case B, Case C, Case D
       const processingStatus: string = apiData?.processing_status || (apiData?.status === "PROCESSING_FAILED" ? "PROCESSING_FAILED" : "COMPLETED");
-      const isProcessingFailed = processingStatus === "PROCESSING_FAILED" || Boolean(apiData?.error_code);
-      const isNeedsRescan = !isProcessingFailed && (
+      const isFailedStatus = isProcessingFailed || processingStatus === "PROCESSING_FAILED" || Boolean(apiData?.error_code);
+      const isNeedsRescan = !isFailedStatus && (
         processingStatus === "NEEDS_RESCAN" ||
         apiData?.ocr_status === "NEEDS_RESCAN" ||
         (rawDocType === "UNKNOWN" && (!apiData?.ocr?.raw_text || apiData.ocr.raw_text.trim().length < 15))
@@ -1017,13 +1181,13 @@ export default function ScreeningPage() {
       );
 
       // Document is only truly unsupported if zero readable text could be extracted
-      const isUnsupported = !isProcessingFailed && !isNeedsRescan && (
+      const isUnsupported = !isFailedStatus && !isNeedsRescan && (
         (processingStatus === "UNSUPPORTED" && !hasExtractedContent) ||
         (apiData?.unsupported === true && !hasExtractedContent) ||
         (!rawDocType && !hasExtractedContent)
       );
 
-      const isUnclassified = !isProcessingFailed && !isNeedsRescan && !isUnsupported && (
+      const isUnclassified = !isFailedStatus && !isNeedsRescan && !isUnsupported && (
         rawDocUpper.includes("UNCLASSIFIED") ||
         rawDocUpper.includes("UNKNOWN") ||
         rawDocType === "UNCLASSIFIED" ||
@@ -1032,9 +1196,9 @@ export default function ScreeningPage() {
         rawDocType === "GENERIC_ID"
       );
 
-      const isGeneric = isUnclassified || (!isProcessingFailed && !isNeedsRescan && !isUnsupported && processingStatus === "NEEDS_REVIEW");
+      const isGeneric = isUnclassified || (!isFailedStatus && !isNeedsRescan && !isUnsupported && processingStatus === "NEEDS_REVIEW");
 
-      const isPartial = !isProcessingFailed && !isNeedsRescan && !isUnsupported && (
+      const isPartial = !isFailedStatus && !isNeedsRescan && !isUnsupported && (
         isGeneric ||
         isUnclassified ||
         processingStatus === "PARTIAL" ||
@@ -1052,13 +1216,13 @@ export default function ScreeningPage() {
 
       const unsupportedReason =
         rawApiError ||
-        (isProcessingFailed
+        (isFailedStatus
           ? "Processing failed to reach backend service. Please ensure the backend is running and retry."
           : isNeedsRescan
           ? "Scan resolution or contrast is insufficient for confident character extraction. Please rescan."
           : "Document type could not be confidently recognized as a supported credential format.");
 
-      const analysisStatus = isProcessingFailed
+      const analysisStatus = isFailedStatus
         ? "PROCESSING_FAILED"
         : isNeedsRescan
         ? "NEEDS_RESCAN"
@@ -1072,7 +1236,7 @@ export default function ScreeningPage() {
       const aiProviderDisplay = apiData?.ai_provider_display || (apiData?.gemini_used ? "GEMINI 3.8 FLASH + LOCAL OCR/CV" : "LOCAL OCR/CV");
       const overallConfidence = apiData?.overall_confidence !== undefined ? Number(apiData.overall_confidence) : (isUnsupported ? 0 : 0.94);
 
-      const extractedDocType = isProcessingFailed
+      const extractedDocType = isFailedStatus
         ? "PROCESSING ERROR"
         : isNeedsRescan
         ? "RESCAN REQUIRED"
@@ -1215,12 +1379,12 @@ export default function ScreeningPage() {
             ? Number(apiData.risk.risk_score)
             : null);
 
-      const effectiveRiskScore: number | null = (isUnsupported || isNeedsRescan || isProcessingFailed)
+      const effectiveRiskScore: number | null = (isUnsupported || isNeedsRescan || isFailedStatus)
         ? null
         : (rawRisk !== null ? rawRisk : 12.0);
 
       const isRiskHigh = effectiveRiskScore !== null && effectiveRiskScore >= 50.0;
-      const scanId = apiData?.scan_id || apiData?.case_id || `SCAN-${Date.now().toString(36).toUpperCase()}`;
+      const resolvedScanId = apiData?.scan_id || apiData?.case_id || scanId;
 
       // Final verdict decision
       let verdict: ScenarioItem["verdict"] = "CLEAR TO ENTER";
@@ -1228,7 +1392,7 @@ export default function ScreeningPage() {
       let badge = "VERIFIED & CLEARED";
       let badgeColor = "bg-emerald-500/20 text-emerald-400 border-emerald-500/40";
 
-      if (isProcessingFailed) {
+      if (isFailedStatus) {
         verdict = "PROCESSING ERROR";
         verdictDesc = `Technical error (${apiData?.error_code || "ERR_INGEST_FAILURE"}): ${unsupportedReason}`;
         badge = "PROCESSING ERROR";
@@ -1363,7 +1527,7 @@ export default function ScreeningPage() {
       let finalBadge = badge;
       let finalBadgeColor = badgeColor;
 
-      if (isUnclassifiedDoc && !isProcessingFailed && !isNeedsRescan) {
+      if (isUnclassifiedDoc && !isFailedStatus && !isNeedsRescan) {
         finalVerdict = "SECONDARY SCRUTINY";
         finalVerdictDesc = "Document format is unclassified. Document-specific mathematical check digits could not be verified, but all visible text and fields have been extracted and preserved.";
         finalBadge = "UNCLASSIFIED DOC";
@@ -1371,7 +1535,7 @@ export default function ScreeningPage() {
       }
 
       const newScenario: ScenarioItem = {
-        id: scanId,
+        id: resolvedScanId,
         name: `Scanned: ${customFile.name}`,
         badge: finalBadge,
         badgeColor: finalBadgeColor,
@@ -1438,8 +1602,6 @@ export default function ScreeningPage() {
       setIsProcessingUpload(false);
     }
   };
-
-  const isDetain = currentScenario.verdict === "DETAIN / FRAUD ALERT" || (currentScenario.riskScore !== null && currentScenario.riskScore >= 70);
 
   return (
     <div className="space-y-5 max-w-[1400px] mx-auto pb-16 font-sans">
@@ -1542,6 +1704,66 @@ export default function ScreeningPage() {
           )}
         </button>
       </div>
+
+      {/* ========================================================================= */}
+      {/* PROMINENT ERROR DIAGNOSTIC CARD (Shown on Scan / Service Failure) */}
+      {/* ========================================================================= */}
+      {isProcessingError && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-rose-50 border-2 border-rose-300 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-start gap-3 flex-1">
+            <div className="w-10 h-10 rounded-xl bg-rose-100 border border-rose-300 flex items-center justify-center flex-shrink-0 text-rose-600 mt-0.5">
+              <XCircle className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base font-bold text-rose-900">
+                  SCAN FAILED — SCREENING SERVICE UNAVAILABLE
+                </h3>
+                <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-rose-200 text-rose-900 border border-rose-300">
+                  {currentScenario.errorCode || scanError?.code || "BACKEND_SERVICE_UNAVAILABLE"}
+                </span>
+                {scanError?.requestId && (
+                  <span className="font-mono text-[10px] text-rose-700">
+                    REQ-ID: {scanError.requestId.slice(0, 16)}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-rose-800 leading-relaxed">
+                {currentScenario.verdictDesc || scanError?.message || "FastAPI screening service could not process the document or is temporarily unreachable."}
+              </p>
+              <p className="text-[11px] text-rose-700/90 font-mono">
+                {scanError?.userAction || "Ensure backend FastAPI service is running, or verify NEXT_PUBLIC_API_URL / BACKEND_API_URL environment configuration."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0 w-full md:w-auto">
+            <button
+              type="button"
+              disabled={isProcessingUpload}
+              onClick={() => {
+                if (customFile) {
+                  handleExecuteCustomScreening();
+                } else {
+                  setShowUploadModal(true);
+                }
+              }}
+              className="flex-1 md:flex-initial px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${isProcessingUpload ? "animate-spin" : ""}`} />
+              <span>Retry Screening</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowUploadModal(true)}
+              className="flex-1 md:flex-initial px-4 py-2 rounded-xl bg-white hover:bg-rose-100 border border-rose-300 text-rose-800 text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Upload Different File</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* MAIN TWO-COLUMN DASHBOARD (Matching Reference Screenshots) */}
@@ -1828,9 +2050,10 @@ export default function ScreeningPage() {
               {/* Print Official Dossier */}
               <button
                 type="button"
+                disabled={isProcessingError}
                 onClick={handlePrintDossier}
-                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                title="Print Official 2-Page MHA Dossier (A4 / PDF)"
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                title={isProcessingError ? "Export disabled: screening service unavailable or failed" : "Print Official 2-Page MHA Dossier (A4 / PDF)"}
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Dossier (PDF)</span>
@@ -1839,9 +2062,10 @@ export default function ScreeningPage() {
               {/* Export Full Analysis in Excel Format */}
               <button
                 type="button"
+                disabled={isProcessingError}
                 onClick={handleExportExcel}
-                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                title="Download complete forensic analysis and 100 checks in Excel format (.xls)"
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                title={isProcessingError ? "Export disabled: screening service unavailable or failed" : "Download complete forensic analysis and 100 checks in Excel format (.xls)"}
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>Export Excel</span>
@@ -1850,9 +2074,10 @@ export default function ScreeningPage() {
               {/* Export CSV */}
               <button
                 type="button"
+                disabled={isProcessingError}
                 onClick={handleExportCsv}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-300 transition-all cursor-pointer"
-                title="Download CSV format"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 text-xs font-semibold border border-slate-300 transition-all cursor-pointer"
+                title={isProcessingError ? "Export disabled: screening service unavailable or failed" : "Download CSV format"}
               >
                 <span>CSV</span>
               </button>
@@ -1863,48 +2088,78 @@ export default function ScreeningPage() {
           {/* FORENSIC VERIFICATION ANALYSIS MATRIX */}
           {/* =================================================================== */}
           <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs space-y-3.5">
-            {/* Verdict Status Banner */}
+            {/* Verdict Status Banner (Phase 4: Explicit Multistate Logic) */}
             <div
               className={`p-3 rounded-lg border flex items-center justify-between text-xs font-bold ${
-                isDetain
+                isProcessingError
                   ? "bg-rose-50 border-rose-300 text-rose-800"
+                  : isDetain
+                  ? "bg-rose-50 border-rose-300 text-rose-800"
+                  : isNeedsReview
+                  ? "bg-amber-50 border-amber-300 text-amber-800"
+                  : currentScenario.isUnsupported
+                  ? "bg-amber-50 border-amber-300 text-amber-800"
                   : "bg-emerald-50 border-emerald-300 text-emerald-800"
               }`}
             >
               <div className="flex items-center gap-2">
-                {isDetain ? (
-                  <XCircle className="w-4 h-4 text-rose-600" />
+                {isProcessingError || isDetain ? (
+                  <XCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                ) : isNeedsReview || currentScenario.isUnsupported ? (
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
                 ) : (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                 )}
                 <span>
-                  {isDetain
+                  {isProcessingError
+                    ? "SCAN FAILED — SCREENING SERVICE UNAVAILABLE"
+                    : isDetain
                     ? "VERIFICATION FAILED — FRAUD / TAMPER DETECTED"
+                    : isNeedsReview
+                    ? "SECONDARY SCRUTINY REQUIRED — ANOMALIES DETECTED"
+                    : currentScenario.isUnsupported
+                    ? "AUTHENTICITY NOT ESTABLISHED — UNSUPPORTED CREDENTIAL"
                     : "VERIFICATION PASSED — DOCUMENT AUTHENTIC"}
                 </span>
               </div>
               <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-800 shadow-2xs">
-                RISK: {currentScenario.riskScore}/100
+                {isProcessingError
+                  ? "RISK: N/A"
+                  : currentScenario.riskScore !== null
+                  ? `RISK: ${currentScenario.riskScore}/100`
+                  : "RISK: N/A"}
               </span>
             </div>
 
-            {/* Checks Tally Header */}
-            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+            {/* Checks Tally Header (Phase 5: Accurate 5-Column Check Distribution) */}
+            <div className="grid grid-cols-5 gap-1.5 text-center text-xs">
               <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
-                <span className="text-[9px] font-mono text-slate-500 block uppercase">Total Checks</span>
+                <span className="text-[9px] font-mono text-slate-500 block uppercase">Total</span>
                 <span className="font-mono font-bold text-slate-900 text-sm">100</span>
               </div>
               <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
                 <span className="text-[9px] font-mono text-emerald-700 block uppercase">Passed</span>
-                <span className="font-mono font-bold text-emerald-700 text-sm">{passedChecksCount}</span>
+                <span className="font-mono font-bold text-emerald-700 text-sm">
+                  {isProcessingError ? 0 : passedChecksCount}
+                </span>
               </div>
               <div className="p-2 rounded-lg bg-rose-50 border border-rose-200">
                 <span className="text-[9px] font-mono text-rose-700 block uppercase">Failed</span>
-                <span className="font-mono font-bold text-rose-700 text-sm">{failedChecksCount}</span>
+                <span className="font-mono font-bold text-rose-700 text-sm">
+                  {isProcessingError ? 0 : failedChecksCount}
+                </span>
               </div>
               <div className="p-2 rounded-lg bg-amber-50 border border-amber-200">
                 <span className="text-[9px] font-mono text-amber-700 block uppercase">Warnings</span>
-                <span className="font-mono font-bold text-amber-700 text-sm">{warningChecksCount}</span>
+                <span className="font-mono font-bold text-amber-700 text-sm">
+                  {isProcessingError ? 0 : warningChecksCount}
+                </span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-100 border border-slate-300">
+                <span className="text-[9px] font-mono text-slate-600 block uppercase">Not Run</span>
+                <span className="font-mono font-bold text-slate-700 text-sm">
+                  {isProcessingError ? 100 : unavailableChecksCount}
+                </span>
               </div>
             </div>
 
@@ -1918,12 +2173,14 @@ export default function ScreeningPage() {
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                    currentScenario.tamperingAssessment.includes("AUTHENTIC")
+                    isProcessingError
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : currentScenario.tamperingAssessment.includes("AUTHENTIC")
                       ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                       : "bg-rose-50 text-rose-700 border-rose-300"
                   }`}
                 >
-                  {currentScenario.tamperingAssessment.includes("AUTHENTIC") ? "PASS" : "FAIL"}
+                  {isProcessingError ? "UNAVAILABLE" : currentScenario.tamperingAssessment.includes("AUTHENTIC") ? "PASS" : "FAIL"}
                 </span>
               </div>
 
@@ -1933,8 +2190,24 @@ export default function ScreeningPage() {
                   <div className="font-semibold text-slate-800">2. OCR &amp; Biographic Fields</div>
                   <div className="text-[10px] text-slate-500">Typography alignment &amp; logical dates sequence</div>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-300">
-                  PASS
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                    isProcessingError
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : currentScenario.ocrStatus === "UNAVAILABLE" || currentScenario.isUnsupported
+                      ? "bg-rose-50 text-rose-700 border-rose-300"
+                      : currentScenario.ocrStatus === "PARTIAL"
+                      ? "bg-amber-50 text-amber-700 border-amber-300"
+                      : "bg-emerald-50 text-emerald-700 border-emerald-300"
+                  }`}
+                >
+                  {isProcessingError
+                    ? "UNAVAILABLE"
+                    : currentScenario.ocrStatus === "UNAVAILABLE" || currentScenario.isUnsupported
+                    ? "FAILED"
+                    : currentScenario.ocrStatus === "PARTIAL"
+                    ? "REVIEW"
+                    : "PASS"}
                 </span>
               </div>
 
@@ -1946,12 +2219,22 @@ export default function ScreeningPage() {
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                    currentScenario.checkDigits.every(c => c.valid)
+                    isProcessingError
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : currentScenario.checkDigits.length === 0
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : currentScenario.checkDigits.every(c => c.valid)
                       ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                       : "bg-rose-50 text-rose-700 border-rose-300"
                   }`}
                 >
-                  {currentScenario.checkDigits.every(c => c.valid) ? "PASS" : "FAIL"}
+                  {isProcessingError
+                    ? "UNAVAILABLE"
+                    : currentScenario.checkDigits.length === 0
+                    ? "NOT DETECTED"
+                    : currentScenario.checkDigits.every(c => c.valid)
+                    ? "PASS"
+                    : "FAIL"}
                 </span>
               </div>
 
@@ -1963,12 +2246,22 @@ export default function ScreeningPage() {
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                    currentScenario.biometricMatch.includes("VERIFIED")
+                    isProcessingError
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : currentScenario.biometricMatch === "NOT_EVALUATED"
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : currentScenario.biometricMatch.includes("VERIFIED")
                       ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                       : "bg-rose-50 text-rose-700 border-rose-300"
                   }`}
                 >
-                  {currentScenario.biometricMatch.includes("VERIFIED") ? "PASS" : "FAIL"}
+                  {isProcessingError
+                    ? "UNAVAILABLE"
+                    : currentScenario.biometricMatch === "NOT_EVALUATED"
+                    ? "NOT RUN"
+                    : currentScenario.biometricMatch.includes("VERIFIED")
+                    ? "PASS"
+                    : "FAIL"}
                 </span>
               </div>
 
@@ -1980,12 +2273,22 @@ export default function ScreeningPage() {
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                    currentScenario.watchlistStatus.includes("NEGATIVE")
+                    isProcessingError
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : currentScenario.watchlistStatus === "NOT_EVALUATED"
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : currentScenario.watchlistStatus.includes("NEGATIVE")
                       ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                       : "bg-rose-50 text-rose-700 border-rose-300"
                   }`}
                 >
-                  {currentScenario.watchlistStatus.includes("NEGATIVE") ? "PASS" : "FAIL"}
+                  {isProcessingError
+                    ? "UNAVAILABLE"
+                    : currentScenario.watchlistStatus === "NOT_EVALUATED"
+                    ? "NOT RUN"
+                    : currentScenario.watchlistStatus.includes("NEGATIVE")
+                    ? "PASS"
+                    : "FAIL"}
                 </span>
               </div>
 
@@ -1995,8 +2298,16 @@ export default function ScreeningPage() {
                   <div className="font-semibold text-slate-800">6. Cryptographic Chain of Custody</div>
                   <div className="text-[10px] text-slate-500">SHA-256 fingerprint &amp; digital signature</div>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-300">
-                  SEALED
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                    isProcessingError || currentScenario.blockchain.digitalSignature.includes("UNVERIFIED")
+                      ? "bg-slate-100 text-slate-600 border-slate-300"
+                      : "bg-purple-50 text-purple-700 border-purple-300"
+                  }`}
+                >
+                  {isProcessingError || currentScenario.blockchain.digitalSignature.includes("UNVERIFIED")
+                    ? "NOT GENERATED"
+                    : "SEALED"}
                 </span>
               </div>
             </div>
@@ -2173,8 +2484,12 @@ export default function ScreeningPage() {
           {/* BORDER CLEARANCE VERDICT CARD */}
           <div
             className={`p-5 sm:p-6 rounded-2xl border shadow-sm flex items-center justify-between gap-5 transition-all ${
-              isDetain
+              isProcessingError
                 ? "bg-rose-50/70 border-rose-300 shadow-rose-100"
+                : isDetain
+                ? "bg-rose-50/70 border-rose-300 shadow-rose-100"
+                : isNeedsReview
+                ? "bg-amber-50/70 border-amber-300 shadow-amber-100"
                 : "bg-white border-slate-200 shadow-slate-100"
             }`}
           >
@@ -2185,7 +2500,13 @@ export default function ScreeningPage() {
               <div className="flex items-center gap-2.5">
                 <span
                   className={`w-4 h-4 rounded-full flex-shrink-0 ${
-                    isDetain ? "bg-rose-500 animate-pulse" : "bg-emerald-500"
+                    isProcessingError
+                      ? "bg-rose-600 animate-pulse"
+                      : isDetain
+                      ? "bg-rose-500 animate-pulse"
+                      : isNeedsReview
+                      ? "bg-amber-500 animate-pulse"
+                      : "bg-emerald-500"
                   }`}
                 />
                 <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
@@ -2217,9 +2538,10 @@ export default function ScreeningPage() {
 
                 <button
                   type="button"
+                  disabled={isProcessingError}
                   onClick={handleExportCsv}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs active:scale-95 cursor-pointer"
-                  title="Export official screening report"
+                  className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-40 disabled:cursor-not-allowed text-emerald-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs active:scale-95 cursor-pointer"
+                  title={isProcessingError ? "Export disabled: screening failed" : "Export official screening report"}
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download Screening Report</span>
@@ -2251,7 +2573,7 @@ export default function ScreeningPage() {
                     fill="none"
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   />
-                  {currentScenario.riskScore !== null && (
+                  {!isProcessingError && currentScenario.riskScore !== null && (
                     <path
                       className={isDetain ? "text-rose-600" : "text-emerald-600"}
                       strokeDasharray={`${Math.min(100, Math.max(5, currentScenario.riskScore))}, 100`}
@@ -2265,11 +2587,17 @@ export default function ScreeningPage() {
                 </svg>
                 <div className="absolute text-center">
                   <span
-                    className={`font-mono font-black ${currentScenario.riskScore !== null ? "text-xl" : "text-base"} ${
-                      isDetain ? "text-rose-600" : (currentScenario.riskScore === null ? "text-slate-600" : "text-emerald-700")
+                    className={`font-mono font-black ${!isProcessingError && currentScenario.riskScore !== null ? "text-xl" : "text-base"} ${
+                      isProcessingError
+                        ? "text-rose-600"
+                        : isDetain
+                        ? "text-rose-600"
+                        : currentScenario.riskScore === null
+                        ? "text-slate-600"
+                        : "text-emerald-700"
                     }`}
                   >
-                    {currentScenario.riskScore !== null ? currentScenario.riskScore.toFixed(1) : "N/A"}
+                    {!isProcessingError && currentScenario.riskScore !== null ? currentScenario.riskScore.toFixed(1) : "N/A"}
                   </span>
                 </div>
               </div>
@@ -3020,7 +3348,7 @@ export default function ScreeningPage() {
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-[10px] text-slate-600 font-mono block font-semibold">Typography Baseline Alignment</span>
                   <span className="text-sm font-bold text-slate-900 mt-1 block">
-                    {isDetain ? "Discontinuity Flagged" : "Linear Font Geometry Conforming"}
+                    {isProcessingError ? "Analysis Unavailable" : isDetain ? "Discontinuity Flagged" : "Linear Font Geometry Conforming"}
                   </span>
                 </div>
               </div>

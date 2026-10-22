@@ -162,8 +162,9 @@ export default function OfficialDossierReport({
   const [viewMode, setViewMode] = useState<"print" | "dark">("print");
   const [copied, setCopied] = useState(false);
 
-  const isDetain = data.decision === "DETAIN / FRAUD ALERT" || (data.riskScore ?? 0) >= 70;
-  const isClear = data.decision === "CLEAR TO ENTER" || (data.riskScore ?? 0) <= 30;
+  const isProcessingError = data.decision === "PROCESSING ERROR" || data.decision?.startsWith("SCAN FAILED") || (data.riskScore === null && data.decision?.includes("ERROR"));
+  const isDetain = !isProcessingError && (data.decision === "DETAIN / FRAUD ALERT" || (data.riskScore ?? 0) >= 70);
+  const isClear = !isProcessingError && !isDetain && (data.decision === "CLEAR TO ENTER" || (data.riskScore ?? 0) <= 30);
 
   const handlePrint = () => {
     // Set document title temporarily to match screenshot
@@ -325,9 +326,13 @@ export default function OfficialDossierReport({
           <div
             className={`p-6 rounded-2xl border shadow-lg flex items-center justify-between gap-6 ${
               viewMode === "print"
-                ? isDetain
+                ? isProcessingError
+                  ? "bg-rose-50 border-rose-300 shadow-rose-100"
+                  : isDetain
                   ? "bg-white border-rose-300 shadow-rose-100"
                   : "bg-white border-emerald-300 shadow-emerald-100"
+                : isProcessingError
+                ? "bg-rose-950/20 border-rose-500/40 shadow-rose-950/20"
                 : isDetain
                 ? "bg-rose-950/20 border-rose-500/40 shadow-rose-950/20"
                 : "bg-emerald-950/20 border-emerald-500/40 shadow-emerald-950/20"
@@ -340,15 +345,15 @@ export default function OfficialDossierReport({
               <div className="flex items-center gap-2.5">
                 <span
                   className={`w-4 h-4 rounded-full flex-shrink-0 ${
-                    isDetain ? "bg-rose-500 animate-pulse" : "bg-emerald-500"
+                    isProcessingError ? "bg-rose-600 animate-pulse" : isDetain ? "bg-rose-500 animate-pulse" : "bg-emerald-500"
                   }`}
                 />
                 <h3
                   className={`text-2xl sm:text-3xl font-black tracking-tight ${
-                    isDetain ? "text-rose-600" : "text-emerald-600"
+                    isProcessingError ? "text-rose-700" : isDetain ? "text-rose-600" : "text-emerald-600"
                   }`}
                 >
-                  {isDetain ? "DETAIN / FRAUD ALERT" : "CLEAR TO ENTER"}
+                  {isProcessingError ? "PROCESSING ERROR / FAILED" : isDetain ? "DETAIN / FRAUD ALERT" : "CLEAR TO ENTER"}
                 </h3>
               </div>
               <p
@@ -357,7 +362,9 @@ export default function OfficialDossierReport({
                 }`}
               >
                 {data.verdictDirective ||
-                  (isDetain
+                  (isProcessingError
+                    ? "SYSTEM ALERT: Automated screening failed due to technical or connectivity error. Manual physical inspection mandatory."
+                    : isDetain
                     ? "IMMEDIATE DETENTION: Trigger border checkpoint security alert. Suspected forged credentials / identity fraud / watchlist match."
                     : "Auto-gate clearance approved. Traveler identity and document integrity verified.")}
               </p>
@@ -374,23 +381,25 @@ export default function OfficialDossierReport({
                     fill="none"
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   />
-                  <path
-                    className={isDetain ? "text-rose-500" : "text-emerald-500"}
-                    strokeDasharray={`${Math.min(100, Math.max(5, data.riskScore ?? 100))}, 100`}
-                    strokeWidth="3.5"
-                    strokeLinecap="round"
-                    stroke="currentColor"
-                    fill="none"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
+                  {!isProcessingError && data.riskScore !== null && data.riskScore !== undefined && (
+                    <path
+                      className={isDetain ? "text-rose-500" : "text-emerald-500"}
+                      strokeDasharray={`${Math.min(100, Math.max(5, data.riskScore))}, 100`}
+                      strokeWidth="3.5"
+                      strokeLinecap="round"
+                      stroke="currentColor"
+                      fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                  )}
                 </svg>
                 <div className="absolute text-center">
                   <span
-                    className={`font-mono font-black text-lg ${
-                      isDetain ? "text-rose-600" : "text-emerald-600"
+                    className={`font-mono font-black ${!isProcessingError && data.riskScore !== null && data.riskScore !== undefined ? "text-lg" : "text-base"} ${
+                      isProcessingError || isDetain ? "text-rose-600" : "text-emerald-600"
                     }`}
                   >
-                    {(data.riskScore ?? 100).toFixed(1)}
+                    {!isProcessingError && data.riskScore !== null && data.riskScore !== undefined ? data.riskScore.toFixed(1) : "N/A"}
                   </span>
                 </div>
               </div>

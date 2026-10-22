@@ -49,25 +49,35 @@ export async function POST(req: NextRequest) {
 
     // 1. Forward directly to the Python FastAPI backend as the primary authoritative engine
     const explicitBackendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL;
-    const candidateUrls = [
-      explicitBackendUrl,
-      "http://127.0.0.1:8000",
-      "http://localhost:8000",
-      "http://backend:8000"
-    ].filter(Boolean) as string[];
+    const isProduction = process.env.NODE_ENV === "production";
+    
+    // In production, only query explicitly configured backend URLs (never loop through localhost or unreachable docker names)
+    // In local development, check explicit URL first, then 127.0.0.1:8000 and localhost:8000
+    const candidateUrls: string[] = [];
+    if (explicitBackendUrl) {
+      candidateUrls.push(explicitBackendUrl);
+    }
+    if (!isProduction) {
+      candidateUrls.push("http://127.0.0.1:8000", "http://localhost:8000");
+    }
+    // Only attempt internal docker hostname if running inside a containerized compose network
+    if (process.env.DOCKER_ENV === "true" || process.env.IS_DOCKER === "true") {
+      candidateUrls.push("http://backend:8000");
+    }
+
     const uniqueCandidateUrls = Array.from(new Set(candidateUrls.map(u => u.replace(/\/$/, ""))));
 
     let backendError: any = null;
     let successfulBackendData: any = null;
 
     for (const baseUrl of uniqueCandidateUrls) {
-      const endpoints = [`${baseUrl}/api/screen`, `${baseUrl}/screen`, `${baseUrl}/api/v1/verify`];
+      const endpoints = [`${baseUrl}/api/backend/screen`, `${baseUrl}/api/screen`, `${baseUrl}/screen`, `${baseUrl}/api/v1/verify`];
       let hostFailed = false;
 
       for (const endpoint of endpoints) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s for CPU OCR on high-res images
+          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
           const blob = new Blob([buffer], { type: mimeType });
           const fwdFormData = new FormData();
@@ -105,7 +115,7 @@ export async function POST(req: NextRequest) {
             }
           }
         } catch (err: any) {
-          backendError = err?.message || "Connection refused or timed out";
+          backendError = err?.name === "AbortError" ? "Connection timed out" : (err?.message || "Connection refused");
           hostFailed = true;
           break; // host unreachable, try next candidate host
         }
@@ -227,10 +237,16 @@ Return ONLY a JSON object with this exact structure:
     const scanId = `SCAN-${now}-01`;
     const caseNumber = `CASE-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${caseId.slice(-6).toUpperCase()}`;
 
-    // 3. If backend is offline AND Gemini could not be run, return transparent technical failure (never fake 35.0 score!)
+    // 3. If backend is offline AND Gemini could not be run, return transparent technical failure (never fake a score or pass!)
     if (!geminiUsed && !geminiFields) {
-      const targetUrls = uniqueCandidateUrls.length > 0 ? uniqueCandidateUrls.join(", ") : "http://127.0.0.1:8000";
-      const diagnosticMsg = `Screening backend is unreachable at ${targetUrls} (${backendError || "Connection refused"}). Please ensure the FastAPI backend is running ('python -m uvicorn backend.app.main:app --port 8000').`;
+      let diagnosticMsg = "";
+      if (isProduction && !explicitBackendUrl) {
+        diagnosticMsg = "Screening backend URL is not configured. Please set the BACKEND_API_URL environment variable in your Vercel project settings pointing to your deployed backend (e.g., Render / Docker).";
+      } else {
+        const targetUrls = uniqueCandidateUrls.length > 0 ? uniqueCandidateUrls.join(", ") : "http://127.0.0.1:8000";
+        diagnosticMsg = `Screening backend is unreachable at ${targetUrls} (${backendError || "Connection refused"}). Please verify the backend service is running and accessible.`;
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -239,6 +255,7 @@ Return ONLY a JSON object with this exact structure:
           scan_id: scanId,
           processing_status: "PROCESSING_FAILED",
           status: "PROCESSING_FAILED",
+          analysis_status: "PROCESSING_FAILED",
           document_type: "UNKNOWN",
           ocr_status: "UNAVAILABLE",
           external_verification_status: "NOT_VERIFIED",
@@ -251,8 +268,19 @@ Return ONLY a JSON object with this exact structure:
             message: diagnosticMsg,
             stage: "BACKEND_CONNECTION"
           },
+          checks_100: {
+            total_checks: 100,
+            passed: 0,
+            failed: 0,
+            warnings: 0,
+            unavailable: 100,
+            not_applicable: 0,
+            checks: []
+          },
           recoverable: true,
-          user_action: "Start the Python FastAPI backend server (python -m uvicorn backend.app.main:app --port 8000) and retry.",
+          user_action: isProduction
+            ? "Configure BACKEND_API_URL in Vercel Project Settings → Environment Variables."
+            : "Start the Python FastAPI backend server ('python -m uvicorn backend.app.main:app --port 8000') and retry.",
           correlation_id: correlationId
         },
         { status: 503, headers: { "X-Correlation-ID": correlationId } }
