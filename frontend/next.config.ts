@@ -13,6 +13,14 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `${backendUrl.replace(/\/$/, "")}/api/:path*`,
       },
+      {
+        source: "/health",
+        destination: `${backendUrl.replace(/\/$/, "")}/health`,
+      },
+      {
+        source: "/docs",
+        destination: `${backendUrl.replace(/\/$/, "")}/docs`,
+      },
     ];
   },
 };
