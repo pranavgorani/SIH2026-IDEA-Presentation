@@ -59,8 +59,8 @@ docker-compose up --build -d
 
 | Variable Name | Environment | Vercel Visibility | Value | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| `BACKEND_API_URL` | Production, Preview | **Sensitive / Secret** | `https://<your-backend-name>.onrender.com` | **Authoritative Server-Side Variable.** Required. Used by Next.js reverse proxy (`/api/backend/*`) and `/api/screen`. |
-| `GEMINI_API_KEY` | Production, Preview | **Sensitive / Secret** | `AIzaSy...` | Optional server-side multimodal vision fallback. Never exposed to browser. |
+| `BACKEND_API_URL` | Production, Preview | **Sensitive / Secret** | `https://[your-backend-domain]` | **Authoritative Server-Side Variable.** Required if using a separate backend deployment. Copy your assigned domain from your backend deployment dashboard (e.g. Vercel Project Overview → Domains or Render dashboard). |
+| `GEMINI_API_KEY` | Production, Preview | **Sensitive / Secret** | `AIzaSy...` | Optional server-side multimodal vision fallback. Allows Next.js same-origin screening on Vercel without an external backend. |
 | `NEXT_PUBLIC_API_URL` | None / Optional | **Plaintext / Config** | *(Leave empty)* | **DO NOT set to Secret.** If set at all, Vercel requires Config/Plaintext visibility. Not needed because Next.js proxies calls. |
 
 > [!WARNING]
@@ -68,5 +68,5 @@ docker-compose up --build -d
 > Never mark any variable starting with `NEXT_PUBLIC_` as "Secret" in Vercel. Vercel rejects Secret visibility on `NEXT_PUBLIC_` because public variables are inlined into client-side JS bundles. Use `BACKEND_API_URL` instead, which is server-side and fully supports Secret visibility.
 >
 > **No Placeholders in Production**:
-> Never use `http://localhost:8000`, `127.0.0.1`, or template placeholders like `<your-render-url>`. Vercel serverless functions run in the cloud and cannot reach your local machine. Deploy your backend to Render/Railway first, then copy the live HTTPS URL.
+> Never enter angle brackets or placeholder text (such as `<your-backend-name>`) into Vercel settings. Retrieve your actual assigned domain from your backend hosting dashboard and enter only that real URL.
 

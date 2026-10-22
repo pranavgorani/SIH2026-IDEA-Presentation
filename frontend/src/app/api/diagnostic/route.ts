@@ -50,11 +50,11 @@ export async function GET() {
     geminiKey && !geminiKey.includes("CHANGE_ME") && !geminiKey.includes("YOUR_")
   );
 
-  let systemStatus: "OPERATIONAL" | "DEGRADED" | "UNCONFIGURED" | "PLACEHOLDER_ERROR" | "BACKEND_UNREACHABLE";
+  let systemStatus: "OPERATIONAL" | "DEGRADED" | "UNCONFIGURED" | "CONFIGURATION_ERROR" | "BACKEND_UNREACHABLE";
   if (backendConfig.isValid && reachable) {
     systemStatus = "OPERATIONAL";
   } else if (!backendConfig.isValid && backendConfig.errorType === "PLACEHOLDER") {
-    systemStatus = "PLACEHOLDER_ERROR";
+    systemStatus = "CONFIGURATION_ERROR";
   } else if (!backendConfig.isValid) {
     systemStatus = "UNCONFIGURED";
   } else {
@@ -88,7 +88,7 @@ export async function GET() {
     },
     vercel_environment_guide: {
       primary_variable: "BACKEND_API_URL",
-      primary_description: "Server-side FastAPI backend base URL (e.g. https://your-service.onrender.com).",
+      primary_description: "Server-side backend URL. If backend is a separate Vercel project, use its domain from Vercel Dashboard (Overview → Domains).",
       primary_visibility: "Sensitive / Secret (Server-side only; never leaked to client bundles)",
       optional_variable: "NEXT_PUBLIC_API_URL",
       optional_description: "Optional browser-side override. Not needed if using Next.js /api/backend reverse proxy.",

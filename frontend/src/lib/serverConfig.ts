@@ -4,10 +4,9 @@
  * Rules:
  * 1. BACKEND_API_URL is the authoritative server-side environment variable.
  *    It is never exposed in browser bundles and can have Secret / Sensitive visibility in Vercel.
- * 2. NEXT_PUBLIC_API_URL is an optional client-side override.
- *    If used in Vercel, it MUST have "Plaintext / Config" visibility (Vercel rejects Secret visibility on NEXT_PUBLIC_*).
- * 3. Never attempt to query placeholder URLs (e.g. <your-render-url>, YOUR_*, CHANGE_ME, example.com).
- * 4. In production, localhost / 127.0.0.1 is rejected as an unreachable local endpoint.
+ * 2. Never attempt to query placeholder URLs (e.g. strings with <>, CHANGE_ME, YOUR_*, PLACEHOLDER).
+ * 3. In production, localhost / 127.0.0.1 is rejected as an unreachable local endpoint.
+ * 4. Error code for invalid configuration is strictly BACKEND_CONFIGURATION_ERROR.
  */
 
 export interface BackendValidationResult {
@@ -22,7 +21,7 @@ export interface BackendValidationResult {
 }
 
 const PLACEHOLDER_PATTERNS = [
-  /<[^>]+>/, // e.g. <your-render-url>
+  /<[^>]+>/, // e.g. <your-backend-name> or <your-render-url>
   /CHANGE_ME/i,
   /YOUR_/i,
   /PLACEHOLDER/i,
@@ -55,9 +54,9 @@ export function validateBackendUrl(
       normalizedUrl: "",
       isPlaceholder: false,
       errorType: "MISSING",
-      errorMessage: "Backend URL is not configured.",
+      errorMessage: "Backend screening engine is not configured (missing BACKEND_API_URL).",
       userAction: isProduction
-        ? "Add BACKEND_API_URL to your Vercel Project Settings → Environment Variables pointing to your deployed backend (e.g., https://your-service.onrender.com)."
+        ? "If your backend is deployed as a separate Vercel project, retrieve its domain from the Vercel Dashboard (Project → Overview → Domains) and add BACKEND_API_URL in this project's Environment Variables."
         : "Set BACKEND_API_URL=http://127.0.0.1:8000 in your local .env or start the FastAPI server on port 8000.",
       variableUsed: "NONE",
     };
@@ -70,8 +69,8 @@ export function validateBackendUrl(
       normalizedUrl: "",
       isPlaceholder: true,
       errorType: "PLACEHOLDER",
-      errorMessage: `Supplied backend URL "${raw}" is a template placeholder, not an active deployed service.`,
-      userAction: "Replace the placeholder with your actual deployed backend service URL in Vercel Project Settings → Environment Variables.",
+      errorMessage: `Supplied backend URL "${raw}" is an unreplaced template placeholder and cannot be used.`,
+      userAction: "If your backend is deployed as a separate Vercel project, retrieve its real assigned domain from Vercel Dashboard (Project → Overview → Domains) and update BACKEND_API_URL.",
       variableUsed: "NONE",
     };
   }
@@ -88,7 +87,7 @@ export function validateBackendUrl(
       isPlaceholder: false,
       errorType: "MALFORMED",
       errorMessage: `Backend URL "${raw}" is not a valid absolute URL format.`,
-      userAction: "Ensure the URL includes a valid protocol (e.g., https://your-backend.onrender.com).",
+      userAction: "Ensure the URL starts with https:// followed by your real assigned project hostname.",
       variableUsed: "NONE",
     };
   }
@@ -101,7 +100,7 @@ export function validateBackendUrl(
       isPlaceholder: false,
       errorType: "INVALID_PROTOCOL",
       errorMessage: `Backend URL scheme "${parsed.protocol}" is unsupported. Only http: and https: are allowed.`,
-      userAction: "Specify https:// (for production) or http:// (for local development).",
+      userAction: "Specify https:// for production or http:// for local development.",
       variableUsed: "NONE",
     };
   }
@@ -122,8 +121,8 @@ export function validateBackendUrl(
       normalizedUrl: "",
       isPlaceholder: true,
       errorType: "LOCALHOST_IN_PRODUCTION",
-      errorMessage: `Backend URL points to "${hostname}", which cannot be reached from Vercel in production.`,
-      userAction: "Deploy your FastAPI backend to a cloud host (e.g. Render, Railway, AWS) and set BACKEND_API_URL to that public HTTPS URL.",
+      errorMessage: `Backend URL points to local address "${hostname}", which cannot be reached from Vercel in production.`,
+      userAction: "Deploy your backend to Vercel (or cloud provider), retrieve the public assigned domain from its dashboard, and set BACKEND_API_URL.",
       variableUsed: "NONE",
     };
   }
@@ -140,9 +139,9 @@ export function validateBackendUrl(
       normalizedUrl: "",
       isPlaceholder: true,
       errorType: "UNRESOLVED_DOCKER_HOST",
-      errorMessage: `Backend hostname "backend" is an internal Docker Compose service name and cannot be resolved outside a Docker network.`,
+      errorMessage: `Backend hostname "backend" is an internal Docker Compose service name and cannot be resolved on Vercel.`,
       userAction: isProduction
-        ? "Set BACKEND_API_URL to your public cloud backend URL in Vercel."
+        ? "Set BACKEND_API_URL to your public backend domain in Vercel."
         : "Set BACKEND_API_URL=http://127.0.0.1:8000 for local development.",
       variableUsed: "NONE",
     };

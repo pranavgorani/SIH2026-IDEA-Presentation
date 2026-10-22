@@ -405,9 +405,9 @@ The frontend is built with **Next.js 15 App Router** and is fully optimized for 
    - Expand **Root Directory**, click **Edit**, and select `frontend`.
    - Vercel automatically detects the **Next.js** framework!
 4. Under **Environment Variables**, configure:
-   - `BACKEND_API_URL`: Your deployed FastAPI backend public URL (e.g. `https://<your-service>.onrender.com`). Visibility: **Sensitive / Secret**.
-   - *(Optional)* `GEMINI_API_KEY`: Google Gemini API Key for multimodal fallback. Visibility: **Sensitive / Secret**.
-   - *Note on `NEXT_PUBLIC_API_URL`*: Do **NOT** set `NEXT_PUBLIC_API_URL` unless using a direct client-side custom domain. If set in Vercel, it MUST have **Plaintext / Config** visibility (never select Secret).
+   - `BACKEND_API_URL`: Your deployed backend public URL. If hosted as a separate Vercel project, copy the domain from that project's Vercel Dashboard (`Overview → Domains`). Visibility: **Sensitive / Secret**.
+   - *(Optional)* `GEMINI_API_KEY`: Google Gemini API Key for direct multimodal vision screening. Visibility: **Sensitive / Secret**.
+   - *Note on `NEXT_PUBLIC_API_URL`*: Do **NOT** set `NEXT_PUBLIC_API_URL`. All browser calls route through Next.js server-side reverse proxy automatically.
 5. Click **Deploy**. Your frontend will be live on a global edge CDN in ~60 seconds!
 
 #### Method B: Via Vercel CLI
@@ -421,18 +421,13 @@ npx vercel
 
 ---
 
-### Deploying the FastAPI Backend to Render / Railway / Docker
+### Backend Hosting (Vercel / Render / Docker)
 
-The backend leverages OpenCV and cryptographic libraries. It can be deployed in 1 click using the included [`render.yaml`](file:///c:/Users/Pranav/OneDrive/Documents/SIH2026-IDEA-Presentation/render.yaml) or [`Dockerfile.backend`](file:///c:/Users/Pranav/OneDrive/Documents/SIH2026-IDEA-Presentation/Dockerfile.backend):
+The backend provides OCR, OpenCV forensics, and cryptographic audit hashing:
 
-1. Go to [render.com](https://render.com) or [railway.app](https://railway.app).
-2. Choose **New Web Service** -> **Deploy from GitHub repo**.
-3. Select `pranavgorani/SIH2026-IDEA-Presentation`.
-4. Choose **Docker** as the environment and specify `Dockerfile.backend`.
-5. Set environment variables:
-   - `JWT_SECRET`: Any random 32-character string.
-   - `CORS_ORIGINS`: Your Vercel frontend URL (e.g., `https://sih2026-idea-presentation.vercel.app`).
-6. Copy your live backend service URL (e.g. `https://your-service-name.onrender.com`) and paste it as **`BACKEND_API_URL`** in your Vercel project settings (`Project Settings → Environment Variables`)!
+- **Option A (Vercel Separate Project)**: Deploy the repository as a separate Vercel project, copy the assigned domain (e.g. `https://[project-name].vercel.app`), and paste it as `BACKEND_API_URL` in the frontend Vercel project.
+- **Option B (Docker / Cloud Host)**: Deploy using the included [`render.yaml`](file:///c:/Users/Pranav/OneDrive/Documents/SIH2026-IDEA-Presentation/render.yaml) or [`Dockerfile.backend`](file:///c:/Users/Pranav/OneDrive/Documents/SIH2026-IDEA-Presentation/Dockerfile.backend), then copy the live HTTPS URL into `BACKEND_API_URL`.
+- **Option C (Same-Origin Next.js Multimodal Screening)**: If running standalone in a single Vercel project without a Python backend, add `GEMINI_API_KEY` to Vercel Environment Variables to execute multimodal screening directly via Next.js `/api/screen`.
 
 ---
 

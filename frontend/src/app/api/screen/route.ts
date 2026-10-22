@@ -229,14 +229,9 @@ Return ONLY a JSON object with this exact structure:
         diagnosticMsg = `Screening backend is unreachable at ${maskUrlForLogs(backendConfig.normalizedUrl)} (${backendError || "Connection refused"}). Please verify your backend server is running and accessible.`;
       }
 
-      const errorCode =
-        backendConfig.errorType === "PLACEHOLDER"
-          ? "BACKEND_PLACEHOLDER_URL"
-          : backendConfig.errorType === "LOCALHOST_IN_PRODUCTION"
-          ? "BACKEND_LOCALHOST_IN_PRODUCTION"
-          : !backendConfig.isValid
-          ? "BACKEND_NOT_CONFIGURED"
-          : "BACKEND_SERVICE_UNAVAILABLE";
+      const errorCode = !backendConfig.isValid
+        ? "BACKEND_CONFIGURATION_ERROR"
+        : "BACKEND_SERVICE_UNAVAILABLE";
 
       return NextResponse.json(
         {
