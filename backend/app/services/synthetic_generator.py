@@ -46,6 +46,7 @@ class SyntheticDataGenerator:
                 "document_type": conf["document_type"],
                 "raw_text": conf["raw_text"],
                 "fields": conf["fields"],
+                "mrz_lines": conf.get("mrz_lines", []),
                 "tampering": conf.get("tampering", {"detected": False}),
                 "target_risk": conf.get("target_risk", "LOW"),
                 "live_match": conf.get("live_match"),

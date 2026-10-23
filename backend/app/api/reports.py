@@ -9,7 +9,7 @@ import io
 import json
 import zipfile
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
@@ -572,7 +572,7 @@ def export_reports_ledger_csv(
 ):
     cases = _get_ledger_cases(db, risk_level=risk_level, document_type=document_type, search=search, limit=limit, offset=offset)
     csv_bytes = ReportExportService.generate_ledger_csv_bytes(cases)
-    filename = f"TRUST-ID_Report_Ledger_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"TRUST-ID_Report_Ledger_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
     return Response(
         content=csv_bytes,
         media_type="text/csv",
@@ -593,7 +593,7 @@ def export_reports_ledger_pdf(
     cases = _get_ledger_cases(db, risk_level=risk_level, document_type=document_type, search=search, limit=limit, offset=offset)
     filters = {"risk_level": risk_level or "ALL", "document_type": document_type or "ALL", "search": search or ""}
     pdf_bytes = report_pdf_service.generate_ledger_pdf_bytes(cases, filters)
-    filename = f"TRUST-ID_Screening_Summary_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf"
+    filename = f"TRUST-ID_Screening_Summary_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -614,7 +614,7 @@ def export_reports_ledger_docx(
     cases = _get_ledger_cases(db, risk_level=risk_level, document_type=document_type, search=search, limit=limit, offset=offset)
     filters = {"risk_level": risk_level or "ALL", "document_type": document_type or "ALL", "search": search or ""}
     docx_bytes = ReportExportService.generate_ledger_docx_bytes(cases, filters)
-    filename = f"TRUST-ID_Screening_Summary_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.docx"
+    filename = f"TRUST-ID_Screening_Summary_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.docx"
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -669,7 +669,7 @@ def export_reports_ledger_all_zip(
                     pass
 
     zip_buffer.seek(0)
-    filename = f"TRUST-ID_All_Screening_Reports_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
+    filename = f"TRUST-ID_All_Screening_Reports_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
     return Response(
         content=zip_buffer.read(),
         media_type="application/zip",

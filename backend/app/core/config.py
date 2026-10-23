@@ -4,7 +4,7 @@ import logging
 import secrets
 from pathlib import Path
 from typing import List, Dict, Optional, Any
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("trustid.config")
 
@@ -151,10 +151,11 @@ class Settings(BaseSettings):
     ENABLE_PDF_PROCESSING: bool = os.getenv("ENABLE_PDF_PROCESSING", "true").lower() in ("true", "1")
     ENABLE_LOCAL_FALLBACK: bool = os.getenv("ENABLE_LOCAL_FALLBACK", "true").lower() in ("true", "1")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore"
+    )
 
 settings = Settings()
 if settings.GEMINI_API_KEY and "GEMINI_API_KEY" not in os.environ:

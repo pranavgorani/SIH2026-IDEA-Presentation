@@ -29,7 +29,7 @@ RUN addgroup --system appgroup && \
 COPY requirements-scanner.txt .
 RUN pip install --no-cache-dir -r requirements-scanner.txt
 
-COPY scanner_app.py .
+COPY scanner_core.py scanner_app.py ./
 
 USER appuser
 

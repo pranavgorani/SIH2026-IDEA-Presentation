@@ -4,7 +4,7 @@ import cv2
 from PIL import Image
 import io
 
-from scanner_app import (
+from scanner_core import (
     validate_image_bytes,
     order_points,
     validate_quadrilateral,
@@ -18,6 +18,7 @@ from scanner_app import (
     read_codes,
     extract_text,
 )
+import scanner_app
 
 def test_validate_image_bytes_valid_jpeg():
     # Create valid synthetic RGB image
@@ -132,3 +133,23 @@ def test_extract_text_graceful():
     plain = np.full((200, 200, 3), 255, dtype=np.uint8)
     text, note = extract_text(plain)
     assert isinstance(text, str)
+
+def test_scanner_core_streamlit_independent():
+    import scanner_core
+    # scanner_core module must not have imported streamlit into its namespace
+    assert not hasattr(scanner_core, "st")
+
+def test_scanner_app_re_exports():
+    # Verify backward compatibility: scanner_app re-exports all core functions
+    assert callable(scanner_app.validate_image_bytes)
+    assert callable(scanner_app.scan_document)
+    assert callable(scanner_app.order_points)
+    assert callable(scanner_app.find_document_contour)
+    assert callable(scanner_app.enhance_image)
+    assert callable(scanner_app.mask_sensitive_data)
+    assert callable(scanner_app.detect_document_type)
+
+def test_scanner_app_main_missing_streamlit(monkeypatch):
+    monkeypatch.setattr(scanner_app, "st", None)
+    with pytest.raises(ImportError, match="Streamlit is required"):
+        scanner_app.main()

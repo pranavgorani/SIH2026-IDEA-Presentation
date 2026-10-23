@@ -257,8 +257,13 @@ class ModularOCREngine(BaseOCREngine):
                         engine_used = f"{engine_used} + Gemini Vision"
 
         # 6. MRZ Detection & Parsing (Section 7 & 8)
-        # Merge candidate lines from MRZ ROI, full text, and Gemini
-        mrz_candidates = list(mrz_text_lines)
+        # Merge candidate lines from known sidecar, MRZ ROI, full text, and Gemini
+        mrz_candidates = []
+        if known_data.get("mrz_lines"):
+            mrz_candidates.extend(known_data["mrz_lines"])
+        for line in mrz_text_lines:
+            if line not in mrz_candidates:
+                mrz_candidates.append(line)
         if raw_text:
             for line in mrz_parser.extract_mrz_lines(raw_text):
                 if line not in mrz_candidates:
@@ -491,6 +496,9 @@ class ModularOCREngine(BaseOCREngine):
         Adheres to Section 21, 22, and Gemini 3.8 Flash specification.
         """
         try:
+            if getattr(settings, "AI_PROVIDER", "LOCAL_CV_FALLBACK") == "LOCAL_CV_FALLBACK":
+                return None
+
             from backend.app.services.gemini_document_scanner import gemini_document_scanner
             if not gemini_document_scanner.is_configured:
                 return None

@@ -99,15 +99,15 @@ class MRZParser:
         candidates = []
 
         for line in raw_lines:
+            # The raw line must have contained '<' or must start with a genuine ICAO document prefix like P<, I<, V<, A<, C<
+            has_mrz_marker = ('<' in line) or any(line.strip().upper().startswith(p) for p in ('P<', 'I<', 'V<', 'A<', 'C<'))
+            if not has_mrz_marker:
+                continue
+
             # Replace whitespace within MRZ lines
             no_spaces = line.replace(" ", "")
             # Convert non-alphanumeric and symbols into standard ICAO filler '<'
             cleaned = re.sub(r'[^A-Za-z0-9<]', '<', no_spaces).upper()
-
-            # Must contain at least one '<' or begin with standard document indicators
-            has_mrz_marker = ('<' in cleaned) or cleaned.startswith(('P', 'I', 'V', 'A', 'C'))
-            if not has_mrz_marker:
-                continue
 
             # TD3 length candidate (40-48 chars)
             if 40 <= len(cleaned) <= 48:
@@ -138,6 +138,10 @@ class MRZParser:
         # Filter candidates by length
         td3_lines = [l for l in lines if len(l) == 44]
         if len(td3_lines) >= 2:
+            # Prefer pair where line 1 starts with 'P<' or 'P'
+            for i in range(len(td3_lines) - 1):
+                if td3_lines[i].startswith(('P<', 'P')):
+                    return cls._parse_td3(td3_lines[i], td3_lines[i + 1])
             return cls._parse_td3(td3_lines[-2], td3_lines[-1])
 
         td2_lines = [l for l in lines if len(l) == 36]

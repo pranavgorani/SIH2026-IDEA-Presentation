@@ -121,6 +121,7 @@ class TestScanningOCRGeminiFusion:
         mock_client.models.generate_content.side_effect = RuntimeError("503 Service Unavailable / Network Error")
 
         with patch.object(scanner, "_get_genai_client", return_value=mock_client), \
+             patch.object(scanner, "_call_gemini_with_rest", return_value=None), \
              patch.object(GeminiDocumentScanner, "is_configured", True):
             scan_result = scanner.scan_document(sample_test_image_bytes)
 

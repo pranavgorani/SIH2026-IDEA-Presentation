@@ -7,7 +7,7 @@ import csv
 import io
 import os
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -100,7 +100,7 @@ class ReportExportService:
         ])
 
         case_id = case_data.get("case_number", case_data.get("id", "CASE-UNKNOWN"))
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
 
         for chk in checks:
             writer.writerow([
@@ -148,7 +148,7 @@ class ReportExportService:
             section.right_margin = Inches(0.8)
 
         case_number = case_data.get("case_number", case_data.get("id", "CASE-UNKNOWN"))
-        screening_date = case_data.get("created_at", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
+        screening_date = case_data.get("created_at", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
         doc_type = case_data.get("document_type", "IDENTITY_DOCUMENT")
         
         passed_count = checks_data.get("passed", 0)
@@ -412,7 +412,7 @@ class ReportExportService:
         ledger_heading.paragraph_format.space_before = Pt(14)
         ledger_heading.paragraph_format.space_after = Pt(6)
 
-        final_hash = audit_hash or hashlib.sha256(f"{case_number}_{datetime.utcnow().isoformat()}".encode()).hexdigest()
+        final_hash = audit_hash or hashlib.sha256(f"{case_number}_{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()
         audit_table = doc.add_table(rows=3, cols=2)
         audit_table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
@@ -514,7 +514,7 @@ class ReportExportService:
         desc_p.runs[0].font.italic = True
         desc_p.runs[0].font.color.rgb = RGBColor(71, 85, 105)
 
-        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
         meta_table = doc.add_table(rows=2, cols=4)
         meta_table.alignment = WD_TABLE_ALIGNMENT.CENTER
         meta_headers = ["Generated At", "Total Reports", "Risk Filter", "Document Type Filter"]
