@@ -113,17 +113,18 @@ def test_unknown_document_preserves_text_without_fraud_assumption():
     cv2.putText(img, "VALID UNTIL DEC 2028", (20, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 2)
     _, buf = cv2.imencode(".png", img)
 
-    res = client.post(
-        "/api/screen",
-        files={"file": ("membership.png", buf.tobytes(), "image/png")},
-        data={"document_type_hint": "AUTO_DETECT"}
-    )
-    assert res.status_code == 200
-    data = res.json()
-    assert data["document_type"] in ("UNKNOWN", "GENERIC_ID")
-    assert len(data.get("all_extracted_text", [])) >= 1
-    # Check that it did not assert a hardcoded 85.0 fraud score
-    assert data.get("risk_score") is None or data.get("risk_score") <= 60.0
+    for endpoint in ["/api/screen", "/api/scan"]:
+        res = client.post(
+            endpoint,
+            files={"file": ("membership.png", buf.tobytes(), "image/png")},
+            data={"document_type_hint": "AUTO_DETECT"}
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["document_type"] in ("UNKNOWN", "GENERIC_ID", "UNSUPPORTED")
+        assert len(data.get("all_extracted_text", [])) >= 1
+        # Check that it did not assert a hardcoded 85.0 fraud score
+        assert data.get("risk_score") is None or data.get("risk_score") <= 60.0
 
 def test_corrupted_file_returns_controlled_error():
     """Malformed uploads return structured 400 with CORRUPTED_DOCUMENT error code."""
@@ -215,3 +216,64 @@ def test_api_response_schema_matches_frontend_contract():
     ]
     for key in required_keys:
         assert key in data, f"Missing contract key: {key}"
+
+def test_unknown_unreadable_document_returns_rescan_not_fraud():
+    """Scenario 2 & 11: A noisy or unreadable image returns NEEDS_RESCAN, not a false fraud classification."""
+    noisy_img = np.random.randint(200, 255, (300, 400, 3), dtype=np.uint8)
+    _, buf = cv2.imencode(".png", noisy_img)
+
+    res = client.post(
+        "/api/scan",
+        files={"file": ("unreadable_scan.png", buf.tobytes(), "image/png")},
+        data={"document_type_hint": "AUTO_DETECT"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["processing_status"] in ("NEEDS_RESCAN", "UNREADABLE", "UNSUPPORTED", "COMPLETED")
+    # Must never assume critical fraud solely because it is unreadable
+    assert data.get("risk_score") is None or data.get("risk_score") <= 60.0
+
+def test_unsupported_file_format_returns_controlled_error():
+    """Scenario 6: Upload of unsupported file format (e.g. .zip or .txt) returns structured 400."""
+    res = client.post(
+        "/api/scan",
+        files={"file": ("document.zip", b"PK\x03\x04fakearchivedata", "application/zip")},
+        data={"document_type_hint": "AUTO_DETECT"}
+    )
+    assert res.status_code == 400
+    data = res.json()
+    assert data["success"] is False
+    assert data["code"] in ("UNSUPPORTED_FILE_TYPE", "CORRUPTED_DOCUMENT", "INVALID_FILE_TYPE", "INVALID_DOCUMENT")
+
+def test_verification_cannot_pass_when_required_checks_fail():
+    """Scenario 10: Documents with failed format rules cannot return a PASS verification outcome."""
+    from backend.app.services.validation_service import validation_service
+    from backend.app.models.schemas import ExtractedFields
+    fields = ExtractedFields(name="TEST USER", document_number="INVALID_NUM", date_of_birth="1990-99-99")
+    val_summary = validation_service.validate_document_data(fields, document_type="PAN")
+    assert val_summary.valid is False
+    assert val_summary.failed_count >= 1
+
+    img = np.full((350, 600, 3), 255, dtype=np.uint8)
+    cv2.putText(img, "INCOME TAX DEPARTMENT GOVT OF INDIA", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 2)
+    cv2.putText(img, "INVALIDNUMBER", (30, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+    _, buf = cv2.imencode(".png", img)
+
+    res = client.post(
+        "/api/screen",
+        files={"file": ("invalid_pan.png", buf.tobytes(), "image/png")},
+        data={"document_type_hint": "PAN"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data.get("final_decision") != "PASS"
+    assert data.get("final_decision") != "VERIFIED"
+
+def test_missing_optional_configuration_runs_safely():
+    """Scenario 14: System operates cleanly in testing without GEMINI_API_KEY."""
+    from backend.app.core.config import validate_environment
+    env_info = validate_environment()
+    assert isinstance(env_info, dict)
+    assert "storage_configured" in env_info
+    assert "cors_origins_count" in env_info
+

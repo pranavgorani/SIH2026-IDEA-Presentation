@@ -931,7 +931,7 @@ class ModularOCREngine(BaseOCREngine):
             doc_type_val = visible_fields["document_type"]
             doc_type_src = "OCR"
             doc_type_conf = 0.70
-        elif len(raw_text.strip()) >= 15 and any(kw in raw_text.upper() for kw in ("GOVERNMENT", "GOVT", "UNION", "REPUBLIC", "STATE", "MINISTRY", "IDENTITY", "AUTHORITY")):
+        elif len(raw_text.strip()) >= 15 and any(kw in raw_text.upper() for kw in ("GOVERNMENT", "GOVT", "UNION OF INDIA", "REPUBLIC OF", "STATE OF", "MINISTRY", "DEPARTMENT OF", "AUTHORITY")):
             doc_type_val = "GENERIC_ID"
             doc_type_src = "OCR_FALLBACK"
             doc_type_conf = 0.65

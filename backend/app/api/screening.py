@@ -45,10 +45,13 @@ from backend.app.providers import get_ai_provider
 logger = logging.getLogger("trustid.screening")
 
 router = APIRouter(prefix="/screen", tags=["Document Screening Pipeline"])
+scan_router = APIRouter(prefix="/scan", tags=["Document Scanning Pipeline"])
 verify_router = APIRouter(tags=["Document Verification"])
 
 @router.post("", summary="Upload document and execute full AI screening pipeline")
 @router.post("/", summary="Upload document and execute full AI screening pipeline")
+@scan_router.post("", summary="Upload document and execute full AI scanning pipeline")
+@scan_router.post("/", summary="Upload document and execute full AI scanning pipeline")
 @router.post("/verify", summary="Upload document and execute verification")
 @verify_router.post("/verify", summary="Primary Verification Submission endpoint")
 async def run_screening_pipeline(
@@ -360,9 +363,11 @@ async def run_screening_pipeline(
                     detected_doc_type = "PASSPORT"
                     doc_confidence = max(doc_confidence, 0.95)
 
-            if detected_doc_type in ("UNKNOWN", "UNSUPPORTED") and len(ocr_raw_res.get("raw_text", "").strip()) >= 15:
-                detected_doc_type = "GENERIC_ID"
-                doc_confidence = max(doc_confidence, 0.65)
+            if detected_doc_type == "UNKNOWN" and len(ocr_raw_res.get("raw_text", "").strip()) >= 15:
+                raw_upper = ocr_raw_res.get("raw_text", "").upper()
+                if any(kw in raw_upper for kw in ("GOVERNMENT", "GOVT", "UNION OF INDIA", "REPUBLIC OF", "STATE OF", "MINISTRY", "DEPARTMENT OF", "AUTHORITY")):
+                    detected_doc_type = "GENERIC_ID"
+                    doc_confidence = max(doc_confidence, 0.65)
         else:
             detected_doc_type = document_type_hint
             doc_confidence = 0.95
@@ -1136,7 +1141,7 @@ async def run_screening_pipeline(
     # If raw text has official credential markers but exact subtype is unknown, route to GENERIC_ID
     if (final_doc_type in ("UNKNOWN", None, "") or not final_doc_type) and len(ocr_raw_res.get("raw_text", "").strip()) >= 15:
         raw_upper = ocr_raw_res.get("raw_text", "").upper()
-        if any(kw in raw_upper for kw in ("GOVERNMENT", "GOVT", "UNION", "REPUBLIC", "STATE", "MINISTRY", "IDENTITY", "AUTHORITY")):
+        if any(kw in raw_upper for kw in ("GOVERNMENT", "GOVT", "UNION OF INDIA", "REPUBLIC OF", "STATE OF", "MINISTRY", "DEPARTMENT OF", "AUTHORITY")):
             final_doc_type = "GENERIC_ID"
             doc_confidence = max(doc_confidence, 0.65)
         else:
